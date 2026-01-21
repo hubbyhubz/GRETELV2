@@ -9,8 +9,9 @@ const VAPID_PUBLIC_KEY =
 
 // Helper to convert VAPID key
 const urlBase64ToUint8Array = (base64String: string) => {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding)
+  const normalized = (base64String || '').trim().replace(/^['"]|['"]$/g, '');
+  const padding = '='.repeat((4 - normalized.length % 4) % 4);
+  const base64 = (normalized + padding)
     .replace(/\-/g, '+')
     .replace(/_/g, '/');
 
