@@ -1,0 +1,152 @@
+/* 
+  CHECKBOX STYLE GUIDE
+  ====================
+  Updated Dimensions (Reduced by ~33% from original 24px):
+  - Container Size: 16px x 16px
+  - Border Width: 1.5px (Subtle but visible)
+  - SVG Checkmark Size: 10px x 10px (Centered)
+  - SVG Stroke Width: 2px (Maintains clarity at smaller scale)
+  - Animation: Scaled down splash effect (0.66x factor)
+  - Color: Crimson Red (#DC143C)
+*/
+
+.checkbox-wrapper-12 {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.checkbox-wrapper-12 > svg {
+  position: absolute;
+  top: -130%;
+  left: -170%;
+  width: 110px;
+  pointer-events: none;
+}
+
+.checkbox-wrapper-12 * {
+  box-sizing: border-box;
+}
+
+.checkbox-wrapper-12 input[type="checkbox"] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  margin: 0;
+}
+
+.checkbox-wrapper-12 input[type="checkbox"]:focus {
+  outline: 0;
+}
+
+.checkbox-wrapper-12 .cbx {
+  width: 16px;
+  height: 16px;
+  position: relative;
+}
+
+.checkbox-wrapper-12 .cbx input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #bfbfc0;
+  border-radius: 50%;
+}
+
+.checkbox-wrapper-12 .cbx label {
+  width: 16px;
+  height: 16px;
+  background: none;
+  border-radius: 50%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate3d(0, 0, 0);
+  pointer-events: none;
+}
+
+.checkbox-wrapper-12 .cbx svg {
+  position: absolute;
+  top: 3px; /* Centered: (16 - 10) / 2 */
+  left: 3px;
+  width: 10px;
+  height: 10px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.checkbox-wrapper-12 .cbx svg path {
+  stroke: #fff;
+  stroke-width: 2; /* Slightly reduced stroke width for smaller scale */
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 19;
+  stroke-dashoffset: 19;
+  transition: stroke-dashoffset 0.3s ease;
+  transition-delay: 0.2s;
+}
+
+.checkbox-wrapper-12 .cbx input:checked + label {
+  animation: splash-12 0.6s ease forwards;
+}
+
+.checkbox-wrapper-12 .cbx input:checked + label + svg path {
+  stroke-dashoffset: 0;
+}
+
+/* 
+  Splash Animation Keyframes
+  Scaled down by approx 0.66x to match 16px size
+*/
+
+@-moz-keyframes splash-12 {
+  40% {
+    background: #DC143C;
+    box-shadow: 0 -12px 0 -5px #DC143C, 10px -5px 0 -5px #DC143C, 10px 5px 0 -5px #DC143C, 0 12px 0 -5px #DC143C, -10px 5px 0 -5px #DC143C, -10px -5px 0 -5px #DC143C;
+  }
+
+  100% {
+    background: #DC143C;
+    box-shadow: 0 -24px 0 -6px transparent, 21px -10px 0 -6px transparent, 21px 10px 0 -6px transparent, 0 24px 0 -6px transparent, -21px 10px 0 -6px transparent, -21px -10px 0 -6px transparent;
+  }
+}
+
+@-webkit-keyframes splash-12 {
+  40% {
+    background: #DC143C;
+    box-shadow: 0 -12px 0 -5px #DC143C, 10px -5px 0 -5px #DC143C, 10px 5px 0 -5px #DC143C, 0 12px 0 -5px #DC143C, -10px 5px 0 -5px #DC143C, -10px -5px 0 -5px #DC143C;
+  }
+
+  100% {
+    background: #DC143C;
+    box-shadow: 0 -24px 0 -6px transparent, 21px -10px 0 -6px transparent, 21px 10px 0 -6px transparent, 0 24px 0 -6px transparent, -21px 10px 0 -6px transparent, -21px -10px 0 -6px transparent;
+  }
+}
+
+@-o-keyframes splash-12 {
+  40% {
+    background: #DC143C;
+    box-shadow: 0 -12px 0 -5px #DC143C, 10px -5px 0 -5px #DC143C, 10px 5px 0 -5px #DC143C, 0 12px 0 -5px #DC143C, -10px 5px 0 -5px #DC143C, -10px -5px 0 -5px #DC143C;
+  }
+
+  100% {
+    background: #DC143C;
+    box-shadow: 0 -24px 0 -6px transparent, 21px -10px 0 -6px transparent, 21px 10px 0 -6px transparent, 0 24px 0 -6px transparent, -21px 10px 0 -6px transparent, -21px -10px 0 -6px transparent;
+  }
+}
+
+@keyframes splash-12 {
+  40% {
+    background: #DC143C;
+    box-shadow: 0 -12px 0 -5px #DC143C, 10px -5px 0 -5px #DC143C, 10px 5px 0 -5px #DC143C, 0 12px 0 -5px #DC143C, -10px 5px 0 -5px #DC143C, -10px -5px 0 -5px #DC143C;
+  }
+
+  100% {
+    background: #DC143C;
+    box-shadow: 0 -24px 0 -6px transparent, 21px -10px 0 -6px transparent, 21px 10px 0 -6px transparent, 0 24px 0 -6px transparent, -21px 10px 0 -6px transparent, -21px -10px 0 -6px transparent;
+  }
+}

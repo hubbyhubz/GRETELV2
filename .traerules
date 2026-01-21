@@ -1,0 +1,26 @@
+I have a task to standardize the brand colors and polish the UI interactions. Please follow these strict rules.
+
+### PART 1: The Brand Colors (CRITICAL)
+First, ensure these exact variables are defined in `index.css` (or `tailwind.config.js`). These are the ingredients for everything else.
+
+```css
+:root {
+  /* BACKGROUND TINTS (Light highlights) */
+  --primary-50:  #fff0f2;
+  --primary-100: #ffe3e4;
+  --primary-200: #ffcbd1;
+
+  /* UI ELEMENTS (Borders, weak icons) */
+  --primary-300: #ffa0aa;
+  --primary-400: #ff6b7e;
+
+  /* MAIN ACTIONS (Buttons, Active States) */
+  --primary-500: #fb3855;
+  --primary-600: #dc143c; /* MAIN CRIMSON BRAND */
+  
+  /* TEXT & HOVER STATES (Darker contrast) */
+  --primary-700: #c50b34;
+  --primary-800: #a50c33;
+  --primary-900: #8d0e33;
+  --primary-950: #4f0217;
+}

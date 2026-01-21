@@ -1,0 +1,7 @@
+{
+  "name": "G.R.E.T.E.L V3",
+  "description": "A professional dark-themed login page for the G.R.E.T.E.L (General Response Engine & Task Execution Logic) web application, featuring a crimson red accent color.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

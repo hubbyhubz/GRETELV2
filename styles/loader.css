@@ -1,0 +1,67 @@
+/* Custom Loader Animation - Crimson Red Theme */
+.custom-loader {
+  width: 120px;
+  height: 22px;
+  border-radius: 20px;
+  color: #DC143C; /* Crimson Red */
+  border: 2px solid;
+  position: relative;
+}
+
+.custom-loader::before {
+  content: "";
+  position: absolute;
+  margin: 2px;
+  inset: 0 100% 0 0;
+  border-radius: inherit;
+  background: #DC143C; /* Crimson Red */
+  animation: p6 2s infinite;
+}
+
+@keyframes p6 {
+  100% {
+    inset: 0
+  }
+}
+
+/* Smaller variant for buttons */
+.custom-loader-sm {
+  width: 60px;
+  height: 16px;
+  border-radius: 12px;
+  color: #fff;
+  border: 2px solid;
+  position: relative;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.custom-loader-sm::before {
+  content: "";
+  position: absolute;
+  margin: 2px;
+  inset: 0 100% 0 0;
+  border-radius: inherit;
+  background: #fff;
+  animation: p6 2s infinite;
+}
+
+/* Large variant for full-page loading */
+.custom-loader-lg {
+  width: 160px;
+  height: 28px;
+  border-radius: 24px;
+  color: #DC143C;
+  border: 3px solid;
+  position: relative;
+}
+
+.custom-loader-lg::before {
+  content: "";
+  position: absolute;
+  margin: 3px;
+  inset: 0 100% 0 0;
+  border-radius: inherit;
+  background: #DC143C;
+  animation: p6 2s infinite;
+}

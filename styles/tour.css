@@ -1,0 +1,644 @@
+/* G.R.E.T.E.L Onboarding Tour Styles */
+
+/* Override Driver.js default styles with crimson theme */
+.driver-popover {
+  background: white;
+  color: #1f2937;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  max-width: 420px !important;
+  min-width: 380px !important;
+  /* SMOOTH TRAVEL: Box physically moves across screen */
+  transition: 
+    top 1s ease-in-out !important,
+    left 1s ease-in-out !important,
+    right 1s ease-in-out !important,
+    bottom 1s ease-in-out !important,
+    transform 1s ease-in-out !important;
+  /* Box stays fully visible during travel */
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+  /* Optimize for smooth animation */
+  will-change: top, left, right, bottom, transform;
+  /* Animate.css sliding entrances */
+  animation-duration: 0.8s;
+  animation-fill-mode: both;
+  
+  pointer-events: auto !important;
+  /* Force hardware acceleration */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+/* Sliding Entrance Animation Classes - Matching Animate.css */
+@keyframes slideInRight {
+  from {
+    transform: translate3d(100%, 0, 0);
+    visibility: visible;
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translate3d(-100%, 0, 0);
+    visibility: visible;
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes slideInUp {
+  from {
+    transform: translate3d(0, 100%, 0);
+    visibility: visible;
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes slideInDown {
+  from {
+    transform: translate3d(0, -100%, 0);
+    visibility: visible;
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes slideOutRight {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    visibility: hidden;
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+@keyframes slideOutLeft {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    visibility: hidden;
+    transform: translate3d(-100%, 0, 0);
+  }
+}
+
+@keyframes slideOutUp {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    visibility: hidden;
+    transform: translate3d(0, -100%, 0);
+  }
+}
+
+@keyframes slideOutDown {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    visibility: hidden;
+    transform: translate3d(0, 100%, 0);
+  }
+}
+
+/* Sliding Entrance Animation Classes */
+.driver-popover.slide-in-right {
+  animation-name: slideInRight;
+  animation-duration: 0.8s;
+  animation-fill-mode: both;
+}
+
+.driver-popover.slide-in-left {
+  animation-name: slideInLeft;
+  animation-duration: 0.8s;
+  animation-fill-mode: both;
+}
+
+.driver-popover.slide-in-up {
+  animation-name: slideInUp;
+  animation-duration: 0.8s;
+  animation-fill-mode: both;
+}
+
+.driver-popover.slide-in-down {
+  animation-name: slideInDown;
+  animation-duration: 0.8s;
+  animation-fill-mode: both;
+}
+
+/* Sliding Exit Animation Classes */
+.driver-popover.slide-out-right {
+  animation-name: slideOutRight;
+  animation-duration: 0.8s;
+  animation-fill-mode: both;
+}
+
+.driver-popover.slide-out-left {
+  animation-name: slideOutLeft;
+  animation-duration: 0.8s;
+  animation-fill-mode: both;
+}
+
+.driver-popover.slide-out-up {
+  animation-name: slideOutUp;
+  animation-duration: 0.8s;
+  animation-fill-mode: both;
+}
+
+.driver-popover.slide-out-down {
+  animation-name: slideOutDown;
+  animation-duration: 0.8s;
+  animation-fill-mode: both;
+}
+
+
+/* Override Driver.js default fade animation */
+.driver-fade .driver-popover {
+  animation: none !important;
+}
+
+.driver-popover[style*="display: none"] {
+  display: block !important;
+  visibility: hidden !important;
+}
+
+.dark .driver-popover {
+  background: #1f2937;
+  color: #f3f4f6;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  animation: none !important;
+}
+
+.driver-popover-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #DC143C;
+  margin-bottom: 0.75rem;
+}
+
+.dark .driver-popover-title {
+  color: #DC143C;
+}
+
+.driver-popover-description {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: #4b5563;
+  margin-bottom: 1rem;
+}
+
+.dark .driver-popover-description {
+  color: #d1d5db;
+}
+
+.driver-popover-progress-text {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-align: left;
+  margin-bottom: 0;
+  margin-right: auto;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  line-height: 1.5rem;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  padding-left: 0.25rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: fit-content;
+}
+
+.dark .driver-popover-progress-text {
+  color: #9ca3af;
+}
+
+/* Button Styling */
+.driver-popover-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-top: 1.25rem;
+  margin-top: 0.75rem;
+  border-top: 1px solid #f0f0f0;
+  gap: 1rem;
+  flex-wrap: nowrap;
+}
+
+.dark .driver-popover-footer {
+  border-top-color: #374151;
+}
+
+/* Button group on the right */
+.driver-popover-footer .driver-popover-footer-buttons,
+.driver-popover-footer > div:last-child {
+  display: flex !important;
+  gap: 0.5rem !important;
+  align-items: center !important;
+  margin-left: auto !important;
+  flex-shrink: 0 !important;
+  flex-wrap: nowrap !important;
+  min-width: max-content !important;
+}
+
+/* Override any Driver.js button styles */
+.driver-popover-footer button[type="button"] {
+  white-space: nowrap !important;
+  word-wrap: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+
+.driver-popover-footer button {
+  border-radius: 8px;
+  padding: 0.625rem 1rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+  line-height: 1.25rem;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  min-width: fit-content !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.25rem !important;
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+  backface-visibility: hidden !important;
+  transform: translateZ(0) !important;
+  text-shadow: none !important;
+}
+
+/* Ensure no pseudo-elements anywhere */
+.driver-popover-footer button::before,
+.driver-popover-footer button::after {
+  content: none !important;
+  display: none !important;
+}
+
+.driver-popover-next-btn {
+  background: #DC143C !important;
+  color: white !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  font-weight: 600 !important;
+  padding: 0.5rem 1rem !important;
+  font-size: 0.875rem !important;
+  min-width: max-content !important;
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+  text-rendering: optimizeLegibility !important;
+  text-shadow: none !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Remove all pseudo-elements that might cause doubling */
+.driver-popover-next-btn::before,
+.driver-popover-next-btn::after {
+  content: none !important;
+  display: none !important;
+}
+
+.driver-popover-next-btn:hover {
+  background: #b81030 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(220, 20, 60, 0.3);
+}
+
+/* Remove all pseudo-elements from prev button */
+.driver-popover-prev-btn::before,
+.driver-popover-prev-btn::after {
+  content: none !important;
+  display: none !important;
+}
+
+.driver-popover-prev-btn {
+  background: #f3f4f6 !important;
+  color: #4b5563 !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  padding: 0.5rem 0.875rem !important;
+  font-size: 0.8125rem !important;
+  min-width: max-content !important;
+  text-shadow: none !important;
+}
+
+.dark .driver-popover-prev-btn {
+  background: #374151 !important;
+  color: #d1d5db !important;
+}
+
+.driver-popover-prev-btn:hover {
+  background: #e5e7eb !important;
+  transform: translateY(-1px);
+}
+
+.dark .driver-popover-prev-btn:hover {
+  background: #4b5563 !important;
+}
+
+.driver-popover-prev-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Hide close button - we use "Continue Later" instead (except on last step) */
+.driver-popover-close-btn {
+  display: none;
+}
+
+/* Continue Later Button - Subtle Ghost Style */
+.driver-continue-later-btn {
+  background: transparent !important;
+  color: #6b7280 !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 8px !important;
+  padding: 0.5rem 0.875rem !important;
+  font-weight: 500 !important;
+  font-size: 0.8125rem !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  min-width: max-content !important;
+  max-width: none !important;
+  width: auto !important;
+  display: inline-block !important;
+  text-align: center !important;
+  overflow: visible !important;
+  word-wrap: normal !important;
+  word-break: keep-all !important;
+}
+
+.dark .driver-continue-later-btn {
+  color: #9ca3af !important;
+  border-color: #4b5563 !important;
+}
+
+.driver-continue-later-btn:hover {
+  background: #f3f4f6 !important;
+  border-color: #d1d5db !important;
+  color: #374151 !important;
+}
+
+.dark .driver-continue-later-btn:hover {
+  background: #374151 !important;
+  border-color: #6b7280 !important;
+  color: #f3f4f6 !important;
+}
+
+/* Spotlight/Overlay */
+.driver-overlay {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.3s ease;
+}
+
+.driver-highlighted-element {
+  outline: 3px solid #DC143C !important;
+  outline-offset: 4px;
+  border-radius: 8px;
+  box-shadow: 0 0 0 5000px rgba(0, 0, 0, 0.6), 0 0 30px rgba(220, 20, 60, 0.4);
+  animation: pulse 2s ease-in-out infinite;
+  position: relative;
+  z-index: 9999;
+}
+
+/* Arrow styling */
+.driver-popover-arrow {
+  border-color: white;
+}
+
+.dark .driver-popover-arrow {
+  border-color: #1f2937;
+}
+
+/* Feature Announcement variant */
+.gretel-feature-announcement .driver-popover {
+  max-width: 420px;
+  border: 2px solid #DC143C;
+}
+
+.gretel-feature-announcement .driver-popover-title::before {
+  content: "🎉 ";
+  margin-right: 0.25rem;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* No entry animations - popover should only slide between positions */
+
+@keyframes pulse {
+  0%, 100% {
+    outline-offset: 4px;
+  }
+  50% {
+    outline-offset: 6px;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+@keyframes fadeOutDown {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* Exit animation classes */
+.driver-popover.exiting {
+  animation: fadeOutDown 0.3s ease-out forwards !important;
+}
+
+.driver-overlay.exiting {
+  animation: fadeOut 0.3s ease-out forwards !important;
+}
+
+/* Content transitions smoothly - no slide animation to avoid interference */
+.driver-popover-description,
+.driver-popover-title,
+.driver-popover-footer {
+  transition: opacity 0.3s ease 0.3s;
+}
+
+/* Smooth overlay transitions - travels with popover */
+.driver-overlay {
+  transition: 
+    opacity 1s ease-in-out !important,
+    background 1s ease-in-out !important;
+  opacity: 1 !important;
+  animation: none !important;
+}
+
+.driver-highlighted-element,
+.driver-active-element {
+  transition: 
+    transform 1s ease-in-out !important,
+    opacity 1s ease-in-out !important,
+    box-shadow 1s ease-in-out !important,
+    outline 1s ease-in-out !important,
+    all 1s ease-in-out !important;
+  will-change: transform, box-shadow, outline;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Ensure overlay stays visible during transition */
+.driver-overlay,
+.driver-active .driver-overlay {
+  animation: none !important;
+}
+
+/* Smooth clip-path animation */
+.driver-overlay::before {
+  transition: clip-path 1s ease-in-out !important;
+}
+
+/* Ensure first step doesn't animate in */
+.driver-popover:first-of-type {
+  animation: none !important;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .driver-popover {
+    max-width: 95vw !important; /* Increased width utilization */
+    min-width: 300px !important; /* Slightly larger minimum for modern phones */
+    width: auto !important;
+    margin: 0 !important;
+    padding: 1.25rem !important; /* More breathing room */
+    border-radius: 16px !important; /* Softer corners */
+  }
+  
+  .driver-popover-title {
+    font-size: 1.25rem !important; /* 20px - Clear hierarchy */
+    line-height: 1.3;
+    margin-bottom: 0.75rem;
+  }
+  
+  .driver-popover-description {
+    font-size: 1rem !important; /* 16px - Base readable size */
+    line-height: 1.6;
+    color: #374151; /* High contrast */
+  }
+  
+  .driver-popover-footer {
+    padding-top: 1.25rem;
+    margin-top: 0.75rem;
+    flex-direction: column-reverse;
+    gap: 0.75rem;
+  }
+
+  /* Optimize buttons for touch */
+  .driver-popover-footer button {
+    padding: 0.875rem 1rem !important; /* ~14px vertical padding */
+    min-height: 48px !important; /* WCAG touch target size */
+    font-size: 1rem !important; /* 16px text */
+    border-radius: 10px !important;
+    width: 100%;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .driver-popover-next-btn {
+    box-shadow: 0 4px 6px -1px rgba(220, 20, 60, 0.2), 0 2px 4px -1px rgba(220, 20, 60, 0.1) !important;
+  }
+  
+  .driver-popover-progress-text {
+    font-size: 0.875rem !important; /* 14px */
+    color: #6b7280;
+    margin-bottom: 0.75rem;
+    width: 100%;
+    text-align: center;
+    justify-content: center;
+  }
+}
+
+/* 
+  Mobile Schedule Transition Effect
+  Creates a smooth background transformation for the "Today's Schedule" step
+*/
+.mobile-schedule-transition {
+  transition: all 400ms cubic-bezier(0.4, 0, 0.2, 1) !important; /* Natural easing */
+  background: rgba(0, 0, 0, 0.7) !important; /* Slightly darker overlay for focus */
+  backdrop-filter: blur(4px) !important; /* Enhanced blur during transition */
+}
+
+/* Ensure the cutout/highlight area also transitions smoothly */
+.driver-stage-no-animation {
+  transition: all 400ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Small mobile optimization (iPhone SE / older Androids) */
+@media (max-width: 360px) {
+  .driver-popover {
+    min-width: 280px !important;
+    padding: 1rem !important;
+  }
+  
+  .driver-popover-title {
+    font-size: 1.125rem !important;
+  }
+  
+  .driver-popover-description {
+    font-size: 0.9375rem !important; /* 15px */
+  }
+}
+
+/* Smooth transitions */
+* {
+  transition: outline 0.2s ease, box-shadow 0.2s ease;
+}

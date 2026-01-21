@@ -1,0 +1,255 @@
+/* ============================================
+   CRIMSON RED BRAND COLOR PALETTE
+   ============================================ */
+:root {
+  /* BACKGROUND TINTS (Use for light highlights, hover backgrounds) */
+  --primary-50:  #fff0f2;
+  --primary-100: #ffe3e4;
+  --primary-200: #ffcbd1;
+  
+  /* UI ELEMENTS (Use for borders, weak icons) */
+  --primary-300: #ffa0aa;
+  --primary-400: #ff6b7e;
+  
+  /* MAIN ACTIONS (Use for Buttons, Checkboxes, Active States) */
+  --primary-500: #fb3855;
+  --primary-600: #dc143c;  /* MAIN BRAND COLOR (Crimson) */
+  
+  /* TEXT & HOVER STATES (Use for dark text, button hover) */
+  --primary-700: #c50b34;
+  --primary-800: #a50c33;
+  --primary-900: #8d0e33;
+  --primary-950: #4f0217;  /* Deepest Contrast */
+}
+
+/* ============================================
+   GLOBAL TEXT SELECTION STYLING
+   ============================================ */
+::selection {
+  background-color: var(--primary-600);
+  color: white;
+}
+
+/* Firefox compatibility */
+::-moz-selection {
+  background-color: var(--primary-600);
+  color: white;
+}
+
+/* Text Highlighting Class - Used by HighlightedText Component */
+.highlight-crimson {
+  background-color: var(--primary-50);
+  border-radius: 2px;
+  padding: 1px 2px;
+}
+
+/* ============================================
+   COMMAND PALETTE HOVER EFFECT
+   ============================================ */
+.command-item:not(.command-item-selected):hover {
+  background-color: var(--primary-50) !important; /* Light pink - red icons remain visible */
+}
+
+/* ============================================
+   DROPDOWN MENU (SELECT) OVERRIDES
+   ============================================ */
+/* Remove default highlighting effects (glow, shadow, ring) */
+select {
+  outline: none !important;
+  box-shadow: none !important;
+  background-image: none !important; /* Removes default arrow in some browsers if unwanted, but we want arrow. */
+  /* Actually, removing background-image might kill the arrow. Let's keep it unless it's a highlight. */
+  /* Re-enable standard arrow if needed, but 'appearance: none' does that. We just want to stop highlights. */
+}
+
+/* Maintain base state on Hover/Focus/Active - No visual "pop" */
+select:hover,
+select:focus,
+select:active {
+  outline: none !important;
+  box-shadow: none !important;
+  /* Force the border to remain consistent with the default state (gray-300) */
+  /* We use !important to override browser defaults and Tailwind focus rings */
+  border-color: #d1d5db !important; 
+  background-color: white !important; /* Prevent background shift */
+  color: #4b5563 !important; /* gray-600 */
+}
+
+/* Dark Mode Overrides */
+.dark select:hover,
+.dark select:focus,
+.dark select:active {
+  border-color: #4b5563 !important; /* gray-600 */
+  background-color: #111827 !important; /* gray-900 */
+  color: #d1d5db !important; /* gray-300 */
+}
+
+/* Accessible Focus Indicator */
+/* We maintain accessibility by ensuring the element is still distinct when focused, 
+   but using a subtle effect instead of a bright highlight. */
+select:focus-visible {
+  /* Use a slightly darker/lighter border to indicate focus without "highlighting" */
+  border-color: #9ca3af !important; /* gray-400 (Slightly darker than 300) */
+  /* Optional: Very subtle outline if border change isn't enough */
+  outline: 1px solid transparent !important; 
+}
+
+.dark select:focus-visible {
+  border-color: #9ca3af !important; /* gray-400 (Slightly lighter than 600) */
+}
+
+/* ============================================
+   SIDEBAR ANIMATIONS (Animate.style Reference)
+   ============================================ */
+/* 
+   Implements "Sliding Left" and "Sliding Right" behavior 
+   with hardware acceleration and optimized easing.
+   Duration: 200ms (Matched to Desktop Sidebar)
+   Easing: cubic-bezier(0.4, 0, 0.6, 1) (Matched to Desktop Sidebar)
+*/
+.sidebar-animated {
+  /* Hardware acceleration */
+  will-change: transform;
+  -webkit-transform: translate3d(-100%, 0, 0);
+  transform: translate3d(-100%, 0, 0);
+  
+  /* Fluid transition effects */
+  -webkit-transition: -webkit-transform 200ms cubic-bezier(0.4, 0, 0.6, 1);
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.6, 1);
+  
+  /* Optimization */
+  backface-visibility: hidden;
+  perspective: 1000px;
+  /* Containment for performance */
+  contain: paint layout;
+}
+
+.sidebar-animated.sidebar-open {
+  -webkit-transform: translate3d(0, 0, 0);
+  transform: translate3d(0, 0, 0);
+}
+
+/* Right-side variant if needed in future */
+.sidebar-animated-right {
+  will-change: transform;
+  -webkit-transform: translate3d(100%, 0, 0);
+  transform: translate3d(100%, 0, 0);
+  -webkit-transition: -webkit-transform 200ms cubic-bezier(0.4, 0, 0.6, 1);
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.6, 1);
+  backface-visibility: hidden;
+  perspective: 1000px;
+  contain: paint layout;
+}
+
+.sidebar-animated-right.sidebar-open {
+  -webkit-transform: translate3d(0, 0, 0);
+  transform: translate3d(0, 0, 0);
+}
+
+/* Overlay Animation - Fades in/out smoothly */
+.sidebar-overlay {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 200ms cubic-bezier(0.4, 0, 0.6, 1), visibility 200ms step-end;
+  will-change: opacity;
+}
+
+.sidebar-overlay.overlay-open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 200ms cubic-bezier(0.4, 0, 0.6, 1), visibility 0ms;
+}
+
+/* Fallback for reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-animated,
+  .sidebar-animated-right {
+    transition: none;
+  }
+}
+
+/* ============================================
+   CUSTOM SCROLLBAR STYLING
+   ============================================ */
+/* Webkit Browsers (Chrome, Safari, Edge) */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #d1d5db; /* gray-300 */
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #9ca3af; /* gray-400 */
+}
+
+/* Dark mode scrollbar */
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #4b5563; /* gray-600 */
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #6b7280; /* gray-500 */
+}
+
+/* Firefox */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+  /* Ensure smooth scrolling on iOS/Mobile */
+  -webkit-overflow-scrolling: touch;
+}
+
+.dark .custom-scrollbar {
+  scrollbar-color: #4b5563 transparent;
+}
+
+/* ============================================
+   ANIMATED PROGRESS BAR (Crimson Style)
+   ============================================ */
+.crimson-loader-bar {
+  width: 100%;
+  height: 10px;
+  background: #F9F9F9;
+  border-radius: 10px;
+  border: 1px solid #DC143C; /* Crimson Border */
+  position: relative;
+  overflow: hidden;
+}
+
+.dark .crimson-loader-bar {
+  background: #1F2937; /* gray-800 */
+  border-color: #DC143C;
+}
+
+.crimson-loader-bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  /* Gradient: Dark Red (#8B0000) -> Crimson (#DC143C) stripes */
+  background: repeating-linear-gradient(45deg, #8B0000 0 30px, #DC143C 0 40px) right/200% 100%;
+  /* Animate the stripes */
+  animation: lightEffect 1s infinite linear;
+  /* Smooth width transition */
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes lightEffect {
+  0%, 20%, 40%, 60%, 80%, 100% {
+    background: repeating-linear-gradient(45deg, #8B0000 0 30px, #DC143C 0 40px) right/200% 100%;
+  }
+
+  10%, 30%, 50%, 70%, 90% {
+    /* Add a subtle shine effect */
+    background: repeating-linear-gradient(45deg, #8B0000 0 30px, #DC143C 0 40px, rgba(255, 255, 255, 0.3) 0 40px) right/200% 100%;
+  }
+}

@@ -1,0 +1,76 @@
+/* Dashboard Card Hover Animation */
+.card-hover-animation:hover {
+	-webkit-animation: shadow-drop-2-tb 0.4s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+	animation: shadow-drop-2-tb 0.4s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+}
+
+/* Keyframes for shadow drop animation (top-bottom) */
+@-webkit-keyframes shadow-drop-2-tb {
+  0% {
+    -webkit-transform: translateY(0);
+    transform: translateY(0);
+    -webkit-box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  }
+  100% {
+    -webkit-transform: translateY(-8px);
+    transform: translateY(-8px);
+    -webkit-box-shadow: 0 12px 20px -8px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 12px 20px -8px rgba(0, 0, 0, 0.35);
+  }
+}
+
+@keyframes shadow-drop-2-tb {
+  0% {
+    -webkit-transform: translateY(0);
+    transform: translateY(0);
+    -webkit-box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  }
+  100% {
+    -webkit-transform: translateY(-8px);
+    transform: translateY(-8px);
+    -webkit-box-shadow: 0 12px 20px -8px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 12px 20px -8px rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* Interactive Row Hover Animation - For List Items */
+.interactive-row {
+  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+  cursor: pointer;
+  /* Don't add padding/border-radius here - elements already have them */
+}
+
+.interactive-row:hover {
+  transform: translateY(-3px) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Project Hover Preview Card - Hide by default, show on hover */
+.project-hover-preview {
+  position: absolute !important;
+  right: -320px !important; /* Position to the right of the project item */
+  top: 0 !important;
+  width: 300px !important;
+  display: none !important; /* Force hide by default */
+  transition: opacity 0.3s ease, transform 0.3s ease !important;
+  z-index: 1000 !important;
+}
+
+/* Show preview when hovering over the parent container */
+.project-card-hover:hover .project-hover-preview {
+  display: block !important;
+  animation: fadeInRight 0.3s ease forwards;
+}
+
+@keyframes fadeInRight {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

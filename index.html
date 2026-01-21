@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>G.R.E.T.E.L Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            transitionTimingFunction: {
+              'bounce-in': 'cubic-bezier(0.68, -0.55, 0.265, 1.55)',
+              'bounce-out': 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+              'spring': 'cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+            },
+            animation: {
+              'slide-up': 'slideUp 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards',
+              'slide-down': 'slideDown 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards',
+              'modal-bounce': 'modalBounce 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards',
+              'card-lift': 'cardLift 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+            }
+          }
+        }
+      }
+    </script>
+    <style data-vite-ignore>
+      /* Custom Animations */
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      .animate-fade-in {
+        animation: fadeIn 0.3s ease-in-out forwards;
+      }
+      @keyframes scaleIn {
+        from {
+            transform: scale(0.95);
+            opacity: 0;
+        }
+        to {
+            transform: scale(1);
+            opacity: 1;
+        }
+      }
+      .animate-scale-in {
+        animation: scaleIn 0.2s ease-out forwards;
+      }
+
+      /* Playful & Bouncy Animations */
+      @keyframes slideUp {
+        from {
+          transform: translateY(20px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+
+      @keyframes slideDown {
+        from {
+          transform: translateY(-20px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+
+      @keyframes modalBounce {
+        0% {
+          transform: scale(0.8);
+          opacity: 0;
+        }
+        50% {
+          transform: scale(1.05);
+        }
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+
+      @keyframes cardLift {
+        0% {
+          transform: translateY(0) scale(1);
+        }
+        100% {
+          transform: translateY(-4px) scale(1.02);
+        }
+      }
+
+      /* Stagger animation delays for list items */
+      .animate-delay-0 { animation-delay: 0ms; }
+      .animate-delay-1 { animation-delay: 50ms; }
+      .animate-delay-2 { animation-delay: 100ms; }
+      .animate-delay-3 { animation-delay: 150ms; }
+      .animate-delay-4 { animation-delay: 200ms; }
+      .animate-delay-5 { animation-delay: 250ms; }
+      .animate-delay-6 { animation-delay: 300ms; }
+      .animate-delay-7 { animation-delay: 350ms; }
+      .animate-delay-8 { animation-delay: 400ms; }
+      .animate-delay-9 { animation-delay: 450ms; }
+      .animate-delay-10 { animation-delay: 500ms; }
+
+      /* Button press effect */
+      .active-press:active {
+        transform: scale(0.95);
+        transition: transform 0.1s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      }
+
+      /* Card hover lift effect */
+      .card-lift {
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .card-lift:hover {
+        transform: translateY(-4px) scale(1.02);
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+      }
+
+      /* Icon bounce on hover - triggers when parent .group is hovered */
+      .icon-bounce {
+        transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      }
+      .group:hover .icon-bounce {
+        transform: scale(1.1) rotate(5deg);
+      }
+
+      /* Smooth scale hover */
+      .smooth-scale {
+        transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .smooth-scale:hover {
+        transform: scale(1.05);
+      }
+
+      /* View Transition Animations (Page Switch) */
+      @keyframes fadeOutLeft {
+        from {
+          opacity: 1;
+          transform: translateX(0);
+        }
+        to {
+          opacity: 0;
+          transform: translateX(-20px);
+        }
+      }
+
+      @keyframes fadeInRight {
+        from {
+          opacity: 0;
+          transform: translateX(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
+      .view-transition-exit {
+        animation: fadeOutLeft 0.25s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+      }
+
+      .view-transition-enter {
+        animation: fadeInRight 0.25s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+      }
+
+      /* Chat Message Slide In */
+      @keyframes slideInFromBottom {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes slideInFromBottomRight {
+        from {
+          opacity: 0;
+          transform: translate(10px, 20px);
+        }
+        to {
+          opacity: 1;
+          transform: translate(0, 0);
+        }
+      }
+
+      .message-slide-in {
+        animation: slideInFromBottom 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+      }
+
+      .message-slide-in-right {
+        animation: slideInFromBottomRight 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+      }
+
+      /* Shimmer Loading Effect */
+      @keyframes shimmer {
+        0% {
+          background-position: -1000px 0;
+        }
+        100% {
+          background-position: 1000px 0;
+        }
+      }
+
+      .shimmer {
+        background: linear-gradient(
+          90deg,
+          #f0f0f0 0%,
+          #e0e0e0 20%,
+          #f0f0f0 40%,
+          #f0f0f0 100%
+        );
+        background-size: 1000px 100%;
+        animation: shimmer 2s linear infinite;
+      }
+
+      .dark .shimmer {
+        background: linear-gradient(
+          90deg,
+          #374151 0%,
+          #4b5563 20%,
+          #374151 40%,
+          #374151 100%
+        );
+        background-size: 1000px 100%;
+      }
+
+      /* Progress Bar Spring Animation */
+      .progress-spring {
+        transition: width 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      }
+
+      /* Success Confetti */
+      @keyframes confetti-fall {
+        0% {
+          transform: translateY(-100vh) rotate(0deg);
+          opacity: 1;
+        }
+        100% {
+          transform: translateY(100vh) rotate(720deg);
+          opacity: 0;
+        }
+      }
+
+      .confetti {
+        position: fixed;
+        width: 10px;
+        height: 10px;
+        pointer-events: none;
+        z-index: 9999;
+      }
+
+      .confetti-piece {
+        animation: confetti-fall 3s ease-in forwards;
+      }
+
+      /* 100% Progress Celebration */
+      @keyframes celebration-glow {
+        0%, 100% {
+          box-shadow: 0 0 0 0 rgba(220, 20, 60, 0.7);
+        }
+        50% {
+          box-shadow: 0 0 20px 10px rgba(220, 20, 60, 0.4);
+        }
+      }
+
+      .celebration-glow {
+        animation: celebration-glow 1.5s ease-in-out infinite;
+      }
+
+      @keyframes celebration-scale {
+        0%, 100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.05);
+        }
+      }
+
+      .celebration-scale {
+        animation: celebration-scale 1s ease-in-out infinite;
+      }
+
+      /* Mode Color Morph */
+      .mode-transition {
+        transition: background-color 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55),
+                    border-color 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55),
+                    color 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      }
+
+      /* Pull to Refresh */
+      @keyframes refresh-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .refresh-spinner {
+        animation: refresh-spin 1s linear infinite;
+      }
+
+      /* Hover Card Preview */
+      @keyframes hoverCardBounce {
+        0% {
+          transform: scale(0.9) translateY(10px);
+          opacity: 0;
+        }
+        50% {
+          transform: scale(1.02) translateY(-2px);
+        }
+        100% {
+          transform: scale(1) translateY(0);
+          opacity: 1;
+        }
+      }
+
+      .hover-card-preview {
+        animation: hoverCardBounce 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+      }
+
+      /* Project Card Hover with Preview */
+      .project-card-hover {
+        position: relative;
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+
+      .project-card-hover:hover {
+        transform: translateY(-2px);
+        z-index: 10;
+      }
+
+      .project-hover-preview {
+        position: absolute;
+        left: 100%;
+        top: 0;
+        margin-left: 10px;
+        width: 300px;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 50;
+      }
+
+      .project-card-hover:hover .project-hover-preview {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      @keyframes pulse-red {
+        0%, 100% {
+          box-shadow: 0 0 0 0 rgba(220, 20, 60, 0.7);
+        }
+        50% {
+          box-shadow: 0 0 0 8px rgba(220, 20, 60, 0);
+        }
+      }
+
+      /* Typing Indicator Animation */
+      @keyframes typing-dot-pulse {
+        0%, 100% { opacity: 0.2; transform: scale(0.8); }
+        50% { opacity: 1; transform: scale(1); }
+      }
+      .typing-indicator span {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: currentColor;
+        margin: 0 2px;
+        animation: typing-dot-pulse 1.4s infinite;
+      }
+      .typing-indicator span:nth-child(1) { animation-delay: 0s; }
+      .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+      .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+      /* Custom Classic Scrollbar Styles */
+      /* For Webkit browsers (Chrome, Safari, Edge) */
+      ::-webkit-scrollbar {
+        width: 12px;
+        height: 12px;
+      }
+
+      ::-webkit-scrollbar-track {
+        background: #f1f1f1; /* Light theme track */
+      }
+      .dark ::-webkit-scrollbar-track {
+        background: #1f2937; /* Dark theme track */
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background-color: #a0aec0; /* Light theme thumb (gray-400) */
+        border-radius: 6px;
+        border: 2px solid #f1f1f1; /* Creates padding around thumb */
+      }
+      .dark ::-webkit-scrollbar-thumb {
+        background-color: #4a5568; /* Dark theme thumb (gray-600) */
+        border-radius: 6px;
+        border: 2px solid #1f2937;
+      }
+      
+      ::-webkit-scrollbar-thumb:hover {
+        background-color: #718096; /* Light theme hover (gray-500) */
+      }
+      .dark ::-webkit-scrollbar-thumb:hover {
+        background-color: #718096; /* Dark theme hover (gray-500) */
+      }
+
+      /* For Firefox */
+      html {
+        scrollbar-width: auto; /* 'auto' or 'thin', 'auto' is more classic */
+        scrollbar-color: #a0aec0 #f1f1f1; /* thumb track for light mode */
+      }
+      html.dark {
+        scrollbar-color: #4a5568 #1f2937; /* thumb track for dark mode */
+      }
+
+      /* Custom Form Controls: Checkboxes and Radios */
+      input[type="checkbox"],
+      input[type="radio"] {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        position: relative;
+        width: 1.125rem; /* h-4.5 w-4.5 - A bit smaller for refinement */
+        height: 1.125rem; /* h-4.5 w-4.5 */
+        border: 2px solid #a0aec0; /* border-gray-400 */
+        background-color: #f7fafc; /* bg-gray-100 */
+        cursor: pointer;
+        margin-top: 0.125rem; /* Aligns with first line of text */
+        transition: all 0.2s ease-in-out;
+        flex-shrink: 0; /* Prevents shrinking in flex containers */
+      }
+      .dark input[type="checkbox"],
+      .dark input[type="radio"] {
+        border-color: #4a5568; /* dark:border-gray-600 */
+        background-color: #2d3748; /* dark:bg-gray-700 */
+      }
+
+      input[type="checkbox"] {
+        border-radius: 0.375rem; /* rounded-md */
+      }
+      input[type="radio"] {
+        border-radius: 9999px; /* rounded-full */
+      }
+
+      /* Checked State */
+      input[type="checkbox"]:checked,
+      input[type="radio"]:checked {
+        background-color: #DC143C;
+        border-color: #DC143C;
+      }
+
+      /* Checkmark for Checkbox */
+      input[type="checkbox"]:checked::after {
+        content: '';
+        position: absolute;
+        /* Adjusted for new 1.125rem size */
+        top: 0.1rem;
+        left: 0.3rem;
+        width: 0.35rem;
+        height: 0.6rem;
+        border: solid white;
+        border-width: 0 2px 2px 0; /* Slightly thinner for a sharper look */
+        transform: rotate(45deg);
+      }
+
+      /* Dot for Radio Button */
+      input[type="radio"]:checked::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 0.5rem; /* Adjusted for new size */
+        height: 0.5rem; /* Adjusted for new size */
+        border-radius: 50%;
+        background-color: white;
+      }
+
+      /* Focus State */
+      input[type="checkbox"]:focus-visible,
+      input[type="radio"]:focus-visible {
+        outline: 2px solid #DC143C;
+        outline-offset: 2px;
+        box-shadow: none;
+      }
+
+      /* Text Selection Highlight */
+      ::selection {
+        background: rgba(220, 20, 60, 0.7); /* Crimson with some transparency */
+        color: white;
+      }
+      ::-moz-selection { /* Firefox */
+        background: rgba(220, 20, 60, 0.7);
+        color: white;
+      }
+
+      /* --- Context-Aware Text Selection for Chat Bubbles --- */
+      /* For User's red chat bubble: use a light highlight for contrast */
+      .user-message-bubble ::selection {
+        background: rgba(255, 255, 255, 0.85); /* Mostly opaque white */
+        color: #1a202c; /* Dark gray for text */
+      }
+      .user-message-bubble ::-moz-selection { /* Firefox */
+        background: rgba(255, 255, 255, 0.85);
+        color: #1a202c;
+      }
+
+      /* --- Number Input Spinner Styling --- */
+      /* Hide spinners on Firefox as they cannot be styled well */
+      input[type="number"] {
+        -moz-appearance: textfield;
+      }
+
+      /* Hide spinners on Webkit by default and prepare for transition */
+      input[type="number"]::-webkit-inner-spin-button,
+      input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+        opacity: 0;
+        transition: opacity 0.2s ease-in-out;
+        cursor: pointer;
+      }
+
+      /* On input hover, show the spinners */
+      input[type="number"]:hover::-webkit-inner-spin-button,
+      input[type="number"]:hover::-webkit-outer-spin-button {
+        opacity: 1;
+      }
+
+      /* Style spinners for LIGHT MODE (default) */
+      /* The filter: invert(1) turns the default dark spinners into a light/white color scheme */
+      input[type="number"]::-webkit-inner-spin-button,
+      input[type="number"]::-webkit-outer-spin-button {
+          filter: invert(1);
+      }
+
+      /* Style spinners for DARK MODE */
+      /* Reset the filter for dark mode so the default dark spinners are used */
+      .dark input[type="number"]::-webkit-inner-spin-button,
+      .dark input[type="number"]::-webkit-outer-spin-button {
+          filter: none;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.21.0",
+    "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.0.4",
+    "vite": "https://aistudiocdn.com/vite@^7.1.9"
+  }
+}
+</script>
+  <meta name="theme-color" content="#DC143C">
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/crimson-chat.svg">
+</head>
+  <body class="bg-gray-100 dark:bg-gray-900 transition-colors duration-300">
+    <div id="root"></div>
+    <div id="modal-root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
