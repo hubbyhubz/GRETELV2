@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "deploy:cf": "wrangler pages deploy dist"
+    "deploy:cf": "wrangler pages deploy dist --project-name gretel --branch main"
   },
   "dependencies": {
     "@google/genai": "^1.21.0",

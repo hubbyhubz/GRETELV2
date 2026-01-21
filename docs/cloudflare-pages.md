@@ -22,6 +22,9 @@ This repo includes [public/_redirects](file:///e:/BEATRIX/public/_redirects) to 
 3. `npx wrangler login`
 4. `npm run deploy:cf`
 
+## Important: Avoid Wrangler-Managed Build Vars in Pages
+If Cloudflare Pages shows “Environment variables are being managed through wrangler.toml”, remove `wrangler.toml` so you can manage build variables in the Cloudflare dashboard.
+
 ## Supabase Auth / OAuth Redirect URLs
 After your Pages URL is created, add it to Supabase:
 - Site URL: `https://<your-project>.pages.dev`
