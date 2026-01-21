@@ -19,6 +19,10 @@ export const getDashboardState = async (userId: string): Promise<DashboardState 
     .maybeSingle();
 
   if (error) {
+    if (error.message.includes('AbortError')) {
+      console.warn('⚠️ Dashboard state fetch aborted (benign):', error.message);
+      return null;
+    }
     console.error('Error fetching dashboard state from Supabase:', error);
     throw new Error(error.message);
   }

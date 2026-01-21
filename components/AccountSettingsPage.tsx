@@ -422,13 +422,56 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
 
 
   useEffect(() => { 
+    const validateGoogleAccessToken = async (accessToken: string) => {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 6000);
+      try {
+        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
+        });
+        return res.ok;
+      } catch {
+        return false;
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    };
+
     const checkConnections = async () => { 
       try {
-        const { data: { session } } = await supabase.auth.getSession(); 
-        const providers = session?.user?.app_metadata?.providers || []; 
-        setIsGoogleConnected(providers.includes('google')); 
+        setIntegrationError('');
+        const [{ data: { session } }, { data: { user }, error: userError }] = await Promise.all([
+          supabase.auth.getSession(),
+          supabase.auth.getUser(),
+        ]);
+        if (!session) {
+          setIsGoogleConnected(false);
+          return;
+        }
+        if (userError || !user) {
+          setIsGoogleConnected(false);
+          setIntegrationError('Unable to verify your account session. Please refresh and try again.');
+          return;
+        }
+
+        const hasGoogleIdentity = !!user.identities?.some(i => i.provider === 'google');
+        const accessToken = session.provider_token || null;
+        if (!hasGoogleIdentity || !accessToken) {
+          setIsGoogleConnected(false);
+          return;
+        }
+
+        const isActive = await validateGoogleAccessToken(accessToken);
+        setIsGoogleConnected(isActive);
+        if (!isActive) {
+          setIntegrationError('Google is linked, but the session is not actively authenticated. Please connect again.');
+        }
       } catch (error: any) {
         console.error('Error checking connections:', error);
+        setIsGoogleConnected(false);
+        setIntegrationError('Unable to verify Google connection status. Please try again.');
       }
     }; 
     checkConnections(); 
@@ -457,8 +500,74 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
     }
   };
     
-  const handleGoogleConnect = async () => { setIntegrationError(''); const { error } = await supabase.auth.linkIdentity({ provider: 'google', options: { scopes: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send', }, }); if (error) setIntegrationError(`Google Connection Error: ${error.message}`); };
-  const confirmGoogleUnlink = async () => { setShowUnlinkConfirm(false); setIsUnlinking(true); setIntegrationError(''); const { data: { session } } = await supabase.auth.getSession(); if (!session) { setIntegrationError("Could not get user session."); setIsUnlinking(false); return; } const googleIdentity = session.user.identities?.find(i => i.provider === 'google'); if (!googleIdentity) { setIntegrationError("No Google identity found."); setIsGoogleConnected(false); setIsUnlinking(false); return; } const { error } = await supabase.auth.unlinkIdentity(googleIdentity); if (error) { const rawMessage = error.message || 'Unknown error'; const friendly = rawMessage.toLowerCase().includes('manual linking is disabled') ? 'Unlinking is disabled in Supabase. Enable "Manual linking" in Auth settings, then try again.' : rawMessage; setIntegrationError(`Failed to unlink: ${friendly}`); } else { setIsGoogleConnected(false); setSuccessModalInfo({ title: 'Account Unlinked', message: 'Your Google account has been successfully unlinked.' }); setShowSuccessModal(true); } setIsUnlinking(false); };
+  const handleGoogleConnect = async () => {
+    setIntegrationError('');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setIntegrationError('You are not signed in. Please sign in again and retry.');
+      return;
+    }
+    const { error } = await supabase.auth.linkIdentity({
+      provider: 'google',
+      options: {
+        scopes: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send',
+      },
+    });
+    if (error) {
+      setIntegrationError(`Google Connection Error: ${error.message}`);
+    }
+  };
+
+  const confirmGoogleUnlink = async () => {
+    setShowUnlinkConfirm(false);
+    setIsUnlinking(true);
+    setIntegrationError('');
+    const [{ data: { session } }, { data: { user }, error: userError }] = await Promise.all([
+      supabase.auth.getSession(),
+      supabase.auth.getUser(),
+    ]);
+    if (!session) {
+      setIntegrationError('Could not get user session.');
+      setIsUnlinking(false);
+      return;
+    }
+    if (userError || !user) {
+      setIntegrationError('Unable to verify your account session. Please refresh and try again.');
+      setIsUnlinking(false);
+      return;
+    }
+
+    const googleIdentity = user.identities?.find(i => i.provider === 'google');
+    if (!googleIdentity) {
+      setIntegrationError('No Google identity found.');
+      setIsGoogleConnected(false);
+      setIsUnlinking(false);
+      return;
+    }
+
+    const otherIdentitiesCount = (user.identities || []).filter(i => i.provider !== 'google').length;
+    if (otherIdentitiesCount === 0) {
+      setIntegrationError('Cannot unlink your only sign-in method. Add another login method first.');
+      setIsUnlinking(false);
+      return;
+    }
+
+    const { error } = await supabase.auth.unlinkIdentity(googleIdentity);
+    if (error) {
+      const rawMessage = error.message || 'Unknown error';
+      const friendly = rawMessage.toLowerCase().includes('manual linking is disabled')
+        ? 'Unlinking is disabled in Supabase. Enable "Manual linking" in Auth settings, then try again.'
+        : rawMessage.toLowerCase().includes('at least 1 identity')
+          ? 'Cannot unlink your only sign-in method. Add another login method first.'
+        : rawMessage;
+      setIntegrationError(`Failed to unlink: ${friendly}`);
+    } else {
+      setIsGoogleConnected(false);
+      setSuccessModalInfo({ title: 'Account Unlinked', message: 'Your Google account has been successfully unlinked.' });
+      setShowSuccessModal(true);
+    }
+    setIsUnlinking(false);
+  };
   const isValidEmail = (email: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const generateTeamMemberId = (): string => `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -632,15 +741,25 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
                             <div>
                               <p className="text-sm font-bold">Google Account</p>
                               <p className="text-sm text-gray-600 dark:text-gray-400">
-                                Status: <span className="font-semibold">{isGoogleConnected ? 'Connected' : 'Not Connected'}</span>
+                                Status:{' '}
+                                <span className={`font-semibold ${isGoogleConnected ? 'text-[var(--status-connected-text)]' : 'text-[var(--status-disconnected-text)]'}`}>
+                                  {isGoogleConnected ? 'Connected' : 'Not Connected'}
+                                </span>
                               </p>
                             </div>
                             {isGoogleConnected ? (
-                              <button onClick={() => setShowUnlinkConfirm(true)} disabled={isUnlinking} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                              <button
+                                onClick={() => setShowUnlinkConfirm(true)}
+                                disabled={isUnlinking}
+                                className="inline-flex items-center gap-2 bg-[var(--status-unlink-bg)] hover:bg-[var(--status-unlink-bg-hover)] text-[var(--status-action-fg)] font-bold py-2 px-4 rounded-lg text-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--status-unlink-bg)] focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 disabled:opacity-60"
+                              >
                                 {isUnlinking ? 'Unlinking...' : 'Unlink'}
                               </button>
                             ) : (
-                              <button onClick={handleGoogleConnect} className="bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg text-sm">
+                              <button
+                                onClick={handleGoogleConnect}
+                                className="inline-flex items-center gap-2 bg-[var(--status-connect-bg)] hover:bg-[var(--status-connect-bg-hover)] text-[var(--status-action-fg)] font-bold py-2 px-4 rounded-lg text-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--status-connect-bg)] focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800"
+                              >
                                 Connect
                               </button>
                             )}

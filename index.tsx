@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import 'animate.css';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
 import './styles/global.css';
 import './styles/tour.css';
 import './styles/checkbox.css';
@@ -9,6 +10,19 @@ import './styles/dashboard.css';
 import './styles/theme-toggle.css';
 import App from './App';
 import { ThemeProvider } from './components/ThemeContext';
+
+// Suppress benign Supabase/Fetch AbortErrors that occur during React Strict Mode development
+// or rapid component unmounting. These are expected when requests are cancelled.
+window.addEventListener('unhandledrejection', (event) => {
+  // Check for the specific Supabase/AbortController error
+  if (
+    event.reason?.name === 'AbortError' || 
+    (event.reason?.message && event.reason.message.includes('signal is aborted without reason'))
+  ) {
+    // Prevent the error from logging to the console
+    event.preventDefault();
+  }
+});
 
 class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   state = { error: null };

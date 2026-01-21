@@ -1,14 +1,10 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { Calendar, dateFnsLocalizer, Views } from 'react-big-calendar';
-import format from 'date-fns/format';
-import parse from 'date-fns/parse';
-import startOfWeek from 'date-fns/startOfWeek';
-import getDay from 'date-fns/getDay';
-import enUS from 'date-fns/locale/en-US';
-import 'react-big-calendar/lib/css/react-big-calendar.css';
+import { format, parse, startOfWeek, getDay } from 'date-fns';
+import { enUS } from 'date-fns/locale';
 import { useDashboardContext } from './DashboardContext';
 import { CalendarEvent, MealType } from './types';
-import { Plus, X, Calendar as CalendarIcon, Clock, Users, FileText, AlignLeft, RefreshCw, AlertCircle } from 'lucide-react';
+import { Plus, X, Calendar as CalendarIcon, RefreshCw, AlertCircle } from 'lucide-react';
 
 const locales = {
   'en-US': enUS,
@@ -32,7 +28,6 @@ const EventsOperationsPage: React.FC = () => {
     cloudError 
   } = useDashboardContext();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
 
   // Form State
@@ -48,7 +43,6 @@ const EventsOperationsPage: React.FC = () => {
   });
 
   const handleSelectSlot = useCallback(({ start, end }: { start: Date; end: Date }) => {
-    setSelectedDate(start);
     setFormData({
         title: '',
         start: start.toISOString(),
@@ -63,15 +57,25 @@ const EventsOperationsPage: React.FC = () => {
     setIsModalOpen(true);
   }, []);
 
-  const handleSelectEvent = useCallback((event: CalendarEvent) => {
-    setEditingEvent(event);
+  const handleSelectEvent = useCallback((event: any) => {
+    // event is the object returned by eventsForCalendar, so start/end are Date objects
+    // We need to convert them back to ISO strings for the form
+    const originalEvent = calendarEvents.find(e => e.id === event.id);
+    if (!originalEvent) return;
+
+    setEditingEvent(originalEvent);
     setFormData({
-        ...event,
-        start: event.start, // Keep ISO string
-        end: event.end,
+        title: originalEvent.title,
+        start: originalEvent.start,
+        end: originalEvent.end,
+        mealType: originalEvent.mealType || 'LUNCH',
+        pax: originalEvent.pax || 0,
+        requirements: originalEvent.requirements || '',
+        remarks: originalEvent.remarks || '',
+        color: originalEvent.color || '#3B82F6',
     });
     setIsModalOpen(true);
-  }, []);
+  }, [calendarEvents]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,11 +109,13 @@ const EventsOperationsPage: React.FC = () => {
   };
 
   // Convert ISO strings to Date objects for the calendar
-  const eventsForCalendar = calendarEvents.map(evt => ({
-    ...evt,
-    start: new Date(evt.start),
-    end: new Date(evt.end),
-  }));
+  const eventsForCalendar = useMemo(() => {
+    return calendarEvents.map(evt => ({
+        ...evt,
+        start: new Date(evt.start),
+        end: new Date(evt.end)
+    }));
+  }, [calendarEvents]);
 
   const eventStyleGetter = (event: any) => {
     const backgroundColor = event.color || '#3B82F6';

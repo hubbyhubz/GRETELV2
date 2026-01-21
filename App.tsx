@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import LoginPage from './components/LoginPage';
 import CreateAccountPage from './components/CreateAccountPage';
 import ForgotPasswordPage from './components/ForgotPasswordPage';
@@ -24,6 +24,7 @@ import type {
   DashboardView,
   CreateAccountFormData
 } from './components/types';
+import { applyTabTitle, getTabKeyFromTopLevelView } from './lib/tabTitle';
 
 const INACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 minutes
 const APP_VERSION = "1.5.3"; // Version for patch notes
@@ -76,6 +77,18 @@ function App() {
       setShouldShowPatchNotes(false);
     }
   }, []); // Only run once on mount
+
+  useLayoutEffect(() => {
+    if (currentView === 'dashboard' && requiresGoogleRefresh) {
+      applyTabTitle(undefined);
+      return;
+    }
+    if (currentView === 'dashboard' && userProfile && !userProfile.setup_complete) {
+      applyTabTitle('setup');
+      return;
+    }
+    applyTabTitle(getTabKeyFromTopLevelView(currentView));
+  }, [currentView, requiresGoogleRefresh, userProfile?.setup_complete]);
 
   const resetInactivityTimer = () => {
     if (inactivityTimer.current) {
@@ -253,6 +266,12 @@ function App() {
 
         const { data: profileData, error } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
         if (error && error.code !== 'PGRST116') {
+          // Ignore AbortError as it's likely due to rapid component unmounting/re-mounting
+          if (error.message.includes('AbortError')) {
+            console.warn('⚠️ Profile fetch aborted (benign):', error.message);
+            return;
+          }
+
           // If network error, treat as critical but don't crash, maybe show offline mode in future
           if (error.message.includes('Failed to fetch')) {
              console.warn('⚠️ Network error fetching profile - defaulting to fallback.', error.message);

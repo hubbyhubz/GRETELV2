@@ -432,23 +432,23 @@ export const sendMessageToGemini = async (
         const role = item.role === 'model' ? 'assistant' : 'user';
         
         // Check if there are image parts
-        const imagePart = item.parts?.find(p => p.inline_data);
+        const imagePart = item.parts?.find(p => p.inlineData);
         const textPart = item.parts?.find(p => p.text);
         
         let content: any = '';
         
-        if (imagePart && textPart) {
+        if (imagePart) {
             // Multimodal payload
             content = [
-                { type: "text", text: textPart.text || "" },
+                { type: "text", text: textPart?.text || "" },
                 { 
                     type: "image_url", 
                     image_url: { 
-                        url: `data:${imagePart.inline_data?.mime_type || 'image/jpeg'};base64,${imagePart.inline_data?.data}` 
+                        url: `data:${imagePart.inlineData?.mimeType || 'image/jpeg'};base64,${imagePart.inlineData?.data}` 
                     } 
                 }
             ];
-            totalChars += (textPart.text?.length || 0) + 1000; // Estimate image weight
+            totalChars += (textPart?.text?.length || 0) + 1000; // Estimate image weight
         } else {
             // Text-only payload
             const text = item.parts?.map(part => part.text ?? '').join('') ?? '';

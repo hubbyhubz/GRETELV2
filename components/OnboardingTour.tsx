@@ -1,5 +1,8 @@
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
+// import { Popover } from 'react-tiny-popover';
+// import { useDashboardContext } from './DashboardContext';
+// import { X, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import type { UserProfile, TourState } from "./types";
@@ -179,7 +182,7 @@ const mobileSteps = [
       description: "Your daily calendar and priorities.",
       side: "bottom" as const,
       align: "center" as const,
-      onPopoverRender: (popover: any) => {
+      onPopoverRender: (_popover: any) => {
         // Only run on mobile
         if (window.innerWidth < 768) {
           const overlay = document.querySelector('.driver-overlay');
@@ -305,13 +308,13 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
     }
   }, [userProfile]);
 
-  const getDefaultTourState = (): TourState => ({
-    completed: false,
-    currentStep: 0,
-    dismissed: false,
-    version: TOUR_VERSION,
-    lastShown: new Date().toISOString(),
-  });
+//   const getDefaultTourState = (): TourState => ({
+//     completed: false,
+//     currentStep: 0,
+//     dismissed: false,
+//     version: TOUR_VERSION,
+//     lastShown: new Date().toISOString(),
+//   });
 
   const saveTourState = async (state: TourState, saveToSupabase = false) => {
     // Always save local progress (step) to localStorage

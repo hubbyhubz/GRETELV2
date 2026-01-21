@@ -7,17 +7,15 @@ import { AccountSettingsPage } from './AccountSettingsPage';
 import EventsOperationsPage from './EventsOperationsPage';
 import { SettingsIcon } from './SettingsIcon';
 import CommandPalette, { type Command } from './CommandPalette';
+import { applyTabTitle, getTabKeyFromDashboardContextView } from '../lib/tabTitle';
 import {
   LottieSendIcon,
   LucideMicIcon,
   CircleCheckIcon,
-  CircleCheckboxIcon,
   CircleHelpIcon,
-  LucidePlusIcon,
 } from './AnimatedIcons/LucideIndex';
 import {
   HomeIcon,
-  AnalyticsIcon,
   CalendarIcon,
   BriefcaseIcon,
   PlayIcon,
@@ -35,12 +33,10 @@ import {
   RadioIcon,
   UsersIcon,
   FilePenLineIcon,
-  LucideMenuIcon,
   LucidePaperclipIcon,
   LucideCommandIcon,
   LucideClipboardListIcon,
   LucideTargetIcon,
-  LucideMessageCircleIcon,
   XIcon,
   DelegatedIcon,
   ImageIcon,
@@ -64,8 +60,8 @@ import BriefingPointersModal from './BriefingPointersModal';
 import ActionContextMenu from './ActionContextMenu';
 import QuickActionModal from './QuickActionModal';
 import Confetti from './Confetti';
-import AppIcon from './AppIcon';
-import { KawaiiProgressBar } from './KawaiiProgressBar';
+// import { AppIcon } from './AppIcon';
+// import { KawaiiProgressBar } from './KawaiiProgressBar';
 import { UserProfile, DashboardView } from './types';
 import type { Session } from '@supabase/supabase-js';
 import { OnboardingTour } from './OnboardingTour';
@@ -370,7 +366,7 @@ const DashboardContent: React.FC<{
     const {
         userProfile, onLogout, activeDashboard, setActiveDashboard, appVersion,
         currentView, setCurrentView, isMobileMenuOpen, setIsMobileMenuOpen, mobileView, setMobileView,
-        chatInput, handleChatInput, handleChatKeyDown, handleSendMessage, isSending,
+        chatInput, handleChatInput, handleSendMessage, isSending,
         chatMessages, desktopTextareaRef, mobileTextareaRef, desktopFileInputRef, mobileFileInputRef,
          handleFileChange, attachedFile, setAttachedFile, isRecording, handleToggleRecording, handleStopGeneration,
         currentTime,
@@ -409,6 +405,10 @@ const DashboardContent: React.FC<{
         draftedProject, draftedProjectTasks, weeklyReport, isWeeklyReportModalOpen, setIsWeeklyReportModalOpen, emailVersion, isEmailVersionModalOpen, setIsEmailVersionModalOpen, handleGenerateEmailReport,
         currentMode, handleActivateMode, handleDeactivateMode, currentMood,
     } = useDashboardContext();
+
+    React.useLayoutEffect(() => {
+        applyTabTitle(getTabKeyFromDashboardContextView(currentView));
+    }, [currentView]);
 
     // ============================================================================
     // CRITICAL: ALL HOOKS MUST BE DECLARED HERE - BEFORE ANY CONDITIONAL RETURNS
@@ -701,7 +701,7 @@ const DashboardContent: React.FC<{
     const mainContentRef = React.useRef<HTMLDivElement>(null);
 
     const swipeHandlers = useSwipe({
-        onSwipeMove: (dx, dy) => {
+        onSwipeMove: (dx, _dy) => {
             if (window.innerWidth >= 768) return;
             if (!mainContentRef.current) return;
             
@@ -753,7 +753,7 @@ const DashboardContent: React.FC<{
         swipeHandlers.onTouchMove(e);
     };
     
-    const onTouchEndCombined = (e: React.TouchEvent) => {
+    const onTouchEndCombined = () => {
         handleTouchEnd();
         swipeHandlers.onTouchEnd();
     };

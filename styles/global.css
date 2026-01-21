@@ -20,6 +20,19 @@
   --primary-800: #a50c33;
   --primary-900: #8d0e33;
   --primary-950: #4f0217;  /* Deepest Contrast */
+
+  --status-connected: #00ff00;
+  --status-disconnected: #ff0000;
+
+  --status-connected-text: #0a7a0a;
+  --status-disconnected-text: #b00000;
+
+  --status-connect-bg: #0a7a0a;
+  --status-connect-bg-hover: #086208;
+  --status-unlink-bg: #b00000;
+  --status-unlink-bg-hover: #8f0000;
+
+  --status-action-fg: #ffffff;
 }
 
 /* ============================================

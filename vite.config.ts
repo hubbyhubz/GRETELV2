@@ -18,6 +18,10 @@ export default ({ mode }) => {
     // auto-detecting and incorrectly trying to run Tailwind as a plugin.
     css: {
       postcss: {}
+    },
+    test: {
+      environment: 'jsdom',
+      restoreMocks: true
     }
   });
 };

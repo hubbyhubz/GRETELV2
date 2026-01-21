@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
-import { Bell, BellOff } from 'lucide-react';
+import { BellOff } from 'lucide-react';
+import { BellIcon, type BellIconHandle } from './AnimatedIcons/BellIcon';
 
 const VAPID_PUBLIC_KEY = 'BAa1oBrekD2JsqettsL4v0V92UBCkaNG2Eln3zDZNPRUi-NkM_dlmq-T12qinBUDA_jw1UxJY_MDNvWiYZ6sVFw';
 
@@ -26,6 +27,7 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const bellRef = useRef<BellIconHandle | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
@@ -133,14 +135,22 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
   if (!registration) return null; // Don't render if SW not supported
 
   return (
-    <div className="flex items-center justify-between p-4 bg-zinc-900/50 rounded-lg border border-zinc-800">
+    <div
+      className={`flex items-center justify-between p-4 rounded-lg border ${isSubscribed ? 'bg-[var(--primary-50)] border-[var(--primary-200)] dark:bg-gray-900 dark:border-gray-700' : 'bg-gray-50 border-gray-200 dark:bg-gray-900 dark:border-gray-700'}`}
+      onMouseEnter={() => {
+        if (isSubscribed) bellRef.current?.startAnimation();
+      }}
+      onMouseLeave={() => {
+        bellRef.current?.stopAnimation();
+      }}
+    >
       <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-full ${isSubscribed ? 'bg-green-500/20 text-green-500' : 'bg-zinc-800 text-zinc-400'}`}>
-          {isSubscribed ? <Bell size={20} /> : <BellOff size={20} />}
+        <div className={`p-2 rounded-full ${isSubscribed ? 'bg-[var(--primary-600)] text-white' : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}>
+          {isSubscribed ? <BellIcon ref={bellRef} size={20} /> : <BellOff size={20} />}
         </div>
         <div>
-          <h3 className="text-sm font-medium text-zinc-100">Push Notifications</h3>
-          <p className="text-xs text-zinc-400">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Push Notifications</h3>
+          <p className="text-xs text-gray-600 dark:text-gray-400">
             {isSubscribed 
               ? 'You are receiving notifications on this device.' 
               : 'Enable notifications to stay updated.'}
@@ -151,10 +161,10 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
       <button
         onClick={isSubscribed ? unsubscribeUser : subscribeUser}
         disabled={loading}
-        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+        className={`px-4 py-2 rounded-md text-sm font-semibold transition-colors disabled:opacity-60 ${
           isSubscribed
-            ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-            : 'bg-crimson-600 hover:bg-crimson-700 text-white'
+            ? 'bg-[var(--primary-700)] hover:bg-[var(--primary-800)] text-white'
+            : 'bg-[var(--primary-600)] hover:bg-[var(--primary-700)] text-white'
         }`}
       >
         {loading ? '...' : (isSubscribed ? 'Disable' : 'Enable')}

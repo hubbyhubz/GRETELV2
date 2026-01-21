@@ -8,7 +8,7 @@ import { createTask, findOrCreateTaskList, updateTask, deleteTask } from './goog
 import type { Session } from '@supabase/supabase-js';
 import type { Content } from '@google/genai';
 // FIX: All type imports were pointing to App.tsx which doesn't export them. Changed to import from the correct types.ts file.
-import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry } from './types';
+import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, CalendarEvent, UserMood, RelationalGraph } from './types';
 
 // Version for the dashboard state structure. Increment this to trigger migrations.
 const DASHBOARD_STATE_VERSION = "1.1.0";
@@ -425,7 +425,6 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     modeHistory: ModeHistoryEntry[];
     modeActivatedAt: number | undefined;
 
-
     // All refs needed by UI (if any, usually not)
     desktopTextareaRef: React.RefObject<HTMLTextAreaElement>;
     mobileTextareaRef: React.RefObject<HTMLTextAreaElement>;
@@ -469,8 +468,7 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     setShowProjectsClearConfirm: React.Dispatch<React.SetStateAction<boolean>>;
     setWeeklyReport: React.Dispatch<React.SetStateAction<WeeklyReport | null>>;
 
-
-    handleSendMessage: (e?: React.FormEvent, prompt?: string) => Promise<void>;
+    handleSendMessage: (e?: React.FormEvent, prompt?: string, imageUrl?: string) => Promise<void>;
     handleManualReset: () => void;
     handleDailyKickoff: () => Promise<void>;
     handleToggleCard: (cardId: string) => void;
@@ -519,7 +517,6 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     handleDeactivateMode: () => void;
     handleAddDelegatedTask: (task: { text: string; assigneeId: string; deadlineDate: string; deadlineTime: string; }) => Promise<void>;
     handleClearDelegatedTasks: () => void;
-    calendarEvents: CalendarEvent[]; // Events Operations
     setCalendarEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
     addCalendarEvent: (event: Omit<CalendarEvent, 'id'>) => void;
     updateCalendarEvent: (updatedEvent: CalendarEvent) => void;
@@ -1378,7 +1375,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             weeklyLog: [],
             priorityForTomorrow,
             stateVersion: DASHBOARD_STATE_VERSION,
-            completedGCalEventIds: Array.from(completedGCalEventIds)
+            completedGCalEventIds: Array.from(completedGCalEventIds),
+            calendarEvents: []
         };
 
         const historyForRequest: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
@@ -1510,7 +1508,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       const newMessagePart: Content = { 
           role: 'user', 
           parts: imageUrl 
-            ? [{ text: fullPrompt }, { inline_data: { mime_type: "image/jpeg", data: imageUrl.split(',')[1] } }] 
+            ? (() => {
+                const match = imageUrl.match(/^data:(.*?);base64,/);
+                const mimeType = match?.[1] || 'image/jpeg';
+                const data = imageUrl.split(',')[1] || '';
+                return [{ text: fullPrompt }, { inlineData: { mimeType, data } }];
+              })()
             : [{ text: fullPrompt }] 
       };
 
@@ -1539,7 +1542,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             completedGCalEventIds: Array.from(completedGCalEventIds),
             currentMode,
             modeHistory,
-            modeActivatedAt
+            modeActivatedAt,
+            calendarEvents: []
           }
         : {
             chatMessages: shouldHideMessage ? chatMessages : [...chatMessages, newUserMessage],
@@ -1564,7 +1568,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             completedGCalEventIds: Array.from(completedGCalEventIds),
             currentMode,
             modeHistory,
-            modeActivatedAt
+            modeActivatedAt,
+            calendarEvents
           };
       try {
           const currentAccessToken = session?.provider_token || null;
@@ -1724,7 +1729,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           }
 
           if (response.memoryUpdate && response.memoryUpdate.operations) {
-              let updatedGraph = { ...userProfile.relationalMemory } || { nodes: [], edges: [] };
+              const updatedGraph: RelationalGraph = userProfile.relationalMemory ? { ...userProfile.relationalMemory } : { nodes: [], edges: [] };
               if (!updatedGraph.nodes) updatedGraph.nodes = [];
               if (!updatedGraph.edges) updatedGraph.edges = [];
 
@@ -1928,7 +1933,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         if (isSending) return;
         setIsSending(true);
         const currentAccessToken = session?.provider_token || null;
-        const currentDashboardState: DashboardState = { chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, stateVersion: DASHBOARD_STATE_VERSION, completedGCalEventIds: Array.from(completedGCalEventIds) };
+        const currentDashboardState: DashboardState = { chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, stateVersion: DASHBOARD_STATE_VERSION, completedGCalEventIds: Array.from(completedGCalEventIds), currentMode, modeHistory, modeActivatedAt, calendarEvents };
         const historyForGemini: Content[] = chatHistory.map(({ role, parts }) => ({ role, parts }));
         const newHistory: Content[] = [...historyForGemini, { role: 'user', parts: [{ text: prompt }] }];
         try {
@@ -2183,10 +2188,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed: true, briefingInputs, briefingState,
         collapsedCards, weeklyLog, priorityForTomorrow, stateVersion: DASHBOARD_STATE_VERSION,
         completedGCalEventIds: Array.from(completedGCalEventIds),
-        currentMode, modeHistory, modeActivatedAt,
+        currentMode, currentMood, recentContext, modeHistory, modeActivatedAt,
         nudgedTaskIds: Array.from(nudgedTaskIds),
         notifiedEventIds: Array.from(notifiedEventIds),
         nudgedDelegatedTaskIds: Array.from(nudgedDelegatedTaskIds),
+        calendarEvents,
         suppressCalendarFetch
       };
       // Save immediately - don't wait for useEffect
@@ -2882,7 +2888,8 @@ ${reportJson}`;
                 weeklyLog: [],
                 priorityForTomorrow: '',
                 stateVersion: DASHBOARD_STATE_VERSION,
-                completedGCalEventIds: []
+                completedGCalEventIds: [],
+                calendarEvents: []
             };
 
             const historyForRequest: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
@@ -3313,7 +3320,7 @@ ${reportJson}`;
         weeklyLog, priorityForTomorrow, weeklyReport, isWeeklyReportModalOpen, emailVersion, isEmailVersionModalOpen, setIsEmailVersionModalOpen, notificationModal, briefingScript, isBriefingScriptVisible, showScheduleClearConfirm, showPrioritiesClearConfirm, showRemindersClearConfirm, showProjectsClearConfirm,
         projectToDelete, isAddTaskModalOpen, showDelegatedClearConfirm,
         displayedScheduleItems, isSidebarCollapsed,
-        currentMode, modeHistory, modeActivatedAt,
+        currentMode, currentMood, recentContext, modeHistory, modeActivatedAt,
         desktopTextareaRef, mobileTextareaRef, desktopFileInputRef, mobileFileInputRef,
         setCurrentView, setIsMobileMenuOpen, setMobileView, setChatInput, setShowResetConfirm,
         setShowKeepResetConfirm, setQuickActionModal, setIsPatchNotesVisible, setIsFeedbackVisible, setIsCommandPaletteOpen,
