@@ -21,16 +21,107 @@ const urlBase64ToUint8Array = (base64String: string) => {
   return outputArray;
 };
 
+const isIosDevice = () => {
+  if (typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+};
+
+const isStandaloneDisplayMode = () => {
+  if (typeof window === 'undefined') return false;
+  const mediaStandalone = window.matchMedia?.('(display-mode: standalone)')?.matches === true;
+  const navigatorStandalone = (window.navigator as any)?.standalone === true;
+  return mediaStandalone || navigatorStandalone;
+};
+
+const isAndroidDevice = () => {
+  if (typeof navigator === 'undefined') return false;
+  return /Android/i.test(navigator.userAgent);
+};
+
+const isInAppBrowser = () => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /FBAN|FBAV|Instagram|Line|Twitter|wv|; wv\)/i.test(ua);
+};
+
+const ensureNotificationPermission = async (): Promise<{ ok: boolean; error?: string }> => {
+  if (typeof window === 'undefined' || typeof Notification === 'undefined') {
+    return { ok: false, error: 'Notifications are not supported in this environment.' };
+  }
+
+  if (Notification.permission === 'granted') return { ok: true };
+  if (Notification.permission === 'denied') {
+    return { ok: false, error: 'Notifications are blocked for this site. Enable them in your browser settings and try again.' };
+  }
+
+  if (isIosDevice() && !isStandaloneDisplayMode()) {
+    return { ok: false, error: 'On iPhone/iPad: add this site to your Home Screen, open it from the Home Screen, then enable notifications.' };
+  }
+
+  try {
+    const result = await Notification.requestPermission();
+    if (result === 'granted') return { ok: true };
+    return { ok: false, error: 'Notification permission was not granted. Please allow notifications and try again.' };
+  } catch {
+    return { ok: false, error: 'Could not request notification permission. Please check your browser settings.' };
+  }
+};
+
 export const PushNotificationManager = ({ userId }: { userId: string }) => {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subscription, setSubscription] = useState<PushSubscription | null>(null);
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [supportError, setSupportError] = useState<string | null>(null);
   const bellRef = useRef<BellIconHandle | null>(null);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
+    if (typeof window === 'undefined') return;
+
+    const isSecure =
+      window.isSecureContext ||
+      window.location.protocol === 'https:' ||
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1';
+
+    if (!isSecure) {
+      setSupportError('Push notifications require HTTPS. Open the Cloudflare URL (not an insecure link) and try again.');
+      setLoading(false);
+      return;
+    }
+
+    if (isAndroidDevice() && isInAppBrowser()) {
+      setSupportError('Push notifications are not supported inside in-app browsers. Please open this site in Chrome and try again.');
+      setLoading(false);
+      return;
+    }
+
+    if (!('serviceWorker' in navigator)) {
+      setSupportError('Service workers are not supported in this browser, so push notifications cannot be enabled.');
+      setLoading(false);
+      return;
+    }
+
+    if (typeof Notification === 'undefined') {
+      setSupportError('Notifications are not supported in this browser/device.');
+      setLoading(false);
+      return;
+    }
+
+    if (!('PushManager' in window)) {
+      if (isIosDevice()) {
+        setSupportError('On iPhone/iPad: web push requires iOS 16.4+ and you must add the site to your Home Screen, open it from the Home Screen, then enable notifications.');
+      } else {
+        setSupportError('Push notifications are not supported in this browser/device.');
+      }
+      setLoading(false);
+      return;
+    }
+
+    setSupportError(null);
+
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
       // Register Service Worker
       navigator.serviceWorker.register('/sw.js')
         .then(reg => {
@@ -58,10 +149,21 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
   }, []);
 
   const subscribeUser = async () => {
+    if (supportError) {
+      setError(supportError);
+      return;
+    }
     if (!registration) return;
     setLoading(true);
+    setError(null);
 
     try {
+      const permission = await ensureNotificationPermission();
+      if (!permission.ok) {
+        setError(permission.error || 'Notification permission is required.');
+        return;
+      }
+
       const sub = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
@@ -98,6 +200,18 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
       
       if (err.message && err.message.includes('push service not available')) {
           setError('Push service not available. This often happens in Incognito mode, constrained environments (like previews), or if the browser is offline.');
+      } else if (err?.name === 'NotAllowedError') {
+          if (isIosDevice() && !isStandaloneDisplayMode()) {
+            setError('On iPhone/iPad: add this site to your Home Screen, open it from the Home Screen, then enable notifications.');
+          } else {
+            setError('Notifications were blocked. Allow notifications for this site and try again.');
+          }
+      } else if (err?.name === 'NotSupportedError') {
+          setError('Push notifications are not supported on this browser/device.');
+      } else if (err?.name === 'InvalidStateError') {
+          setError('Push subscription is not available yet. Please refresh the page and try again.');
+      } else if (err?.name === 'AbortError') {
+          setError('Push subscription was interrupted. Please try again.');
       } else {
           setError('Failed to subscribe. Please check permissions.');
       }
@@ -130,6 +244,10 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
   if (error && error !== 'Push notifications are not supported in this browser.') {
       // Render minimal error or nothing if just unsupported
       return <div className="text-red-500 text-xs">{error}</div>;
+  }
+
+  if (supportError) {
+    return <div className="text-red-500 text-xs">{supportError}</div>;
   }
 
   if (!registration) return null; // Don't render if SW not supported
