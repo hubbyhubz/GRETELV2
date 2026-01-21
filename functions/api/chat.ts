@@ -57,6 +57,16 @@ function extractJsonFromModelContent(raw: string): any {
   }
 }
 
+function extractOpenAiErrorMessage(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    const msg = parsed?.error?.message;
+    if (typeof msg === "string" && msg.trim()) return msg.trim();
+  } catch {
+  }
+  return raw || "Upstream error";
+}
+
 export const onRequest: PagesFunction = async ({ request, env }) => {
   if (request.method === "OPTIONS") {
     return jsonResponse({ ok: true });
@@ -113,7 +123,8 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
 
     if (!response.ok) {
       const errorBody = await response.text();
-      return jsonResponse({ error: errorBody || "Upstream error", status: response.status }, { status: 502 });
+      const message = extractOpenAiErrorMessage(errorBody);
+      return jsonResponse({ error: message, status: response.status }, { status: response.status });
     }
 
     const data: any = await response.json();
@@ -124,4 +135,3 @@ export const onRequest: PagesFunction = async ({ request, env }) => {
     return jsonResponse({ error: error?.message || "Unexpected server error" }, { status: 500 });
   }
 };
-

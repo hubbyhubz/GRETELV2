@@ -500,10 +500,19 @@ export const sendMessageToGemini = async (
     } catch {
       parsedError = null;
     }
-    if (status === 500) {
-      message = parsedError?.error || "The AI service is not configured on the server.";
+    const extracted =
+      (typeof parsedError?.error === 'string' && parsedError.error.trim() ? parsedError.error.trim() : null) ||
+      (typeof parsedError?.error?.message === 'string' && parsedError.error.message.trim() ? parsedError.error.message.trim() : null) ||
+      (typeof parsedError?.message === 'string' && parsedError.message.trim() ? parsedError.message.trim() : null);
+
+    if (status === 401 || status === 403) {
+      message = extracted || "Authentication error with the AI service. Please check your API key.";
+    } else if (status === 500) {
+      message = extracted || "The AI service is not configured on the server.";
     } else if (status === 429) {
-      message = parsedError?.error || "The AI service is rate-limited right now. Please wait a minute and try again.";
+      message = extracted || "The AI service is rate-limited right now. Please wait a minute and try again.";
+    } else if (typeof status === 'number' && status >= 400) {
+      message = extracted || message;
     }
     return { text: message, isError: true };
   }

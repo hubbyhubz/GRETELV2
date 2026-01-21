@@ -89,7 +89,7 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
         // Show a test notification (optional)
         new Notification('Notifications Enabled', {
             body: 'You will now receive updates from G.R.E.T.E.L.',
-            icon: '/icons/crimson-chat.svg'
+            icon: '/icons/brain.svg'
         });
       }
 
@@ -145,7 +145,7 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
       }}
     >
       <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-full ${isSubscribed ? 'bg-[var(--primary-600)] text-white' : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}>
+        <div className={`p-2 rounded-full ${isSubscribed ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}>
           {isSubscribed ? <BellIcon ref={bellRef} size={20} /> : <BellOff size={20} />}
         </div>
         <div>

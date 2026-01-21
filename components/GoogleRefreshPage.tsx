@@ -37,7 +37,7 @@ const GoogleRefreshPage: React.FC = () => {
         <button
           onClick={handleConnect}
           disabled={isRedirecting}
-          className="w-full inline-flex justify-center items-center gap-2 bg-[var(--status-connect-bg)] hover:bg-[var(--status-connect-bg-hover)] text-[var(--status-action-fg)] font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-white focus-visible:ring-[var(--status-connect-bg)] disabled:bg-gray-400 disabled:cursor-not-allowed"
+          className="w-full inline-flex justify-center items-center gap-2 bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-white focus-visible:ring-[#DC143C] disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
           {isRedirecting ? (
             <>
