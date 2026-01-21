@@ -112,9 +112,15 @@ async function sendTestNotification() {
       .then(response => console.log(`Sent to ${sub.id}:`, response.statusCode))
       .catch(err => {
         console.error(`Error sending to ${sub.id}:`, err);
-        if (err.statusCode === 410 || err.statusCode === 404) {
+        const bodyText = typeof err?.body === 'string' ? err.body : '';
+        const isVapidMismatch =
+          err.statusCode === 403 &&
+          bodyText.toLowerCase().includes('vapid') &&
+          bodyText.toLowerCase().includes('do not correspond');
+
+        if (err.statusCode === 410 || err.statusCode === 404 || isVapidMismatch) {
           // Subscription has expired or is no longer valid
-          console.log(`Deleting expired subscription ${sub.id}`);
+          console.log(`Deleting invalid subscription ${sub.id}`);
           supabase.from('push_subscriptions').delete().match({ id: sub.id }).then();
         }
       });

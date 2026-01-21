@@ -3,7 +3,9 @@ import { supabase } from './supabaseClient';
 import { BellOff } from 'lucide-react';
 import { BellIcon, type BellIconHandle } from './AnimatedIcons/BellIcon';
 
-const VAPID_PUBLIC_KEY = 'BAa1oBrekD2JsqettsL4v0V92UBCkaNG2Eln3zDZNPRUi-NkM_dlmq-T12qinBUDA_jw1UxJY_MDNvWiYZ6sVFw';
+const VAPID_PUBLIC_KEY =
+  (import.meta as any).env?.VITE_VAPID_PUBLIC_KEY ||
+  'BAa1oBrekD2JsqettsL4v0V92UBCkaNG2Eln3zDZNPRUi-NkM_dlmq-T12qinBUDA_jw1UxJY_MDNvWiYZ6sVFw';
 
 // Helper to convert VAPID key
 const urlBase64ToUint8Array = (base64String: string) => {
