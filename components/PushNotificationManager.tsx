@@ -133,6 +133,7 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
             if (sub) {
               setSubscription(sub);
               setIsSubscribed(true);
+              setError(null);
             }
             setLoading(false);
           });
@@ -189,10 +190,21 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
       } else {
         console.log('Subscription saved to DB!');
         // Show a test notification (optional)
-        new Notification('Notifications Enabled', {
-            body: 'You will now receive updates from G.R.E.T.E.L.',
-            icon: '/icons/brain.svg'
-        });
+        try {
+          if (registration?.showNotification) {
+            void registration.showNotification('Notifications Enabled', {
+              body: 'You will now receive updates from G.R.E.T.E.L.',
+              icon: '/icons/brain.svg',
+              badge: '/icons/brain.svg',
+            });
+          } else {
+            new Notification('Notifications Enabled', {
+              body: 'You will now receive updates from G.R.E.T.E.L.',
+              icon: '/icons/brain.svg',
+            });
+          }
+        } catch {
+        }
       }
 
     } catch (err: any) {
@@ -241,11 +253,6 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
     }
   };
 
-  if (error && error !== 'Push notifications are not supported in this browser.') {
-      // Render minimal error or nothing if just unsupported
-      return <div className="text-red-500 text-xs">{error}</div>;
-  }
-
   if (supportError) {
     return <div className="text-red-500 text-xs">{supportError}</div>;
   }
@@ -269,9 +276,11 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Push Notifications</h3>
           <p className="text-xs text-gray-600 dark:text-gray-400">
-            {isSubscribed 
-              ? 'You are receiving notifications on this device.' 
-              : 'Enable notifications to stay updated.'}
+            {error
+              ? error
+              : isSubscribed 
+                ? 'You are receiving notifications on this device.' 
+                : 'Enable notifications to stay updated.'}
           </p>
         </div>
       </div>
