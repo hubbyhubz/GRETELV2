@@ -5,10 +5,13 @@ import { sendMessageToGemini } from './geminiService';
 import { getDashboardState, saveDashboardState } from './googleDriveService';
 import { batchAddEventsToCalendar, getTodaysEvents } from './googleCalendarService';
 import { createTask, findOrCreateTaskList, updateTask, deleteTask } from './googleTasksService';
+import { supabase } from './supabaseClient';
 import type { Session } from '@supabase/supabase-js';
 import type { Content } from '@google/genai';
 // FIX: All type imports were pointing to App.tsx which doesn't export them. Changed to import from the correct types.ts file.
 import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, CalendarEvent, UserMood, RelationalGraph } from './types';
+import { fetchAssistantInboxMessages, markAssistantInboxDelivered, markAssistantInboxRead, subscribeAssistantInbox, type AssistantInboxMessageRow } from './assistantInboxService';
+import { playAssistantChime } from '../lib/assistantChime';
 
 // Version for the dashboard state structure. Increment this to trigger migrations.
 const DASHBOARD_STATE_VERSION = "1.1.0";
@@ -639,6 +642,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [emailVersion, setEmailVersion] = useState<string>('');
     const [isEmailVersionModalOpen, setIsEmailVersionModalOpen] = useState(false);
     const messageIdRef = useRef(0);
+    const assistantInboxUnsubRef = useRef<null | (() => void)>(null);
     
     // Mode State
     const [currentMode, setCurrentMode] = useState<AssistantMode>(null);
@@ -656,6 +660,63 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [openSidebarSections, setOpenSidebarSections] = useState<Record<string, boolean>>({});
     const [isBriefingPointersVisible, setIsBriefingPointersVisible] = useState(false);
     const [contextMenu, setContextMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0, text: '', flipped: false });
+
+    const mapInboxRowToChatMessage = useCallback((row: AssistantInboxMessageRow): ChatMessage => {
+        const createdAt = row.sent_at ? Date.parse(row.sent_at) : Date.now();
+        const readAt = row.read_at ? Date.parse(row.read_at) : null;
+        const dismissedAt = row.dismissed_at ? Date.parse(row.dismissed_at) : null;
+        return {
+            id: Date.now() * 1000 + (messageIdRef.current++ % 1000),
+            role: 'model',
+            text: row.content,
+            externalId: row.id,
+            createdAt,
+            senderLabel: '[Assistant]',
+            isAssistantNotification: true,
+            readAt,
+            dismissedAt,
+        };
+    }, []);
+
+    const upsertAssistantInboxMessageToChat = useCallback(async (row: AssistantInboxMessageRow) => {
+        if (row.dismissed_at) return;
+
+        setChatMessages(prev => {
+            const existingIndex = prev.findIndex(m => m.externalId === row.id);
+            const mapped = mapInboxRowToChatMessage(row);
+            if (existingIndex >= 0) {
+                const next = [...prev];
+                next[existingIndex] = { ...next[existingIndex], ...mapped, id: next[existingIndex].id };
+                return next;
+            }
+            return [...prev, mapped];
+        });
+
+        setChatHistory(prev => {
+            const last = prev[prev.length - 1];
+            const lastText = (last as any)?.parts?.map((p: any) => p?.text ?? '').join('') ?? '';
+            if (lastText === row.content) return prev;
+            return [...prev, { role: 'model', parts: [{ text: row.content }], _ts: row.sent_at ? Date.parse(row.sent_at) : Date.now() } as any];
+        });
+
+        try {
+            if (!row.delivered_at) {
+                await markAssistantInboxDelivered(row.id);
+            }
+        } catch {
+        }
+
+        try {
+            const shouldAutoRead = typeof document !== 'undefined' && document.visibilityState === 'visible' && currentView === 'dashboard';
+            if (shouldAutoRead && !row.read_at) {
+                await markAssistantInboxRead(row.id);
+            }
+            if (shouldAutoRead) {
+                playAssistantChime();
+            }
+        } catch {
+        }
+    }, [currentView, mapInboxRowToChatMessage]);
   
     // New State for Confirmations & Notifications
     const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -1031,6 +1092,96 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, [userProfile.id]);
   
     useEffect(() => { loadState(); }, [loadState]); 
+
+    useEffect(() => {
+      const userId = session?.user?.id;
+      if (!userId) return;
+
+      assistantInboxUnsubRef.current?.();
+      assistantInboxUnsubRef.current = null;
+
+      let cancelled = false;
+
+      (async () => {
+        try {
+          const rows = await fetchAssistantInboxMessages(userId);
+          if (cancelled) return;
+          for (const row of rows) {
+            await upsertAssistantInboxMessageToChat(row);
+          }
+        } catch (e) {
+          console.warn('Assistant inbox is unavailable (did you run supabase_assistant_inbox.sql and enable Realtime for the table?)');
+        }
+      })();
+
+      try {
+        assistantInboxUnsubRef.current = subscribeAssistantInbox(userId, {
+          onInsert: (row) => void upsertAssistantInboxMessageToChat(row),
+          onUpdate: (row) => void upsertAssistantInboxMessageToChat(row),
+        });
+      } catch (e) {
+        assistantInboxUnsubRef.current = null;
+      }
+
+      return () => {
+        cancelled = true;
+        assistantInboxUnsubRef.current?.();
+        assistantInboxUnsubRef.current = null;
+      };
+    }, [session?.user?.id, upsertAssistantInboxMessageToChat]);
+
+    useEffect(() => {
+      const userId = session?.user?.id;
+      if (!userId) return;
+      if (typeof window === 'undefined') return;
+      if (!('serviceWorker' in navigator)) return;
+
+      const handler = (event: MessageEvent) => {
+        const data: any = (event as any).data;
+        if (!data || data.type !== 'assistant_push') return;
+        const payload = data.payload || {};
+        const messageId = payload.messageId;
+        const payloadUserId = payload.userId;
+        if (payloadUserId && payloadUserId !== userId) return;
+        if (!messageId) return;
+
+        void (async () => {
+          try {
+            const { data: row, error } = await supabase
+              .from('assistant_inbox_messages')
+              .select('*')
+              .eq('id', messageId)
+              .maybeSingle();
+            if (error || !row) return;
+            await upsertAssistantInboxMessageToChat(row as any);
+          } catch {
+          }
+        })();
+      };
+
+      navigator.serviceWorker.addEventListener('message', handler);
+      return () => {
+        navigator.serviceWorker.removeEventListener('message', handler);
+      };
+    }, [session?.user?.id, upsertAssistantInboxMessageToChat]);
+
+    const assistantAutoReadThrottleRef = useRef(0);
+    useEffect(() => {
+      if (typeof document === 'undefined') return;
+      if (document.visibilityState !== 'visible') return;
+      if (currentView !== 'dashboard') return;
+      const now = Date.now();
+      if (now - assistantAutoReadThrottleRef.current < 2000) return;
+      assistantAutoReadThrottleRef.current = now;
+
+      const unread = chatMessages.filter(
+        (m) => m.isAssistantNotification && m.externalId && !m.readAt && !m.dismissedAt
+      );
+      if (unread.length === 0) return;
+      unread.forEach((m) => {
+        void markAssistantInboxRead(m.externalId as string);
+      });
+    }, [currentView, mobileView, chatMessages]);
 
     // Auto-resize textarea when chatInput changes (including when cleared programmatically)
     useEffect(() => {

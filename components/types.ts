@@ -102,7 +102,22 @@ export interface DelegatedTaskItem {
 }
 export type Milestone = { id: string; text: string; progress: number; assigneeName?: string; linkedTaskIds?: string[]; };
 export type Project = { id:string; name: string; deadline: string; milestones: Milestone[]; };
-export type ChatMessage = { id: number; role: 'user' | 'model'; text: string; imageUrl?: string; sources?: { uri: string; title: string; }[]; isPlanDraft?: boolean; isProjectDraft?: boolean; isWeeklyReport?: boolean; };
+export type ChatMessage = {
+  id: number;
+  role: 'user' | 'model';
+  text: string;
+  imageUrl?: string;
+  sources?: { uri: string; title: string }[];
+  isPlanDraft?: boolean;
+  isProjectDraft?: boolean;
+  isWeeklyReport?: boolean;
+  externalId?: string;
+  createdAt?: number;
+  senderLabel?: string;
+  isAssistantNotification?: boolean;
+  readAt?: number | null;
+  dismissedAt?: number | null;
+};
 export type ChatHistoryItem = Content & { _ts?: number };
 export type BriefingState = 'idle' | 'draft' | 'finalized';
 export type WeeklyLogItem = { id: string; date: string; type: 'accomplishment' | 'challenge'; text: string; };
