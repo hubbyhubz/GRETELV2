@@ -14,7 +14,7 @@ import LockScreenPage from './components/LockScreenPage';
 import TwoFactorAuthPage from './components/TwoFactorAuthPage';
 import GoogleRefreshPage from './components/GoogleRefreshPage';
 import TestPage from './components/TestPage';
-import { supabase } from './components/supabaseClient';
+import { isSupabaseConfigured, supabase, supabaseConfigError } from './components/supabaseClient';
 import type { Session } from '@supabase/supabase-js';
 import type {
   UserProfile,
@@ -89,6 +89,22 @@ function App() {
     }
     applyTabTitle(getTabKeyFromTopLevelView(currentView));
   }, [currentView, requiresGoogleRefresh, userProfile?.setup_complete]);
+
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center bg-gray-100 text-gray-900 p-6">
+        <div className="w-full max-w-xl bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+          <h1 className="text-xl font-bold mb-2">G.R.E.T.E.L Configuration Error</h1>
+          <p className="text-sm text-gray-700 mb-4">{supabaseConfigError}</p>
+          <div className="text-sm text-gray-700 space-y-1">
+            <div className="font-semibold">Cloudflare Pages → Environment Variables</div>
+            <div>VITE_SUPABASE_URL</div>
+            <div>VITE_SUPABASE_ANON_KEY</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const resetInactivityTimer = () => {
     if (inactivityTimer.current) {

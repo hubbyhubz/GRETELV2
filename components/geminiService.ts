@@ -2,10 +2,6 @@
 import type { Content } from "@google/genai";
 import type { UserProfile, DashboardState } from './types';
 
-const openAiApiKey =
-  import.meta.env.VITE_OPENAI_API_KEY ??
-  import.meta.env.VITE_API_KEY ??
-  '';
 const openAiModel = import.meta.env.VITE_OPENAI_MODEL ?? 'gpt-4o';
 
 const buildSystemInstruction = (userProfile: UserProfile, dashboardState: DashboardState, googleCalendarEvents: any[], currentDate: Date): string => {
@@ -413,11 +409,6 @@ export const sendMessageToGemini = async (
   currentDate: Date,
   _accessToken: string | null // FIX: Keep for future use with tools, prefix with _ to mark as unused
 ): Promise<any> => {
-  if (!openAiApiKey) {
-    return {
-      text: "I'm sorry, the AI service is not configured. Please add `VITE_OPENAI_API_KEY` in your environment.",
-    };
-  }
   const systemInstruction = buildSystemInstruction(userProfile, dashboardState, googleCalendarEvents, currentDate);
 
   try {
@@ -478,16 +469,14 @@ export const sendMessageToGemini = async (
       ...historyMessages
     ];
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${openAiApiKey}`,
       },
       body: JSON.stringify({
         model: openAiModel,
         messages,
-        response_format: { type: 'json_object' },
         max_tokens: 2000,
         temperature: 0.7,
       }),
@@ -495,34 +484,14 @@ export const sendMessageToGemini = async (
 
     if (!response.ok) {
       const errorBody = await response.text();
-      const error = Object.assign(new Error(errorBody), { status: response.status });
+      const error = Object.assign(new Error(errorBody || 'AI request failed'), { status: response.status });
       throw error;
     }
 
-    const data = await response.json();
-    const responseText = data?.choices?.[0]?.message?.content ?? '';
-    
-    // The model sometimes wraps its JSON response in ```json ... ```. This extracts it.
-    const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
-    // FIX: Ensure jsonString is always a string, defaulting to responseText if match fails.
-    const jsonString = jsonMatch?.[1] ?? responseText;
-
-    try {
-      // FIX: Handle case where jsonString might be empty after extraction
-      if (!jsonString.trim()) {
-      console.warn("OpenAI returned an empty or non-JSON response.");
-        return { text: responseText || "I'm sorry, I seem to have lost my train of thought. Could you please repeat that?" };
-      }
-      const parsedResponse = JSON.parse(jsonString);
-      return parsedResponse;
-    } catch (jsonError) {
-      console.error("Failed to parse JSON from OpenAI response:", jsonString);
-      // Fallback for non-JSON responses, return the text part
-      return { text: responseText };
-    }
+    return await response.json();
   } catch (error) {
-    console.error("Error calling OpenAI API:", error);
-    let message = "I'm sorry, I'm having trouble connecting to my services right now. Please try again in a moment.";
+    console.error("Error calling AI service:", error);
+    let message = "I'm sorry, I couldn't reach the AI service right now. Please try again in a moment.";
     const errorText = error instanceof Error ? error.message : String(error);
     const status = (error as { status?: number })?.status;
     let parsedError: any = null;
@@ -531,18 +500,10 @@ export const sendMessageToGemini = async (
     } catch {
       parsedError = null;
     }
-    if (errorText.includes('401') || errorText.includes('403') || status === 401 || status === 403) {
-      message = "Authentication error with the AI service. Please check your API key.";
+    if (status === 500) {
+      message = parsedError?.error || "The AI service is not configured on the server.";
     } else if (status === 429) {
-      const code = parsedError?.error?.code || parsedError?.error?.type;
-      const apiMessage = parsedError?.error?.message;
-      if (code === 'insufficient_quota') {
-        message = "OpenAI reports insufficient quota for this key. Please check billing/limits on your OpenAI account or use a new key.";
-      } else if (apiMessage) {
-        message = `OpenAI 429: ${apiMessage}`;
-      } else {
-        message = "The AI service is rate-limited right now. Please wait about a minute and try again.";
-      }
+      message = parsedError?.error || "The AI service is rate-limited right now. Please wait a minute and try again.";
     }
     return { text: message, isError: true };
   }

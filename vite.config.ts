@@ -10,10 +10,6 @@ export default ({ mode }) => {
 
   return defineConfig({
     plugins: [react()],
-    define: {
-      // Expose the API_KEY to the client-side code through process.env
-      'process.env.API_KEY': JSON.stringify(env.API_KEY)
-    },
     // Explicitly configure PostCSS with no plugins to prevent Vite from
     // auto-detecting and incorrectly trying to run Tailwind as a plugin.
     css: {
