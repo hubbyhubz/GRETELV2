@@ -126,19 +126,31 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
     if ('serviceWorker' in navigator && 'PushManager' in window) {
       // Register Service Worker
       navigator.serviceWorker.register('/sw.js')
-        .then(reg => {
+        .then(async reg => {
           console.log('Service Worker Registered!', reg);
-          setRegistration(reg);
-          
-          // Check existing subscription
-          reg.pushManager.getSubscription().then(sub => {
+          try {
+            const readyReg = await navigator.serviceWorker.ready;
+            setRegistration(readyReg);
+            const sub = await readyReg.pushManager.getSubscription();
             if (sub) {
               setSubscription(sub);
               setIsSubscribed(true);
               setError(null);
             }
             setLoading(false);
-          });
+          } catch (e) {
+            setRegistration(reg);
+            try {
+              const sub = await reg.pushManager.getSubscription();
+              if (sub) {
+                setSubscription(sub);
+                setIsSubscribed(true);
+                setError(null);
+              }
+            } catch {
+            }
+            setLoading(false);
+          }
         })
         .catch(err => {
           console.error('Service Worker Registration Failed', err);
@@ -156,7 +168,10 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
       setError(supportError);
       return;
     }
-    if (!registration) return;
+    if (!registration) {
+      setError('Service worker is not ready yet. Please refresh and try again.');
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -167,9 +182,20 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
         return;
       }
 
-      const sub = await registration.pushManager.subscribe({
+      let appServerKey: Uint8Array;
+      try {
+        appServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+      } catch {
+        setError('Invalid VAPID public key configuration. Please check VITE_VAPID_PUBLIC_KEY and redeploy.');
+        return;
+      }
+
+      const readyReg = await navigator.serviceWorker.ready;
+      setRegistration(readyReg);
+
+      const sub = await readyReg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        applicationServerKey: appServerKey
       });
 
       setSubscription(sub);
@@ -227,7 +253,8 @@ export const PushNotificationManager = ({ userId }: { userId: string }) => {
       } else if (err?.name === 'AbortError') {
           setError('Push subscription was interrupted. Please try again.');
       } else {
-          setError('Failed to subscribe. Please check permissions.');
+          const detail = [err?.name, err?.message].filter(Boolean).join(': ');
+          setError(detail ? `Failed to subscribe. ${detail}` : 'Failed to subscribe. Please check permissions.');
       }
     } finally {
       setLoading(false);
