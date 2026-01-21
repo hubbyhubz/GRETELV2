@@ -1,0 +1,22 @@
+# Session Summary
+
+**Date:** 2026-01-21
+
+## 📝 Changes Made
+- **Fixed Critical Crashes:** Resolved `ReferenceError: calendarEvents is not defined` in `DashboardContext` and `ReferenceError: isCloudLoading is not defined` in `EventsOperationsPage`.
+- **Data Persistence:** Fixed an issue where `calendarEvents` were saving to Supabase but not loading back into the application.
+- **UI Updates:** Renamed "Events Operations" tab to "Event Ops".
+- **Cloud Migration:** Implemented "Lazy Migration" to move local user data (tour progress, last seen version) to Supabase `profiles` table for cross-device consistency.
+- **Bug Fixes:** Resolved a React hydration error in the AI Chat component caused by invalid HTML nesting (`<pre>` inside `<p>`).
+- **Database Analysis:** Audited Supabase tables and identified legacy tables (`breakage_*`, `inventory_*`) for cleanup.
+
+## 🚧 Challenges Faced
+- **Runtime Errors:** Immediate application crashes prevented testing the Event Ops feature.
+- **State Synchronization:** Data was successfully writing to the cloud but failed to hydrate local state on reload, causing data "loss" from the user's perspective.
+- **Legacy Debt:** The database contained numerous unused tables confusing the schema understanding.
+
+## 🛠️ Solutions
+- **Context API Fixes:** We audited the `DashboardContext` provider to ensure all necessary state variables and setters were exposed to consumers.
+- **State Loading Logic:** We rewrote the `loadState` logic to correctly parse and set `calendarEvents` from the Supabase response.
+- **Profile Syncing:** We added a background check on app load to sync LocalStorage items to the Supabase `profiles` JSONB column.
+- **Component Refactoring:** We customized the markdown renderer in `AIMessage` to ensure valid DOM nesting.
