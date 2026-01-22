@@ -1,21 +1,5 @@
-
 import { useState, useEffect, useRef, useLayoutEffect, lazy, Suspense } from 'react';
-
-// Lazy load components to improve performance
-const LoginPage = lazy(() => import('./components/LoginPage'));
-const CreateAccountPage = lazy(() => import('./components/CreateAccountPage'));
-const ForgotPasswordPage = lazy(() => import('./components/ForgotPasswordPage'));
-const ResetPasswordPage = lazy(() => import('./components/ResetPasswordPage'));
-const SetupWizardPage = lazy(() => import('./components/SetupWizardPage'));
-const MainDashboardPage = lazy(() => import('./components/MainDashboardPage').then(module => ({ default: module.MainDashboardPage })));
-const PrivacyPolicyPage = lazy(() => import('./components/PrivacyPolicyPage'));
-const TermsOfServicePage = lazy(() => import('./components/TermsOfServicePage'));
-const SimulationIntroPage = lazy(() => import('./components/SimulationIntroPage'));
-const LockScreenPage = lazy(() => import('./components/LockScreenPage'));
-const TwoFactorAuthPage = lazy(() => import('./components/TwoFactorAuthPage'));
-const GoogleRefreshPage = lazy(() => import('./components/GoogleRefreshPage'));
-const TestPage = lazy(() => import('./components/TestPage'));
-
+import LoginPage from './components/LoginPage';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import { isSupabaseConfigured, supabase, supabaseConfigError } from './components/supabaseClient';
 import type { Session } from '@supabase/supabase-js';
@@ -29,6 +13,21 @@ import type {
 } from './components/types';
 import { NotificationManager } from './components/NotificationManager';
 import { applyTabTitle, getTabKeyFromTopLevelView } from './lib/tabTitle.ts';
+import { perfMark, perfMeasure } from './lib/perf';
+
+// Lazy load components to improve performance
+const CreateAccountPage = lazy(() => import('./components/CreateAccountPage'));
+const ForgotPasswordPage = lazy(() => import('./components/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('./components/ResetPasswordPage'));
+const SetupWizardPage = lazy(() => import('./components/SetupWizardPage'));
+const MainDashboardPage = lazy(() => import('./components/MainDashboardPage').then(module => ({ default: module.MainDashboardPage })));
+const PrivacyPolicyPage = lazy(() => import('./components/PrivacyPolicyPage'));
+const TermsOfServicePage = lazy(() => import('./components/TermsOfServicePage'));
+const SimulationIntroPage = lazy(() => import('./components/SimulationIntroPage'));
+const LockScreenPage = lazy(() => import('./components/LockScreenPage'));
+const TwoFactorAuthPage = lazy(() => import('./components/TwoFactorAuthPage'));
+const GoogleRefreshPage = lazy(() => import('./components/GoogleRefreshPage'));
+const TestPage = lazy(() => import('./components/TestPage'));
 
 const INACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 minutes
 const APP_VERSION = "1.5.3"; // Version for patch notes
@@ -51,6 +50,45 @@ function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showLoadingHint, setShowLoadingHint] = useState(false);
+  
+  // Early check for session to reduce initial loading time
+  useEffect(() => {
+    let mounted = true;
+    const checkInitialSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (!mounted) return;
+        
+        if (error || !session) {
+          // No session - show login immediately
+          setIsLoading(false);
+          setCurrentView('login');
+        }
+        // If session exists, let the auth listener handle it (don't set loading false here)
+      } catch (error) {
+        if (!mounted) return;
+        console.error('Error checking initial session:', error);
+        setIsLoading(false);
+        setCurrentView('login');
+      }
+    };
+    
+    // Quick check with timeout
+    const timeout = setTimeout(() => {
+      if (mounted && isLoading && !session) {
+        setIsLoading(false);
+        setCurrentView('login');
+      }
+    }, 2000); // 2 second fallback
+    
+    checkInitialSession();
+    
+    return () => {
+      mounted = false;
+      clearTimeout(timeout);
+    };
+  }, []); // Only run once on mount
   const [isLocked, setIsLocked] = useState(() => {
     // Initialize lock state from storage
     const storedLock = localStorage.getItem('gretel_is_locked');
@@ -74,6 +112,15 @@ function App() {
   const patchNotesClosedRef = useRef(false); // Track if user has explicitly closed patch notes
 
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setShowLoadingHint(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowLoadingHint(true), 6000);
+    return () => window.clearTimeout(timer);
+  }, [isLoading]);
 
   useEffect(() => {
     currentViewRef.current = currentView;
@@ -291,6 +338,7 @@ function App() {
 
       isFetchingProfile.current = true;
       setIsLoading(true);
+      perfMark('profile:load-start');
 
       try {
         console.log('👤 Loading profile for user:', session.user.id);
@@ -298,12 +346,18 @@ function App() {
         let hasMfa = false;
         let isAal2 = false;
 
+        // MFA check - make it non-blocking with timeout
         try {
+            const mfaController = new AbortController();
+            const mfaTimeout = setTimeout(() => mfaController.abort(), 3000); // 3 second timeout
+            
             const { data: mfaData, error: mfaError } = await supabase.auth.mfa.listFactors();
+            clearTimeout(mfaTimeout);
+            
             if (mfaError) {
-                // If network error, log warning but don't block login
-                if (mfaError.message && (mfaError.message.includes('Failed to fetch') || mfaError.name === 'AuthRetryableFetchError')) {
-                    console.warn('⚠️ MFA check skipped due to network error:', mfaError.message);
+                // If network error or timeout, log warning but don't block login
+                if (mfaError.message && (mfaError.message.includes('Failed to fetch') || mfaError.message.includes('AbortError') || mfaError.name === 'AuthRetryableFetchError')) {
+                    console.warn('⚠️ MFA check skipped due to network/timeout:', mfaError.message);
                 } else {
                     console.error('❌ MFA check error:', mfaError);
                 }
@@ -313,7 +367,7 @@ function App() {
                 isAal2 = userAal === 'aal2';
             }
         } catch (mfaCatchError) {
-             console.warn('⚠️ MFA check exception (likely network):', mfaCatchError);
+             console.warn('⚠️ MFA check exception (likely network/timeout):', mfaCatchError);
         }
 
         if (hasMfa && !isAal2) {
@@ -321,8 +375,19 @@ function App() {
           return;
         }
 
-        const { data: profileData, error } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-        if (error && error.code !== 'PGRST116') {
+        // Profile fetch with timeout
+        const profilePromise = supabase.from('profiles').select('*').eq('id', session.user.id).single();
+        let profileTimeout: ReturnType<typeof setTimeout>;
+        const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) => {
+          profileTimeout = setTimeout(() => {
+            resolve({ data: null, error: { message: 'Profile fetch timeout after 8 seconds' } });
+          }, 8000);
+        });
+        
+        const result = await Promise.race([profilePromise, timeoutPromise]);
+        clearTimeout(profileTimeout!);
+        const { data: profileData, error } = result;
+        if (error && 'code' in error && error.code !== 'PGRST116') {
           // Ignore AbortError as it's likely due to rapid component unmounting/re-mounting
           if (error.message.includes('AbortError')) {
             console.warn('⚠️ Profile fetch aborted (benign):', error.message);
@@ -496,17 +561,23 @@ function App() {
                   setShouldShowPatchNotes(false);
                 }
                 setCurrentView('dashboard');
+                perfMark('profile:load-success');
+                perfMeasure('profile load', 'profile:load-start', 'profile:load-success');
             }
         } else {
             setRequiresGoogleRefresh(false);
             console.log('⏳ New user - setup not complete. Directing to setupWizard first.');
             setCurrentView('setupWizard');
+            perfMark('profile:load-success');
+            perfMeasure('profile load', 'profile:load-start', 'profile:load-success');
         }
       } catch (error: any) {
         console.error('❌ Error loading profile:', error);
         // Instead of redirecting to login immediately, show error state
         setProfileLoadError(error?.message || 'Failed to load profile. Please check your connection.');
         setIsLoading(false);
+        perfMark('profile:load-error');
+        perfMeasure('profile load', 'profile:load-start', 'profile:load-error');
       } finally {
         isFetchingProfile.current = false;
       }
@@ -525,7 +596,7 @@ function App() {
         setAuthError("Login timed out. Please try again.");
         setCurrentView('login');
       }
-    }, 15000); // 15 second timeout
+    }, 10000); // 10 second timeout (reduced from 15s)
 
     return () => clearTimeout(timeout);
   }, [isLoading]);
@@ -778,8 +849,16 @@ function App() {
 
     if (isLoading) {
       return (
-        <div className="flex items-center justify-center min-h-screen">
+        <div className="flex flex-col items-center justify-center min-h-screen gap-4">
           <div className="custom-loader-lg"></div>
+          {showLoadingHint && (
+            <div className="text-center px-6">
+              <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">Still loading…</div>
+              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                This can happen on slower mobile networks. If it reaches 15 seconds, we’ll stop and return you to login.
+              </div>
+            </div>
+          )}
         </div>
       );
     }

@@ -10,26 +10,101 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  // Initialize theme from localStorage immediately
   const [theme, setTheme] = useState<Theme>(() => {
-    // 1. Check for a saved theme in localStorage.
+    // Check for saved theme in localStorage
     const savedTheme = localStorage.getItem('theme') as Theme | null;
-    // 2. If a theme is saved, use it. Otherwise, default to 'light' mode.
-    return savedTheme || 'light';
-  });
-
-  useEffect(() => {
+    const initialTheme = savedTheme || 'light';
+    
+    // Apply theme to DOM immediately (before React renders)
     const root = window.document.documentElement;
-    if (theme === 'dark') {
+    if (initialTheme === 'dark') {
       root.classList.add('dark');
     } else {
       root.classList.remove('dark');
     }
-    // Save the user's current preference to localStorage for future visits.
+    
+    return initialTheme;
+  });
+
+  // Update DOM whenever theme changes
+  useEffect(() => {
+    const root = window.document.documentElement;
+    
+    // Remove all theme classes first to ensure clean state
+    root.classList.remove('dark', 'light');
+    
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      // Explicitly ensure dark is removed for light mode
+      root.classList.remove('dark');
+    }
+    
+    // Save the user's current preference to localStorage
     localStorage.setItem('theme', theme);
+    
+    // Force Tailwind CDN to recognize the change
+    // Trigger a small DOM mutation to force re-evaluation
+    const observer = new MutationObserver(() => {
+      // Tailwind CDN should pick up the change
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    
+    // Log for debugging
+    console.log('🎨 useEffect - Theme set to:', theme, '| HTML classes:', root.className);
+    
+    return () => observer.disconnect();
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme((prevTheme) => (prevTheme === 'light' ? 'dark' : 'light'));
+    setTheme((prevTheme) => {
+      const newTheme = prevTheme === 'light' ? 'dark' : 'light';
+      console.log('🎨 Theme toggling:', prevTheme, '→', newTheme);
+      
+      // Immediately update DOM for instant feedback (synchronous)
+      const root = window.document.documentElement;
+      
+      // Remove all theme classes first
+      root.classList.remove('dark', 'light');
+      
+      if (newTheme === 'dark') {
+        root.classList.add('dark');
+        console.log('✅ Added "dark" class to <html>. Current classes:', root.className);
+      } else {
+        // Ensure dark is removed
+        root.classList.remove('dark');
+        console.log('✅ Removed "dark" class from <html>. Current classes:', root.className);
+      }
+      
+      // Force a reflow to ensure styles are recalculated
+      void root.offsetHeight;
+      
+      // Save immediately
+      localStorage.setItem('theme', newTheme);
+      console.log('✅ Theme updated in DOM and localStorage');
+      
+      // The MutationObserver in index.html will detect the class change
+      // and call forceTailwindRecompile() automatically
+      
+      // Also manually trigger it as a backup
+      if (typeof window !== 'undefined' && (window as any).forceTailwindRecompile) {
+        setTimeout(() => {
+          (window as any).forceTailwindRecompile();
+        }, 50);
+      }
+      
+      // Verify the class is actually on the element
+      setTimeout(() => {
+        const hasDark = root.classList.contains('dark');
+        console.log('🔍 Verification - <html> has "dark" class:', hasDark, '| Expected:', newTheme === 'dark');
+        if (hasDark !== (newTheme === 'dark')) {
+          console.error('❌ MISMATCH! Class state does not match theme state!');
+        }
+      }, 100);
+      
+      return newTheme;
+    });
   };
 
   return (

@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "notify:run": "node scripts/notify.js",
     "notify:test": "node scripts/send-test-message.js"
   },
@@ -33,10 +34,14 @@
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.23",
     "dotenv": "^17.2.3",
     "fluent-ffmpeg": "^2.1.3",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.19",
     "typescript": "^5.0.2",
     "vite": "^5.0.0",
+    "vitest": "^2.1.9",
     "wavefile": "^11.0.0",
     "web-push": "^3.6.7"
   }

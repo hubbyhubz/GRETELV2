@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import * as jose from 'jose';
+import type { ExecutionContext, ScheduledEvent } from '@cloudflare/workers-types';
 
 export interface Env {
   VITE_SUPABASE_URL: string;
@@ -10,7 +11,7 @@ export interface Env {
 }
 
 export default {
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
     console.log('⏰ Cron Triggered: Checking for pending notifications...');
 
     // 1. Setup Dependencies
@@ -65,7 +66,7 @@ export default {
       // The Service Worker will receive a push event with null data.
       // We will handle this in SW to show a generic "New Message" notification.
       
-      const vapidToken = await generateVapidToken(env.VAPID_SUBJECT, env.VAPID_PRIVATE_KEY, env.VITE_VAPID_PUBLIC_KEY);
+      const vapidToken = await generateVapidToken(env.VAPID_SUBJECT, env.VAPID_PRIVATE_KEY);
 
       const sendPromises = subscriptions.map(async (sub) => {
         try {
@@ -108,7 +109,7 @@ export default {
 };
 
 // Helper to generate VAPID JWT
-async function generateVapidToken(subject: string, privateKey: string, publicKey: string) {
+async function generateVapidToken(subject: string, privateKey: string) {
   const alg = 'ES256';
   
   // Convert PEM/Base64 key to CryptoKey
@@ -148,7 +149,6 @@ async function importPrivateKey(pemOrBase64: string) {
   } catch (e) {
       // If not PEM, maybe it's the raw base64 private key?
       // Construct JWK
-      const d = pemOrBase64.replace(/-/g, '+').replace(/_/g, '/'); // ensure standard base64?
       // Actually jose importJWK handles this.
       return await jose.importJWK({
         kty: 'EC',

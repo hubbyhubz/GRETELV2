@@ -21,6 +21,6 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["**/*.ts", "**/*.tsx", "vite-env.d.ts"],
-  "exclude": ["vite.config.ts", "Rubbish", "**/Rubbish/**"],
+  "exclude": ["vite.config.ts", "Rubbish", "**/Rubbish/**", "worker-notify"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

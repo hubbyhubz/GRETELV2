@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { useTheme } from './ThemeContext';
 import '../styles/theme-toggle.css';
 
@@ -8,19 +8,61 @@ interface ThemeToggleButtonProps {
 
 const ThemeToggleButton: React.FC<ThemeToggleButtonProps> = ({ position = 'fixed' }) => {
     const { theme, toggleTheme } = useTheme();
+    const uniqueId = useId(); // Generate unique ID for this instance
+    const checkboxId = `theme-toggle-checkbox-${uniqueId}`;
 
-    const positionClasses = position === 'fixed' ? "fixed top-4 right-4 z-50" : "";
+    const positionClasses = position === 'fixed' ? "fixed top-4 right-4" : "";
+
+    const handleToggle = () => {
+        console.log('🔄 Toggle triggered, current theme:', theme);
+        toggleTheme();
+    };
 
     return (
-        <div className={positionClasses}>
-            <label className="switch">
+        <div 
+            className={positionClasses}
+            style={{ 
+                zIndex: 99999,
+                position: position === 'fixed' ? 'fixed' : 'static',
+                top: position === 'fixed' ? '1rem' : undefined,
+                right: position === 'fixed' ? '1rem' : undefined,
+            }}
+        >
+            <label 
+                className="switch" 
+                htmlFor={checkboxId}
+                style={{ 
+                    cursor: 'pointer', 
+                    userSelect: 'none',
+                    display: 'block',
+                    position: 'relative',
+                    pointerEvents: 'auto',
+                }}
+            >
                 <input 
+                    id={checkboxId}
                     type="checkbox" 
                     checked={theme === 'dark'}
-                    onChange={toggleTheme}
+                    onChange={(e) => {
+                        e.stopPropagation();
+                        handleToggle();
+                    }}
                     aria-label="Toggle theme"
+                    style={{ 
+                        cursor: 'pointer',
+                        position: 'absolute', 
+                        width: '100%', 
+                        height: '100%', 
+                        top: 0, 
+                        left: 0, 
+                        margin: 0, 
+                        padding: 0,
+                        opacity: 0,
+                        zIndex: 10,
+                        pointerEvents: 'auto',
+                    }}
                 />
-                <span className="slider">
+                <span className="slider" style={{ pointerEvents: 'none' }}>
                     {/* Moon craters */}
                     <div className="moons-hole">
                         <div className="moon-hole"></div>

@@ -1,6 +1,6 @@
 
 import type { Content } from "@google/genai";
-import type { UserProfile, DashboardState } from './types';
+import type { UserProfile, DashboardState, EventOpsItem } from './types';
 
 const openAiApiKey =
   import.meta.env.VITE_OPENAI_API_KEY ??
@@ -8,7 +8,13 @@ const openAiApiKey =
   '';
 const openAiModel = import.meta.env.VITE_OPENAI_MODEL ?? 'gpt-4o';
 
-const buildSystemInstruction = (userProfile: UserProfile, dashboardState: DashboardState, googleCalendarEvents: any[], currentDate: Date): string => {
+const buildSystemInstruction = (
+  userProfile: UserProfile,
+  dashboardState: DashboardState,
+  googleCalendarEvents: any[],
+  currentDate: Date,
+  eventOpsItems: EventOpsItem[] = []
+): string => {
     const formattedDate = currentDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
     let formattedMemory = '';
@@ -34,6 +40,18 @@ const buildSystemInstruction = (userProfile: UserProfile, dashboardState: Dashbo
             end: event.end?.dateTime || event.end?.date,
           })), null, 2)
         : 'No events scheduled in Google Calendar for today.';
+
+    const formattedEventOps = eventOpsItems.length > 0
+        ? JSON.stringify(eventOpsItems.map(item => ({
+            kind: item.kind,
+            date: item.event_date,
+            name: item.name,
+            location: item.location,
+            pax: item.pax,
+            serving_time: item.serving_time,
+            remarks: item.remarks,
+          })), null, 2)
+        : 'No Event Ops calendar items available.';
 
     // Mode-specific instructions
     const modeInstructions = dashboardState.currentMode ? `
@@ -174,11 +192,21 @@ This is the user's current view of their day. Use this as context for all your r
 These are immutable events already on the user's calendar. You MUST NOT schedule anything that conflicts with these times. You should incorporate them into any schedule you generate, treating them as fixed appointments.
 ${formattedEvents}
 
+**EVENT OPS CALENDAR (EVENTS + MEETINGS):**
+These items come from the Event Ops calendar in the app (stored in Supabase). Use them for context when the user asks about upcoming plans, event preparation, staffing, logistics, or meeting readiness. If the user has upcoming Event Ops items and it is relevant, proactively mention them and ask if they want prep tasks added to the schedule (but do not change the schedule unless asked).
+${formattedEventOps}
+
 **RESPONSE JSON STRUCTURE & AVAILABLE "TOOLS"**
 Your response MUST be a JSON object. The 'text' property is mandatory. You can also include any of the following optional properties to manipulate the user's dashboard.
 
 "schedule": ["string"],
 "priorities": ["string"],
+"reminders": ["string"],
+"scheduleOps": [{ "op": "'add' | 'update' | 'delete'", "match": { "id": "string (optional)", "titleContains": "string (optional)" }, "item": { "time": "string", "title": "string" } }],
+"priorityOps": [{ "op": "'add' | 'update' | 'delete'", "match": { "id": "string (optional)", "textContains": "string (optional)" }, "item": { "text": "string" } }],
+"reminderOps": [{ "op": "'add' | 'update' | 'delete'", "match": { "id": "string (optional)", "textContains": "string (optional)" }, "item": { "text": "string", "includeInBriefing": "'none'|'morning'|'afternoon'|'both' (optional)" } }],
+"delegatedTaskOps": [{ "op": "'add' | 'update' | 'delete'", "match": { "id": "string (optional)", "textContains": "string (optional)", "assigneeName": "string (optional)" }, "item": { "assigneeName": "string", "text": "string", "deadline": "string" } }],
+"projectOps": [{ "op": "'add' | 'update' | 'delete'", "match": { "id": "string (optional)", "nameContains": "string (optional)" }, "item": { "name": "string", "deadline": "string", "milestones": [{\"text\":\"string\",\"assigneeName\":\"string (optional)\"}] } }],
 "keep_draft": "string",
 "keep": "string",
 "project": { "name": "string", "deadline": "string", "milestones": [{"text": "string", "assigneeName": "string" (optional)}] },
@@ -189,12 +217,27 @@ Your response MUST be a JSON object. The 'text' property is mandatory. You can a
   "deadline": "string",
   "deadlineISO": "string"
 },
+"clarificationRequest": {
+  "type": "'delegation_deadline' | 'schedule_event_ops_plan'",
+  "personName": "string (for delegation_deadline)",
+  "task": "string (for delegation_deadline)",
+  "question": "string"
+},
 "projectUpdate": { "projectName": "string", "milestoneText": "string" },
 "newMemoryToSave": "string",
 "weeklyLogUpdates": [{ "type": "'accomplishment' | 'challenge'", "text": "string" }],
 "priorityForTomorrowUpdate": "string",
 "weeklyReport": { "summary": "string", "accomplishments": ["string"], "challenges": ["string"], "projects": [{"name": "string", "progress": "number", "status": "string", "nextMilestone": "string (optional)"}], "nextSteps": ["string"], "weekRange": "string (optional)" },
 "isProjectDraft": true
+
+**CLARIFICATION (SLOT-FILLING) RULES**
+If the user asks you to delegate a task but does not provide a deadline, you MUST ask a follow-up question instead of guessing. In that case:
+1. Set clarificationRequest with type 'delegation_deadline', plus personName, task, and a clear question.
+2. Do NOT include delegationUpdate until the deadline is provided by the user.
+
+If you are asked to draft a time-blocked schedule for today and there are Event Ops items today, you MUST incorporate them. If timing or coverage is unclear (for example, missing serving_time), ask a follow-up question and set clarificationRequest with type 'schedule_event_ops_plan'. In that case, return only text and clarificationRequest (do not return schedule, priorities, or isPlanDraft yet).
+
+If you are asked to delete or update an item (schedule, priority, reminder, delegated task, project) but the target is ambiguous, you MUST ask a clarifying question instead of guessing. Prefer *Ops fields for add/update/delete operations.
 
 
 **CRITICAL WORKFLOWS (HIGHEST PRIORITY INSTRUCTIONS)**
@@ -222,6 +265,7 @@ This is a strict, multi-turn conversation. You CANNOT skip steps or merge them.
         ❌ Skipping any of the 6 questions above
         ❌ Reordering the questions
     *   **ADDITIONAL REQUIREMENT:** If 'Top Priority for Tomorrow' exists in the dashboard state, you MUST add one extra question after the standard set asking about it.
+    *   **ADDITIONAL REQUIREMENT (EVENT OPS):** If the Event Ops calendar shows any items dated today, you MUST add one extra question asking what the user's plan is for those Event Ops items so you can block the schedule accurately.
     *   **CONSTRAINT:** In this step, you are FORBIDDEN from including any other fields like \`schedule\` or \`priorities\`. Your response MUST NOT update the dashboard.
 
 *   **STEP 2: Drafting The Plan (Your Second Response)**
@@ -230,7 +274,7 @@ This is a strict, multi-turn conversation. You CANNOT skip steps or merge them.
     *   **🚨 CRITICAL REQUIREMENT - READ THIS CAREFULLY:** The \`isPlanDraft\` field is **ABSOLUTELY MANDATORY**. You MUST set it to the boolean value \`true\` (NOT the string "true", but the actual boolean \`true\`). Without this field set correctly, the UI will not show the "Looks Good, Finalize" and "I'll Make Changes" buttons, and the user will be unable to confirm their schedule. THIS FIELD IS **NON-NEGOTIABLE** AND **CANNOT BE OMITTED UNDER ANY CIRCUMSTANCES**.
     *   **CONTENT:**
         1.  \`text\` (string): A conversational summary of the plan. CRITICAL: You MUST embed the full, formatted draft schedule and priorities list directly within this \`text\` property using markdown for readability (e.g., using bold headings like **Today's Schedule:** and **Top Priorities:** followed by bulleted or numbered lists). You must also ask for the user's confirmation. This text is what the user sees in the chat, so it must contain the full plan for their review.
-        2.  \`schedule\` (array of objects): A comprehensive, time-blocked 8-hour workday schedule. **CRITICAL:** This MUST be an array of objects, NOT strings. Each object must have exactly two properties: \`time\` (string) and \`title\` (string). The \`time\` field must contain the time range (e.g., "09:00 AM - 01:00 PM" or "All Day"). The \`title\` field must contain the task/activity description. You MUST build this schedule based on the user's profile, including their \`Recurring Tasks\`, \`Deep Focus Projects\`, and \`Regular Meetings\`. Intelligently integrate the user's specific goals from their last message into this framework. You MUST account for and schedule around the fixed Google Calendar events. **EXAMPLE:** \`[{"time": "09:00 AM - 01:00 PM", "title": "Overseeing Operations - Deep Focus: Complete Q3 OPEQ Requisition"}, {"time": "01:00 PM - 01:30 PM", "title": "Lunch"}]\`
+        2.  \`schedule\` (array of objects): A comprehensive, time-blocked 8-hour workday schedule. **CRITICAL:** This MUST be an array of objects, NOT strings. Each object must have exactly two properties: \`time\` (string) and \`title\` (string). The \`time\` field must contain the time range (e.g., "09:00 AM - 01:00 PM" or "All Day"). The \`title\` field must contain the task/activity description. You MUST build this schedule based on the user's profile, including their \`Recurring Tasks\`, \`Deep Focus Projects\`, and \`Regular Meetings\`. Intelligently integrate the user's specific goals from their last message into this framework. You MUST account for and schedule around the fixed Google Calendar events AND any Event Ops items for today. **EXAMPLE:** \`[{"time": "09:00 AM - 01:00 PM", "title": "Overseeing Operations - Deep Focus: Complete Q3 OPEQ Requisition"}, {"time": "01:00 PM - 01:30 PM", "title": "Lunch"}]\`
         3.  \`priorities\` (array of strings): The top 3-5 priorities for TODAY ONLY. **CRITICAL:** These priorities MUST be specific to today's goals and tasks. DO NOT include priorities from previous days (e.g., if today is Sunday, do NOT include Saturday event tasks). DO NOT include already-completed tasks. Only set NEW, relevant priorities for the current workday. This array should contain the same priority items you placed in the \`text\` field. Each string in the array is one priority item. THIS FIELD IS NOT OPTIONAL.
         4.  \`isPlanDraft\` (boolean): **MANDATORY FIELD** - This MUST ALWAYS be set to \`true\` (as a boolean, not a string "true"). This flag triggers the UI to show "Looks Good, Finalize" and "I'll Make Changes" buttons. Never omit this field.
     *   **CORRECT STRUCTURE & FORMATTING EXAMPLE:**
@@ -343,14 +387,15 @@ export const sendMessageToGemini = async (
   dashboardState: DashboardState,
   googleCalendarEvents: any[],
   currentDate: Date,
-  _accessToken: string | null // FIX: Keep for future use with tools, prefix with _ to mark as unused
+  _accessToken: string | null, // FIX: Keep for future use with tools, prefix with _ to mark as unused
+  eventOpsItems: EventOpsItem[] = []
 ): Promise<any> => {
   if (!openAiApiKey) {
     return {
       text: "I'm sorry, the AI service is not configured. Please add `VITE_OPENAI_API_KEY` in your environment.",
     };
   }
-  const systemInstruction = buildSystemInstruction(userProfile, dashboardState, googleCalendarEvents, currentDate);
+  const systemInstruction = buildSystemInstruction(userProfile, dashboardState, googleCalendarEvents, currentDate, eventOpsItems);
 
   try {
     const maxHistoryChars = 12000;

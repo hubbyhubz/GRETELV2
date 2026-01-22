@@ -8,7 +8,9 @@ import { createTask, findOrCreateTaskList, updateTask, deleteTask } from './goog
 import type { Session } from '@supabase/supabase-js';
 import type { Content } from '@google/genai';
 // FIX: All type imports were pointing to App.tsx which doesn't export them. Changed to import from the correct types.ts file.
-import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, UserMood } from './types';
+import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, UserMood, EventOpsItem } from './types';
+import { isSupabaseConfigured, supabase } from './supabaseClient';
+import { applyPriorityOps as applyPriorityOpsUtil, applyProjectOps as applyProjectOpsUtil, applyReminderOps as applyReminderOpsUtil, applyScheduleOps as applyScheduleOpsUtil, detectEventOpsScheduleClarification, normalizeNeedle as normalizeNeedleUtil, parseDeadlineFromText as parseDeadlineFromTextUtil } from './assistantActionUtils';
 
 // Version for the dashboard state structure. Increment this to trigger migrations.
 const DASHBOARD_STATE_VERSION = "1.1.0";
@@ -381,6 +383,7 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     initialSettingsTab: 'profile' | 'security' | 'team';
     isCloudLoading: boolean;
     cloudError: string | null;
+    suppressCalendarFetch: boolean;
     chatMessages: ChatMessage[];
     chatHistory: ChatHistoryItem[];
     scheduleItems: ScheduleItem[];
@@ -429,6 +432,8 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     recentContext: string[];
     modeHistory: ModeHistoryEntry[];
     modeActivatedAt: number | undefined;
+    pendingDelegation: { personName: string; task: string; requestedAt: number } | null;
+    pendingScheduleClarification: { reason: 'event_ops_conflict' | 'event_ops_missing_time'; question: string; createdAt: number; eventOpsItems: Array<Pick<EventOpsItem, 'id' | 'kind' | 'event_date' | 'name' | 'location' | 'serving_time'>> } | null;
 
 
     // All refs needed by UI (if any, usually not)
@@ -450,6 +455,7 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     setIsCommandPaletteOpen: React.Dispatch<React.SetStateAction<boolean>>;
     setAttachedFile: React.Dispatch<React.SetStateAction<File | null>>;
     setInitialSettingsTab: React.Dispatch<React.SetStateAction<'profile' | 'security' | 'team'>>;
+    setSuppressCalendarFetch: React.Dispatch<React.SetStateAction<boolean>>;
     setProjects: React.Dispatch<React.SetStateAction<Project[]>>; 
     setCompletedProjects: React.Dispatch<React.SetStateAction<Project[]>>;
     setReminders: React.Dispatch<React.SetStateAction<ReminderItem[]>>;
@@ -473,6 +479,8 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     setIsSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
     setShowProjectsClearConfirm: React.Dispatch<React.SetStateAction<boolean>>;
     setWeeklyReport: React.Dispatch<React.SetStateAction<WeeklyReport | null>>;
+    setPendingDelegation: React.Dispatch<React.SetStateAction<{ personName: string; task: string; requestedAt: number } | null>>;
+    setPendingScheduleClarification: React.Dispatch<React.SetStateAction<{ reason: 'event_ops_conflict' | 'event_ops_missing_time'; question: string; createdAt: number; eventOpsItems: Array<Pick<EventOpsItem, 'id' | 'kind' | 'event_date' | 'name' | 'location' | 'serving_time'>> } | null>>;
 
 
     handleSendMessage: (e?: React.FormEvent, prompt?: string, imageUrl?: string) => Promise<void>;
@@ -522,8 +530,16 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     handleOpenAddTaskModal: () => void;
     handleActivateMode: (mode: 'crisis' | 'strategic' | 'red-day') => void;
     handleDeactivateMode: () => void;
+    cancelPendingDelegation: () => void;
+    cancelPendingScheduleClarification: () => void;
     handleAddDelegatedTask: (task: { text: string; assigneeId: string; deadlineDate: string; deadlineTime: string; }) => Promise<void>;
     handleClearDelegatedTasks: () => void;
+    createScheduleItem: (item: { time: string; title: string }) => void;
+    updateScheduleItem: (id: string, updates: Partial<Pick<ScheduleItem, 'time' | 'title' | 'completed'>>) => void;
+    deleteScheduleItem: (id: string) => void;
+    syncScheduleToGoogleCalendar: (scheduleOverride?: ScheduleItem[]) => Promise<void>;
+    refreshGoogleCalendarEvents: () => Promise<void>;
+    clearGoogleCalendarEvents: () => void;
 
 }
 
@@ -656,6 +672,20 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
     const [nudgedTaskIds, setNudgedTaskIds] = useState<Set<string>>(new Set());
     const [nudgedDelegatedTaskIds, setNudgedDelegatedTaskIds] = useState<Set<string>>(new Set());
+    const [eventOpsItems, setEventOpsItems] = useState<EventOpsItem[]>([]);
+    const [lastEventOpsNudgeDate, setLastEventOpsNudgeDate] = useState<string>('');
+    const [pendingDelegation, setPendingDelegation] = useState<{ personName: string; task: string; requestedAt: number } | null>(null);
+    const [pendingScheduleClarification, setPendingScheduleClarification] = useState<{
+      reason: 'event_ops_conflict' | 'event_ops_missing_time';
+      question: string;
+      createdAt: number;
+      eventOpsItems: Array<Pick<EventOpsItem, 'id' | 'kind' | 'event_date' | 'name' | 'location' | 'serving_time'>>;
+    } | null>(null);
+    const eventOpsFetchCacheRef = useRef<{ at: number; items: EventOpsItem[]; error: string | null }>({
+      at: 0,
+      items: [],
+      error: null,
+    });
     
     const [openSidebarSections, setOpenSidebarSections] = useState<Record<string, boolean>>({});
     const [isBriefingPointersVisible, setIsBriefingPointersVisible] = useState(false);
@@ -963,6 +993,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             setModeHistory(Array.isArray(state.modeHistory) ? state.modeHistory : []);
             setModeActivatedAt(state.modeActivatedAt);
             setChatMessages([]); setChatHistory([]); setHasGreeted(false);
+            setPendingDelegation(null);
+            setPendingScheduleClarification(null);
           } else {
             const rawHistory = Array.isArray(state.chatHistory) ? state.chatHistory : [];
             const normalizedHistory = normalizeChatHistory(rawHistory as ChatHistoryItem[]);
@@ -1004,6 +1036,33 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             setNotifiedEventIds(new Set(Array.isArray(state.notifiedEventIds) ? state.notifiedEventIds : []));
             setNudgedDelegatedTaskIds(new Set(Array.isArray(state.nudgedDelegatedTaskIds) ? state.nudgedDelegatedTaskIds : []));
             setSuppressCalendarFetch(state.suppressCalendarFetch || false);
+            setLastEventOpsNudgeDate(typeof state.lastEventOpsNudgeDate === 'string' ? state.lastEventOpsNudgeDate : '');
+            setPendingDelegation(
+              state.pendingDelegation &&
+                typeof state.pendingDelegation.personName === 'string' &&
+                typeof state.pendingDelegation.task === 'string'
+                ? {
+                    personName: state.pendingDelegation.personName,
+                    task: state.pendingDelegation.task,
+                    requestedAt: typeof state.pendingDelegation.requestedAt === 'number' ? state.pendingDelegation.requestedAt : Date.now(),
+                  }
+                : null
+            );
+            const psc = state.pendingScheduleClarification as any;
+            setPendingScheduleClarification(
+              psc &&
+                (psc.reason === 'event_ops_conflict' || psc.reason === 'event_ops_missing_time') &&
+                typeof psc.question === 'string' &&
+                typeof psc.createdAt === 'number' &&
+                Array.isArray(psc.eventOpsItems)
+                ? {
+                    reason: psc.reason,
+                    question: psc.question,
+                    createdAt: psc.createdAt,
+                    eventOpsItems: psc.eventOpsItems,
+                  }
+                : null
+            );
           }
         }
       } catch (error) {
@@ -1058,6 +1117,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setTop3Items([]); 
       setDraftedSchedule(null); // Clear drafted schedule on daily reset
       setDraftedPriorities(null); // Clear drafted priorities on daily reset
+      setPendingDelegation(null);
+      setPendingScheduleClarification(null);
       setBriefingInputs([]); 
       setBriefingState('idle'); 
       setIsScheduleConfirmed(false);
@@ -1097,12 +1158,76 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               nudgedTaskIds: Array.from(nudgedTaskIds),
               notifiedEventIds: Array.from(notifiedEventIds),
               nudgedDelegatedTaskIds: Array.from(nudgedDelegatedTaskIds),
-              suppressCalendarFetch
+              suppressCalendarFetch,
+              lastEventOpsNudgeDate,
+              pendingDelegation: pendingDelegation ?? undefined,
+              pendingScheduleClarification: pendingScheduleClarification ?? undefined
           };
           saveDashboardState(userProfile.id, currentState).catch((err: any) => console.error("Failed to save state to Supabase:", err));
       }, saveDelay);
       return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-    }, [chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt]);
+    }, [chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt, suppressCalendarFetch, lastEventOpsNudgeDate, pendingDelegation, pendingScheduleClarification]);
+
+    const toYmdLocal = useCallback((date: Date) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }, []);
+
+    const fetchEventOpsItemsForAI = useCallback(async (daysAhead = 7, force = false): Promise<EventOpsItem[]> => {
+      const nowMs = Date.now();
+      const cached = eventOpsFetchCacheRef.current;
+      const ttlMs = 30_000;
+      if (!force && cached.at > 0 && nowMs - cached.at < ttlMs) return cached.items;
+      if (!isSupabaseConfigured || isCloudLoading || cloudError || !userProfile.id) return cached.items;
+
+      const startDate = new Date();
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + daysAhead);
+      const start = toYmdLocal(startDate);
+      const end = toYmdLocal(endDate);
+
+      try {
+        const { data, error } = await supabase
+          .from('event_ops_items')
+          .select('*')
+          .eq('user_id', userProfile.id)
+          .gte('event_date', start)
+          .lte('event_date', end)
+          .order('event_date', { ascending: true })
+          .order('created_at', { ascending: true });
+
+        if (error) {
+          eventOpsFetchCacheRef.current = { at: nowMs, items: [], error: error.message };
+          console.warn('[EventOpsSync] Failed to fetch event_ops_items:', error.message);
+          return [];
+        }
+
+        const items = (data as EventOpsItem[]) || [];
+        eventOpsFetchCacheRef.current = { at: nowMs, items, error: null };
+        return items;
+      } catch (err) {
+        eventOpsFetchCacheRef.current = { at: nowMs, items: [], error: 'fetch_failed' };
+        console.warn('[EventOpsSync] Failed to fetch event_ops_items:', err);
+        return [];
+      }
+    }, [isCloudLoading, cloudError, userProfile.id, toYmdLocal]);
+
+    useEffect(() => {
+      if (!isSupabaseConfigured) return;
+      if (isCloudLoading || cloudError) return;
+      const userId = userProfile.id;
+      if (!userId) return;
+      const fetchUpcoming = async () => {
+        const items = await fetchEventOpsItemsForAI(7, true);
+        setEventOpsItems(items);
+      };
+
+      fetchUpcoming();
+      const interval = window.setInterval(fetchUpcoming, 10 * 60 * 1000);
+      return () => window.clearInterval(interval);
+    }, [isCloudLoading, cloudError, userProfile.id, fetchEventOpsItemsForAI]);
     
     useEffect(() => {
         const fetchGoogleCalendarEvents = async () => {
@@ -1355,7 +1480,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         };
 
         const historyForRequest: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-        const response = await sendMessageToGemini(historyForRequest, { ...userProfile, team: userProfile.team }, minimalState, [], new Date(), session?.provider_token || null);
+        const response = await sendMessageToGemini(historyForRequest, { ...userProfile, team: userProfile.team }, minimalState, [], new Date(), session?.provider_token || null, eventOpsItems);
         if (response?.isError) {
             throw new Error(response.text || 'Failed to generate project draft.');
         }
@@ -1378,6 +1503,73 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         setDraftedProject(null);
         setDraftedProjectTasks([]);
     }, [delegatedTasks, syncDelegatedTasks]);
+
+    const parseDeadlineFromText = useCallback((input: string) => parseDeadlineFromTextUtil(input, new Date()), []);
+
+    const finalizeDelegation = useCallback(async (payload: { personName: string; task: string }, deadlineText: string) => {
+      const parsed = parseDeadlineFromText(deadlineText);
+      if (!parsed) {
+        return { ok: false, message: 'What deadline should I use? Try “tomorrow”, “2026-02-15”, or “2026-02-15 15:00”.' };
+      }
+
+      const assignee = userProfile.team.find(m => m.name.toLowerCase() === payload.personName.toLowerCase());
+      if (!assignee) {
+        return { ok: false, message: `I couldn't find a team member named "${payload.personName}". Please add them in Settings → Team.` };
+      }
+
+      const token = session?.provider_token;
+      const localId = `delegated-${Date.now()}`;
+      const loggedAt = getBriefingNowOverride() ?? Date.now();
+      const newTask: DelegatedTaskItem = {
+        id: localId,
+        assigneeId: assignee.id,
+        assigneeName: assignee.name,
+        text: payload.task,
+        deadline: parsed.deadline,
+        completed: false,
+        loggedAt,
+        status: 'not_started',
+        remarks: '',
+      };
+      setDelegatedTasks(prev => dedupeDelegatedTasks([...prev, newTask]));
+
+      if (!token) {
+        return { ok: true, message: `Got it — delegated to ${assignee.name} (deadline: ${parsed.deadline}). Google sync is not connected, so I saved it locally.` };
+      }
+
+      try {
+        if (!taskListIdRef.current) {
+          const listId = await findOrCreateTaskList(token, `${userProfile.assistantName} Delegated Tasks`);
+          taskListIdRef.current = listId;
+        }
+        const notes = `Assigned to: ${assignee.name}\nStatus: In Progress`;
+        const googleTask = await createTask(token, taskListIdRef.current, payload.task, notes, parsed.deadlineISO);
+        setDelegatedTasks(prev => prev.map(t => (t.id === localId ? { ...t, googleTaskId: googleTask.id } : t)));
+        return { ok: true, message: `Done — delegated to ${assignee.name} with deadline **${parsed.deadline}**.` };
+      } catch (error: any) {
+        setDelegatedTasks(prev => prev.filter(t => t.id !== localId));
+        if (isTasksApiDisabled(error)) {
+          return { ok: false, message: "Google Tasks API isn't enabled. I couldn't sync this delegation." };
+        }
+        if (isGoogleAuthError(error)) {
+          onGoogleAuthError();
+          return { ok: false, message: 'Your Google connection expired. Please reconnect and try again.' };
+        }
+        return { ok: false, message: `I couldn't create the delegated task in Google Tasks: ${error.message}` };
+      }
+
+    }, [parseDeadlineFromText, userProfile.team, session, userProfile.assistantName, onGoogleAuthError]);
+
+    const normalizeNeedle = normalizeNeedleUtil;
+    const applyScheduleOps = useCallback((current: ScheduleItem[], ops: any[]) => applyScheduleOpsUtil(current, ops), []);
+    const applyPriorityOps = useCallback((current: Top3Item[], ops: any[]) => applyPriorityOpsUtil(current, ops), []);
+    const applyReminderOps = useCallback((current: ReminderItem[], ops: any[]) => applyReminderOpsUtil(current, ops, {
+      nowTs: getBriefingNowOverride() ?? Date.now(),
+      defaultIncludeInBriefing: DEFAULT_REMINDER_BRIEFING_PREF,
+      resolveInclude: (value: unknown) => resolveReminderBriefingPref(value as any),
+      normalize: normalizeReminders,
+    }), []);
+    const applyProjectOps = useCallback((current: Project[], ops: any[]) => applyProjectOpsUtil(current, ops), []);
   
     const handleSendMessage = useCallback(async (e?: React.FormEvent, prompt?: string, imageUrl?: string): Promise<void> => {
       if (e) e.preventDefault();
@@ -1403,6 +1595,26 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       }
       if (isMobileMenuOpen) setIsMobileMenuOpen(false);
       if (isCommandPaletteOpen) setIsCommandPaletteOpen(false);
+
+      const isSystemPromptPreview = messageText.startsWith('SYSTEM:');
+      if (pendingDelegation && !isProjectDraftRequest && !attachedFile && !imageUrl && !isSystemPromptPreview) {
+        const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
+        setChatMessages(prev => [...prev, { id: userMessageId, role: 'user', text: messageText }]);
+        setChatInput('');
+        setAttachedFile(null);
+
+        const result = await finalizeDelegation({ personName: pendingDelegation.personName, task: pendingDelegation.task }, messageText);
+        if (result.ok) setPendingDelegation(null);
+        const modelText = result.message;
+        setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
+        const nowTs = Date.now();
+        setChatHistory(prev => [
+          ...prev,
+          { role: 'user', parts: [{ text: messageText }], _ts: nowTs },
+          { role: 'model', parts: [{ text: JSON.stringify({ text: modelText }) }], _ts: nowTs }
+        ]);
+        return;
+      }
 
       const requestId = Symbol('generation-request');
       generationRequestRef.current = requestId;
@@ -1476,6 +1688,24 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               return;
           }
       }
+
+      if (pendingScheduleClarification && !isProjectDraftRequest && !fileToProcess && !imageUrl && !isSystemPrompt && !isFinalization) {
+          const eventOpsSummary = pendingScheduleClarification.eventOpsItems
+              .map(item => {
+                  const timePart = item.serving_time ? ` • ${String(item.serving_time).slice(0, 5)}` : '';
+                  const locationPart = item.location ? ` • ${item.location}` : '';
+                  return `- ${item.event_date}: ${item.kind} — ${item.name}${timePart}${locationPart}`;
+              })
+              .join('\n');
+          fullPrompt = [
+              `Draft an 8-hour time-blocked schedule for today.`,
+              `Event Ops items today:`,
+              eventOpsSummary || '- None',
+              `User’s plan/context (most recent message):`,
+              messageText,
+              `Return a JSON response with text, schedule (array of objects with time/title), priorities, and isPlanDraft: true.`,
+          ].join('\n');
+      }
       
       const historyForGemini: Content[] = chatHistory.map(({ role, parts }) => ({ role, parts }));
       const trimmedHistory = isBriefingFinalizeRequest ? historyForGemini.slice(-10) : historyForGemini;
@@ -1541,7 +1771,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           };
       try {
           const currentAccessToken = session?.provider_token || null;
-          const response = await sendMessageToGemini(newHistory, { ...userProfile, team: userProfile.team }, currentDashboardState, googleCalendarEvents, new Date(), currentAccessToken);
+          const freshEventOpsItems = await fetchEventOpsItemsForAI(14, true);
+          if (freshEventOpsItems.length > 0) setEventOpsItems(freshEventOpsItems);
+          const response = await sendMessageToGemini(newHistory, { ...userProfile, team: userProfile.team }, currentDashboardState, googleCalendarEvents, new Date(), currentAccessToken, freshEventOpsItems);
+          let overrideChatText: string | null = null;
+          let overrideIsPlanDraft: boolean | null = null;
+          let shouldClearPendingScheduleClarification = false;
 
           if (generationRequestRef.current !== requestId) {
             console.log("Generation stopped by user. Ignoring response.");
@@ -1576,8 +1811,37 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               const { projectName, milestoneText } = response.projectUpdate;
               setProjects(prev => prev.map(p => p.name.toLowerCase() === projectName.toLowerCase() ? { ...p, milestones: p.milestones.map(m => m.text.toLowerCase() === milestoneText.toLowerCase() ? { ...m, progress: 100 } : m) } : p));
           }
+          if (response.clarificationRequest && !isBriefingFinalizeResponse) {
+              const { type, personName, task, question } = response.clarificationRequest;
+              if (type === 'delegation_deadline' && typeof personName === 'string' && typeof task === 'string') {
+                  setPendingDelegation({ personName, task, requestedAt: Date.now() });
+                  if (typeof question === 'string' && question.trim()) {
+                      setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: question.trim() }]);
+                  }
+              }
+              if (type === 'schedule_event_ops_plan') {
+                  const todayYmd = toYmdLocal(new Date());
+                  const todayItems = freshEventOpsItems
+                      .filter(item => item.event_date === todayYmd)
+                      .map(item => ({ id: item.id, kind: item.kind, event_date: item.event_date, name: item.name, location: item.location, serving_time: item.serving_time }));
+                  const q = typeof question === 'string' && question.trim()
+                      ? question.trim()
+                      : `I see there is an Event Ops item today. What’s your plan for today so I can block your schedule properly?`;
+                  setDraftedSchedule(null);
+                  setDraftedPriorities(null);
+                  setPendingScheduleClarification({ reason: 'event_ops_missing_time', question: q, createdAt: Date.now(), eventOpsItems: todayItems });
+                  overrideChatText = q;
+                  overrideIsPlanDraft = false;
+              }
+          }
           if (response.delegationUpdate && !isBriefingFinalizeResponse) {
               const { personName, task, deadline, deadlineISO } = response.delegationUpdate;
+              if (!personName || !task) {
+                  setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: "To delegate a task, tell me who it's for and what the task is." }]);
+              } else if (!deadline || !deadlineISO) {
+                  setPendingDelegation({ personName, task, requestedAt: Date.now() });
+                  setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `What deadline should I set for "${task}" (assigned to ${personName})? Try “tomorrow”, “2026-02-15”, or “2026-02-15 15:00”.` }]);
+              } else {
               const assignee = userProfile.team.find(m => m.name.toLowerCase() === personName.toLowerCase());
               
               if (assignee) {
@@ -1625,6 +1889,59 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   console.warn(`Could not find team member: ${personName} to assign task.`);
                   setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `I couldn't find a team member named "${personName}". Please make sure they are added to your team in the settings.` }]);
               }
+              }
+          }
+
+          if (response.delegatedTaskOps && Array.isArray(response.delegatedTaskOps) && !isBriefingFinalizeResponse) {
+              const opMessages: string[] = [];
+              for (const op of response.delegatedTaskOps) {
+                  const operation = String(op?.op || '').toLowerCase();
+                  const matchId = op?.match?.id ? String(op.match.id) : '';
+                  const matchText = normalizeNeedle(op?.match?.textContains);
+                  const matchAssignee = normalizeNeedle(op?.match?.assigneeName);
+
+                  const snapshot = delegatedTasks;
+                  const matches = snapshot
+                      .map((item, index) => ({ item, index }))
+                      .filter(({ item }) => (matchId ? item.id === matchId : true))
+                      .filter(({ item }) => (matchAssignee ? item.assigneeName.toLowerCase().includes(matchAssignee) : true))
+                      .filter(({ item }) => (matchText ? item.text.toLowerCase().includes(matchText) : true));
+
+                  if (operation === 'add') {
+                      const assigneeName = String(op?.item?.assigneeName || '').trim();
+                      const text = String(op?.item?.text || '').trim();
+                      const deadline = String(op?.item?.deadline || '').trim();
+                      if (!assigneeName || !text) continue;
+                      if (!deadline) {
+                          setPendingDelegation({ personName: assigneeName, task: text, requestedAt: Date.now() });
+                          opMessages.push(`What deadline should I set for "${text}" (assigned to ${assigneeName})?`);
+                          continue;
+                      }
+                      const result = await finalizeDelegation({ personName: assigneeName, task: text }, deadline);
+                      opMessages.push(result.message);
+                      continue;
+                  }
+
+                  if (matches.length !== 1) {
+                      const targetLabel = matchId ? `id=${matchId}` : matchText ? `text contains "${matchText}"` : 'unspecified target';
+                      opMessages.push(matches.length === 0 ? `I couldn’t find a delegated task to ${operation} (${targetLabel}).` : `Multiple delegated tasks match (${targetLabel}). Please be more specific.`);
+                      continue;
+                  }
+
+                  const target = matches[0].item;
+                  if (operation === 'delete') {
+                      setDelegatedTasks(prev => prev.filter(t => t.id !== target.id));
+                      continue;
+                  }
+                  if (operation === 'update') {
+                      const nextText = op?.item?.text != null ? String(op.item.text).trim() : target.text;
+                      const nextDeadline = op?.item?.deadline != null ? String(op.item.deadline).trim() : target.deadline;
+                      setDelegatedTasks(prev => prev.map(t => (t.id === target.id ? { ...t, text: nextText, deadline: nextDeadline } : t)));
+                  }
+              }
+              if (opMessages.length > 0) {
+                  setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: opMessages.join('\n') }]);
+              }
           }
 
           if (isFinalization) {
@@ -1640,45 +1957,69 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               if (response.text) {
                   setLastPlanDraftText(response.text);
               }
+              let scheduleCandidate: ScheduleItem[] = [];
               const fallbackSchedule = response.text ? extractDraftScheduleFromText(response.text) : [];
               if (response.schedule || fallbackSchedule.length > 0) {
-                  // Check if schedule is already structured objects (from AI JSON response)
                   if (Array.isArray(response.schedule) && response.schedule.length > 0 && typeof response.schedule[0] === 'object' && response.schedule[0].time) {
-                      // AI returned structured objects - use them directly
-                      // Use stable IDs based on time and title to prevent re-rendering glitches
-                      const structuredSchedule: ScheduleItem[] = response.schedule.map((item: any, index: number) => {
+                      scheduleCandidate = response.schedule.map((item: any, index: number) => {
                           const time = item.time || 'All Day';
                           const title = item.title || item.name || '';
-                          // Generate stable ID from time and title hash to prevent glitching
-                          // Use hash-like format to ensure uniqueness and stability
                           const timeHash = time.replace(/[:\s-]/g, '').toLowerCase();
                           const titleHash = title.substring(0, 30).replace(/[^\w\s]/g, '').replace(/\s+/g, '-').toLowerCase();
                           const stableId = item.id || `sched-${timeHash}-${titleHash}-${index}`;
-                          return {
-                              id: stableId,
-                              time,
-                              title,
-                              completed: item.completed || false,
-                              isGoogleEvent: item.isGoogleEvent || false
-                          };
+                          return { id: stableId, time, title, completed: Boolean(item.completed), isGoogleEvent: Boolean(item.isGoogleEvent) };
                       }).filter((item: ScheduleItem) => item.title);
-                      if (structuredSchedule.length > 0) setDraftedSchedule(structuredSchedule);
                   } else {
-                      // Schedule is array of strings - parse them
                       const scheduleArray = Array.isArray(response.schedule) 
                           ? response.schedule 
                           : typeof response.schedule === 'string' ? response.schedule.split('\n') : [];
-                      const parsedSchedule = scheduleArray.length > 0 ? parseScheduleArray(scheduleArray) : fallbackSchedule;
-                      if (parsedSchedule.length > 0) setDraftedSchedule(parsedSchedule);
+                      scheduleCandidate = scheduleArray.length > 0 ? parseScheduleArray(scheduleArray) : fallbackSchedule;
                   }
               }
+
               const fallbackPriorities = response.text ? extractPrioritiesFromText(response.text) : [];
-              if (response.priorities || fallbackPriorities.length > 0) {
-                  const prioritiesArray = Array.isArray(response.priorities)
-                      ? response.priorities
-                      : typeof response.priorities === 'string' ? response.priorities.split('\n') : [];
-                  const limitedPriorities = buildTopPriorities(prioritiesArray.length > 0 ? prioritiesArray : fallbackPriorities);
-                  if (limitedPriorities.length > 0) setDraftedPriorities(limitedPriorities);
+              const prioritiesArray = Array.isArray(response.priorities)
+                  ? response.priorities
+                  : typeof response.priorities === 'string' ? response.priorities.split('\n') : [];
+              const prioritiesCandidate = buildTopPriorities(prioritiesArray.length > 0 ? prioritiesArray : fallbackPriorities);
+
+              const todayYmd = toYmdLocal(new Date());
+              const eventOpsCompact = freshEventOpsItems.map(item => ({
+                id: item.id,
+                kind: item.kind,
+                event_date: item.event_date,
+                name: item.name,
+                location: item.location,
+                serving_time: item.serving_time,
+              }));
+              const validation = detectEventOpsScheduleClarification({
+                todayYmd,
+                eventOpsItems: eventOpsCompact,
+                proposedSchedule: scheduleCandidate.map(s => ({ time: s.time, title: s.title })),
+              });
+
+              if ('needsClarification' in validation && validation.needsClarification) {
+                  setDraftedSchedule(null);
+                  setDraftedPriorities(null);
+                  setPendingScheduleClarification({
+                      reason: validation.reason,
+                      question: validation.question,
+                      createdAt: Date.now(),
+                      eventOpsItems: validation.eventOpsItems.map((it: any) => ({
+                        id: it.id,
+                        kind: it.kind,
+                        event_date: it.event_date,
+                        name: it.name,
+                        location: it.location,
+                        serving_time: it.serving_time,
+                      })),
+                  });
+                  overrideChatText = validation.question;
+                  overrideIsPlanDraft = false;
+              } else {
+                  if (scheduleCandidate.length > 0) setDraftedSchedule(scheduleCandidate);
+                  if (prioritiesCandidate.length > 0) setDraftedPriorities(prioritiesCandidate);
+                  if (pendingScheduleClarification) shouldClearPendingScheduleClarification = true;
               }
           } else {
               // Handle normal, non-draft updates
@@ -1747,19 +2088,88 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               console.log("Updated Relational Memory Graph:", updatedGraph);
           }
 
-          if (response.schedule) {
+          const opMessages: string[] = [];
+          const hasScheduleOps = Array.isArray(response.scheduleOps) && response.scheduleOps.length > 0;
+          if (hasScheduleOps) {
+              const result = applyScheduleOps(scheduleItems, response.scheduleOps);
+              setScheduleItems(result.next);
+              setIsScheduleConfirmed(false);
+              opMessages.push(...result.messages);
+          } else if (response.schedule) {
               const scheduleArray = Array.isArray(response.schedule) 
                   ? response.schedule 
                   : typeof response.schedule === 'string' ? response.schedule.split('\n') : [];
               setScheduleItems(parseScheduleArray(scheduleArray));
               setIsScheduleConfirmed(false);
           }
-              if (response.priorities) {
-                  const prioritiesArray = Array.isArray(response.priorities)
-                      ? response.priorities
-                      : typeof response.priorities === 'string' ? response.priorities.split('\n') : [];
-                  setTop3Items(buildTopPriorities(prioritiesArray));
-              }
+
+          const hasPriorityOps = Array.isArray(response.priorityOps) && response.priorityOps.length > 0;
+          if (hasPriorityOps) {
+              const result = applyPriorityOps(top3Items, response.priorityOps);
+              setTop3Items(result.next);
+              opMessages.push(...result.messages);
+          } else if (response.priorities) {
+              const prioritiesArray = Array.isArray(response.priorities)
+                  ? response.priorities
+                  : typeof response.priorities === 'string' ? response.priorities.split('\n') : [];
+              setTop3Items(buildTopPriorities(prioritiesArray));
+          }
+
+          const hasReminderOps = Array.isArray(response.reminderOps) && response.reminderOps.length > 0;
+          if (hasReminderOps) {
+              const result = applyReminderOps(reminders, response.reminderOps);
+              setReminders(result.next);
+              opMessages.push(...result.messages);
+          } else if (response.reminders) {
+              const remindersArray = Array.isArray(response.reminders)
+                  ? response.reminders
+                  : typeof response.reminders === 'string'
+                      ? response.reminders.split('\n')
+                      : [];
+              const baseTs = getBriefingNowOverride() ?? Date.now();
+              const nextReminders: ReminderItem[] = remindersArray
+                  .map((item: any, index: number) => {
+                      if (typeof item === 'string') {
+                          const text = item.trim();
+                          if (!text) return null;
+                          return {
+                              id: `rem-${baseTs}-${index}`,
+                              text,
+                              completed: false,
+                              loggedAt: baseTs,
+                              includeInBriefing: DEFAULT_REMINDER_BRIEFING_PREF,
+                          };
+                      }
+                      if (item && typeof item.text === 'string') {
+                          const text = String(item.text).trim();
+                          if (!text) return null;
+                          return {
+                              id: String(item.id || `rem-${baseTs}-${index}`),
+                              text,
+                              completed: Boolean(item.completed),
+                              loggedAt: resolveLoggedAt(item.loggedAt ?? baseTs),
+                              includeInBriefing: resolveReminderBriefingPref(item.includeInBriefing),
+                          };
+                      }
+                      return null;
+                  })
+                  .filter(Boolean) as ReminderItem[];
+              setReminders(normalizeReminders(nextReminders));
+          }
+
+          const hasProjectOps = Array.isArray(response.projectOps) && response.projectOps.length > 0;
+          if (hasProjectOps) {
+              const result = applyProjectOps(projects, response.projectOps);
+              setProjects(result.next);
+              opMessages.push(...result.messages);
+          }
+
+          if (opMessages.length > 0) {
+              setChatMessages(prev => [
+                  ...prev,
+                  { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: opMessages.join('\n') }
+              ]);
+          }
           }
 
           let nextKeepNotes: string | null = null;
@@ -1810,6 +2220,25 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             setDelegatedTasks(briefingContext.remainingDelegatedTasks);
             setPendingBriefingWindow(null);
           }
+          if (response.project && !response.isProjectDraft && !response.projectDraft) {
+              const rawProject = response.project;
+              const name = String(rawProject.name || '').trim();
+              const deadline = String(rawProject.deadline || '').trim();
+              const rawMilestones = Array.isArray(rawProject.milestones) ? rawProject.milestones : [];
+              if (name) {
+                  const baseTs = Date.now();
+                  const milestones: Milestone[] = rawMilestones
+                      .map((m: any, index: number) => {
+                          const text = String(m?.text || '').trim();
+                          if (!text) return null;
+                          const assigneeName = m?.assigneeName ? String(m.assigneeName).trim() : undefined;
+                          return { id: `ms-${baseTs}-${index}`, text, progress: 0, assigneeName };
+                      })
+                      .filter(Boolean) as Milestone[];
+                  const project: Project = { id: `proj-${baseTs}`, name, deadline, milestones };
+                  setProjects(prev => [...prev, project]);
+              }
+          }
           const projectDraftPayload = response.projectDraft ?? (response.isProjectDraft ? response.project : null);
           if (projectDraftPayload) {
               const draftResult = buildProjectDraft(projectDraftPayload);
@@ -1819,7 +2248,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               }
           }
 
-          const chatText = response.text;
+          const chatText = overrideChatText ?? response.text;
           if (chatText || response.imageUrl || response.sources) {
               // Ensure isPlanDraft is always a boolean (handle string "true"/"false" or missing values)
               // Also check if response has schedule and priorities (Step 2 of daily kick-off) as fallback
@@ -1828,9 +2257,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               
               // More aggressive detection: if EITHER schedule OR priorities exist (not just both), treat as draft
               const hasAnyDraftContent = hasSchedule || hasPriorities;
-              const isPlanDraft = response.isPlanDraft === true || 
+              const isPlanDraft = overrideIsPlanDraft ?? (response.isPlanDraft === true || 
                                   response.isPlanDraft === "true" || 
-                                  (hasAnyDraftContent && response.isPlanDraft !== false);
+                                  (hasAnyDraftContent && response.isPlanDraft !== false));
               
               // Debug logging to track what AI is returning
               if (hasAnyDraftContent) {
@@ -1865,6 +2294,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   isWeeklyReport: true,
               }]);
           }
+          if (shouldClearPendingScheduleClarification) setPendingScheduleClarification(null);
           const nowTs = Date.now();
           setChatHistory(prev => [
             ...prev,
@@ -1895,7 +2325,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           setIsSending(false);
         }
       }
-    }, [chatInput, attachedFile, isMobileMenuOpen, isCommandPaletteOpen, chatHistory, chatMessages, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, userProfile, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, session, onProfileUpdate, onGoogleAuthError, googleCalendarEvents, draftedSchedule, draftedPriorities, completedGCalEventIds, pendingBriefingWindow, buildProjectDraft]);
+    }, [chatInput, attachedFile, isMobileMenuOpen, isCommandPaletteOpen, chatHistory, chatMessages, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, userProfile, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, session, onProfileUpdate, onGoogleAuthError, googleCalendarEvents, draftedSchedule, draftedPriorities, completedGCalEventIds, pendingBriefingWindow, buildProjectDraft, fetchEventOpsItemsForAI, pendingDelegation, finalizeDelegation, applyScheduleOps, applyPriorityOps, applyReminderOps, applyProjectOps, normalizeNeedle]);
     
     const handleProactiveAIMessage = useCallback(async (prompt: string) => {
         if (isSending) return;
@@ -1905,7 +2335,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         const historyForGemini: Content[] = chatHistory.map(({ role, parts }) => ({ role, parts }));
         const newHistory: Content[] = [...historyForGemini, { role: 'user', parts: [{ text: prompt }] }];
         try {
-          const response = await sendMessageToGemini(newHistory, { ...userProfile, team: userProfile.team }, currentDashboardState, googleCalendarEvents, new Date(), currentAccessToken);
+          const freshEventOpsItems = await fetchEventOpsItemsForAI(14, false);
+          const response = await sendMessageToGemini(newHistory, { ...userProfile, team: userProfile.team }, currentDashboardState, googleCalendarEvents, new Date(), currentAccessToken, freshEventOpsItems);
           const modelResponseText = response.text;
           if (modelResponseText) setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelResponseText }]);
           const nowTs = Date.now();
@@ -1919,7 +2350,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         } finally {
           setIsSending(false);
         }
-      }, [isSending, chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, userProfile, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, session, googleCalendarEvents, completedGCalEventIds]);
+      }, [isSending, chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, userProfile, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, session, googleCalendarEvents, completedGCalEventIds, fetchEventOpsItemsForAI]);
 
     const handleLinkedToggle = useCallback((itemId: string, isGCal: boolean, itemTitle: string, isCompleted: boolean) => {
       const newStatus = !isCompleted;
@@ -2199,6 +2630,28 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     
     useEffect(() => {
       if (cloudError || isCloudLoading) return;
+      const nowForEventOps = new Date();
+      const todayYmd = toYmdLocal(nowForEventOps);
+      if (eventOpsItems.length > 0 && lastEventOpsNudgeDate !== todayYmd) {
+        const upcomingSummary = eventOpsItems
+          .slice(0, 6)
+          .map(item => {
+            const label = item.kind === 'event' ? 'Event' : 'Meeting';
+            const timePart = item.kind === 'event' && item.serving_time ? ` • Serving ${String(item.serving_time).slice(0, 5)}` : '';
+            const locationPart = item.location ? ` • ${item.location}` : '';
+            return `- ${item.event_date}: ${label} — ${item.name}${timePart}${locationPart}`;
+          })
+          .join('\n');
+
+        const messageText =
+          `Heads up — here are your upcoming **Event Ops** items (next 7 days):\n\n${upcomingSummary}\n\nWant me to add prep tasks to your **Today’s Schedule**?`;
+
+        setChatMessages(prev => [
+          ...prev,
+          { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: messageText }
+        ]);
+        setLastEventOpsNudgeDate(todayYmd);
+      }
   
       const parseGenericDate = (dateString: string): Date | null => {
         const today = new Date();
@@ -2309,7 +2762,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           });
       }, 60 * 1000);
       return () => clearInterval(timer);
-    }, [scheduleItems, top3Items, delegatedTasks, projects, notifiedEventIds, nudgedTaskIds, nudgedDelegatedTaskIds, isCloudLoading, cloudError, handleProactiveAIMessage]);
+    }, [scheduleItems, top3Items, delegatedTasks, projects, notifiedEventIds, nudgedTaskIds, nudgedDelegatedTaskIds, isCloudLoading, cloudError, handleProactiveAIMessage, eventOpsItems, lastEventOpsNudgeDate, toYmdLocal]);
 
     const handleStopGeneration = useCallback(() => {
       generationRequestRef.current = null;
@@ -2337,6 +2790,100 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         setCompletedGCalEventIds(new Set());
         setSuppressCalendarFetch(true);
         setShowScheduleClearConfirm(false);
+    }, []);
+
+    const createScheduleItem = useCallback((item: { time: string; title: string }) => {
+        const title = item.title.trim();
+        if (!title) return;
+        const time = item.time.trim() || 'All Day';
+        const id = `sched-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        setScheduleItems(prev => [...prev, { id, time, title, completed: false }]);
+    }, []);
+
+    const updateScheduleItem = useCallback((id: string, updates: Partial<Pick<ScheduleItem, 'time' | 'title' | 'completed'>>) => {
+        setScheduleItems(prev =>
+            prev.map(item => {
+                if (item.id !== id) return item;
+                const nextTime = typeof updates.time === 'string' ? updates.time.trim() : item.time;
+                const nextTitle = typeof updates.title === 'string' ? updates.title.trim() : item.title;
+                return { ...item, ...updates, time: nextTime || 'All Day', title: nextTitle || item.title };
+            })
+        );
+    }, []);
+
+    const deleteScheduleItem = useCallback((id: string) => {
+        setScheduleItems(prev => prev.filter(item => item.id !== id));
+    }, []);
+
+    const refreshGoogleCalendarEvents = useCallback(async () => {
+        const token = session?.provider_token;
+        if (!token) {
+            setNotificationModal({
+                isOpen: true,
+                title: 'Google Not Connected',
+                message: 'Connect Google to fetch your calendar events.'
+            });
+            return;
+        }
+
+        try {
+            const events = await getTodaysEvents(token);
+            setGoogleCalendarEvents(events);
+        } catch (error: any) {
+            console.error("Failed to fetch Google Calendar events:", error);
+            if (error?.message?.includes('401') || error?.message?.includes('403') || error?.status === 401 || error?.status === 403) {
+                onGoogleAuthError();
+                return;
+            }
+            setCloudError(`Failed to fetch Google Calendar events: ${error?.message || error}`);
+        }
+    }, [session, onGoogleAuthError]);
+
+    const syncScheduleToGoogleCalendar = useCallback(async (scheduleOverride?: ScheduleItem[]) => {
+        const token = session?.provider_token;
+        if (!token) {
+            setNotificationModal({
+                isOpen: true,
+                title: 'Google Not Connected',
+                message: 'Connect Google to sync your schedule.'
+            });
+            return;
+        }
+
+        const scheduleToSync = (scheduleOverride ?? scheduleItems).filter(item => !item.isGoogleEvent);
+        if (scheduleToSync.length === 0) {
+            setNotificationModal({
+                isOpen: true,
+                title: 'Nothing To Sync',
+                message: 'There are no local schedule items to sync.'
+            });
+            return;
+        }
+
+        try {
+            setIsSyncing(true);
+            await batchAddEventsToCalendar(token, scheduleToSync);
+            setNotificationModal({
+                isOpen: true,
+                title: 'Sync Successful',
+                message: 'Your schedule has been successfully synced with your Google Calendar.'
+            });
+        } catch (error: any) {
+            console.error('Error during calendar sync:', error);
+            if (error?.status === 401 || error?.status === 403) {
+                setCloudError("Your Google connection has expired. Please reconnect.");
+                onGoogleAuthError();
+                return;
+            }
+            setCloudError(`Failed to sync schedule: ${error?.message || error}. Please try reconnecting your Google account.`);
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [session, scheduleItems, onGoogleAuthError]);
+
+    const clearGoogleCalendarEvents = useCallback(() => {
+        setGoogleCalendarEvents([]);
+        setCompletedGCalEventIds(new Set());
     }, []);
     const handleClearPriorities = useCallback(() => { 
         setTop3Items([]); 
@@ -2859,7 +3406,7 @@ ${reportJson}`;
             };
 
             const historyForRequest: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-            const response = await sendMessageToGemini(historyForRequest, { ...userProfile, team: userProfile.team }, minimalState, [], new Date(), session?.provider_token || null);
+            const response = await sendMessageToGemini(historyForRequest, { ...userProfile, team: userProfile.team }, minimalState, [], new Date(), session?.provider_token || null, eventOpsItems);
             
             if (response?.isError) {
                 console.error('AI returned error:', response);
@@ -3264,6 +3811,24 @@ ${reportJson}`;
       return Math.round((completed / top3Items.length) * 100);
     }, [displayedScheduleItems, top3Items]);
 
+    const cancelPendingDelegation = useCallback(() => {
+      if (!pendingDelegation) return;
+      setPendingDelegation(null);
+      setChatMessages(prev => [
+        ...prev,
+        { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: 'Okay — canceled that pending delegation. What would you like to do instead?' }
+      ]);
+    }, [pendingDelegation]);
+
+    const cancelPendingScheduleClarification = useCallback(() => {
+      if (!pendingScheduleClarification) return;
+      setPendingScheduleClarification(null);
+      setChatMessages(prev => [
+        ...prev,
+        { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: 'Okay — I won’t block a schedule yet. Tell me what you want to prioritize today.' }
+      ]);
+    }, [pendingScheduleClarification]);
+
     const value: DashboardContextType = {
         onLogout: props.onLogout,
         userProfile: props.userProfile,
@@ -3279,20 +3844,24 @@ ${reportJson}`;
         session: props.session,
         currentView, isMobileMenuOpen, mobileView, chatInput, isSending, currentTime, showResetConfirm,
         showKeepResetConfirm, isSyncing, quickActionModal, isPatchNotesVisible, isFeedbackVisible, isCommandPaletteOpen,
-        attachedFile, isRecording, initialSettingsTab, isCloudLoading, cloudError, chatMessages, chatHistory, scheduleItems,
+        attachedFile, isRecording, initialSettingsTab, isCloudLoading, cloudError, suppressCalendarFetch, chatMessages, chatHistory, scheduleItems,
         top3Items, reminders, projects, completedProjects, draftedProject, draftedProjectTasks, draftedSchedule, draftedPriorities, keepNotes, delegatedTasks, isScheduleConfirmed, briefingInputs, briefingState,
         collapsedCards, openSidebarSections, dailyProgress, selectedProject, isBriefingPointersVisible, showBriefingClearConfirm, contextMenu,
         weeklyLog, priorityForTomorrow, weeklyReport, isWeeklyReportModalOpen, emailVersion, isEmailVersionModalOpen, setIsEmailVersionModalOpen, notificationModal, briefingScript, isBriefingScriptVisible, showScheduleClearConfirm, showPrioritiesClearConfirm, showRemindersClearConfirm, showProjectsClearConfirm,
         projectToDelete, isAddTaskModalOpen, showDelegatedClearConfirm,
         displayedScheduleItems, isSidebarCollapsed,
         currentMode, currentMood, recentContext, modeHistory, modeActivatedAt,
+        pendingDelegation,
+        pendingScheduleClarification,
         desktopTextareaRef, mobileTextareaRef, desktopFileInputRef, mobileFileInputRef,
         setCurrentView, setIsMobileMenuOpen, setMobileView, setChatInput, setShowResetConfirm,
         setShowKeepResetConfirm, setQuickActionModal, setIsPatchNotesVisible, setIsFeedbackVisible, setIsCommandPaletteOpen,
-        setAttachedFile, setInitialSettingsTab, setProjects, setCompletedProjects, setReminders, setDelegatedTasks, setOpenSidebarSections,
+        setAttachedFile, setInitialSettingsTab, setSuppressCalendarFetch, setProjects, setCompletedProjects, setReminders, setDelegatedTasks, setOpenSidebarSections,
         setSelectedProject, setIsBriefingPointersVisible, setShowBriefingClearConfirm, setContextMenu, setWeeklyLog, setPriorityForTomorrow, setWeeklyReport, setIsWeeklyReportModalOpen,
         setNotificationModal, setBriefingScript, setIsBriefingScriptVisible, setShowScheduleClearConfirm, setShowPrioritiesClearConfirm, setShowRemindersClearConfirm, setShowProjectsClearConfirm, setProjectToDelete,
         setKeepNotes, setBriefingState, setIsAddTaskModalOpen, setShowDelegatedClearConfirm, setIsSidebarCollapsed,
+        setPendingDelegation,
+        setPendingScheduleClarification,
         handleSendMessage, handleManualReset, handleDailyKickoff, handleToggleCard, handleClosePatchNotes, handleClearErrors,
         handleToggleRecording, handleChatInput, handleChatKeyDown, handleFileChange, handleLinkedToggle, handleSimpleToggle,
         handleReminderBriefingPreferenceChange, handleDelegatedTaskToggle, handleDelegatedTaskStatusChange, handleDelegatedTaskRemarksChange, handleDelegatedTaskDeadlineChange,
@@ -3301,7 +3870,8 @@ ${reportJson}`;
         confirmClearBriefingPointers, handleCreateReminderFromText, handleAddBriefingFromText, handleCreateWeeklyReport, handleGenerateEmailReport,
         handleClearSchedule, handleClearPriorities, handleClearReminders, handleClearKeepNotes, handleConfirmDeleteProject,
         handleOpenAddTaskModal, handleAddDelegatedTask, handleClearDelegatedTasks, handleClearProjects,
-        handleActivateMode, handleDeactivateMode,
+        handleActivateMode, handleDeactivateMode, cancelPendingDelegation, cancelPendingScheduleClarification,
+        createScheduleItem, updateScheduleItem, deleteScheduleItem, syncScheduleToGoogleCalendar, refreshGoogleCalendarEvents, clearGoogleCalendarEvents,
         setTop3Items,
         onAllPrioritiesCompleted: props.onAllPrioritiesCompleted,
         onAllScheduleCompleted: props.onAllScheduleCompleted

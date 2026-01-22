@@ -1,5 +1,8 @@
 
 import React, { useCallback, lazy, Suspense } from 'react';
+import 'animate.css';
+import '../styles/dashboard.css';
+import '../styles/checkbox.css';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSwipe } from '../hooks/useSwipe.ts';
 import { DashboardProvider, useDashboardContext } from './DashboardContext';
@@ -407,6 +410,7 @@ const DashboardContent: React.FC<{
         handleFinalizeBriefing, setKeepNotes, requestProjectDraft, saveProjectDraft,
         draftedProject, draftedProjectTasks, weeklyReport, isWeeklyReportModalOpen, setIsWeeklyReportModalOpen, emailVersion, isEmailVersionModalOpen, setIsEmailVersionModalOpen, handleGenerateEmailReport,
         currentMode, handleActivateMode, handleDeactivateMode, currentMood,
+        pendingDelegation, cancelPendingDelegation, pendingScheduleClarification, cancelPendingScheduleClarification,
     } = useDashboardContext();
 
     // ============================================================================
@@ -1013,6 +1017,46 @@ const DashboardContent: React.FC<{
                     <div className="flex items-center mb-2 p-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm" style={{ pointerEvents: 'auto' }}>
                         <span className="truncate flex-1">{attachedFile.name}</span>
                         <button onClick={() => setAttachedFile(null)} className="ml-2 text-red-500 hover:text-red-700" style={{ pointerEvents: 'auto' }}><XIcon size={20} /></button>
+                    </div>
+                )}
+
+                {pendingScheduleClarification && (
+                    <div className="mb-2 p-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-sm text-blue-900 dark:text-blue-100 flex items-start justify-between gap-3" style={{ pointerEvents: 'auto' }}>
+                        <div className="min-w-0">
+                            <div className="font-semibold">Need your plan before I block your schedule</div>
+                            <div className="text-blue-800/90 dark:text-blue-200/90 truncate">{pendingScheduleClarification.question}</div>
+                            <div className="mt-1 space-y-0.5">
+                                {pendingScheduleClarification.eventOpsItems.slice(0, 3).map(item => (
+                                    <div key={item.id} className="truncate">
+                                        {item.event_date}: {item.kind} — {item.name}{item.serving_time ? ` • ${String(item.serving_time).slice(0, 5)}` : ''}{item.location ? ` • ${item.location}` : ''}
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="text-blue-800/90 dark:text-blue-200/90">Reply with your plan (e.g., “I’m on the event 10–2, then admin work”).</div>
+                        </div>
+                        <button
+                            onClick={cancelPendingScheduleClarification}
+                            className="shrink-0 px-3 py-1.5 rounded-lg bg-white/80 dark:bg-gray-800/60 border border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-100 hover:bg-white dark:hover:bg-gray-800 transition-colors"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                )}
+                
+                {pendingDelegation && (
+                    <div className="mb-2 p-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-900 dark:text-amber-100 flex items-start justify-between gap-3" style={{ pointerEvents: 'auto' }}>
+                        <div className="min-w-0">
+                            <div className="font-semibold">Awaiting deadline</div>
+                            <div className="truncate">Task: {pendingDelegation.task}</div>
+                            <div className="truncate">Assignee: {pendingDelegation.personName}</div>
+                            <div className="text-amber-800/90 dark:text-amber-200/90">Reply with “tomorrow”, “2026-02-15”, or “2026-02-15 15:00”.</div>
+                        </div>
+                        <button
+                            onClick={cancelPendingDelegation}
+                            className="shrink-0 px-3 py-1.5 rounded-lg bg-white/80 dark:bg-gray-800/60 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100 hover:bg-white dark:hover:bg-gray-800 transition-colors"
+                        >
+                            Cancel
+                        </button>
                     </div>
                 )}
             <div 

@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference types="vitest" />
 
 // FIX: Replaced `declare var process` with a namespace augmentation for `NodeJS.ProcessEnv`.
 // This resolves the "Cannot redeclare block-scoped variable 'process'" error, which

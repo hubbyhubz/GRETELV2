@@ -14,10 +14,17 @@ export default ({ mode }) => {
       // Expose the API_KEY to the client-side code through process.env
       'process.env.API_KEY': JSON.stringify(env.API_KEY)
     },
-    // Explicitly configure PostCSS with no plugins to prevent Vite from
-    // auto-detecting and incorrectly trying to run Tailwind as a plugin.
-    css: {
-      postcss: {}
-    }
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ['react', 'react-dom'],
+            supabase: ['@supabase/supabase-js'],
+          },
+        },
+      },
+    },
+    // PostCSS will be configured via postcss.config.js
+    // Tailwind will be processed through PostCSS
   });
 };

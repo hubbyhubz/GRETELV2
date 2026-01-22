@@ -1,5 +1,6 @@
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
+import "../styles/tour.css";
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import type { UserProfile } from "./types";

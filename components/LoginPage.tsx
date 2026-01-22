@@ -4,8 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import type { Session } from '@supabase/supabase-js';
-import { EyeIcon } from './AnimatedIcons/EyeIcon';
-import { EyeOffIcon } from './AnimatedIcons/EyeOffIcon';
+import { perfMark, perfMeasure } from '../lib/perf';
 
 interface LoginPageProps {
   onCreateAccountClick: () => void;
@@ -16,6 +15,42 @@ interface LoginPageProps {
   authError?: string | null;
   onLoginStart?: () => void;
 }
+
+const EyeSvg = ({ size = 20 }: { size?: number }) => (
+  <svg
+    fill="none"
+    height={size}
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    strokeWidth="2"
+    viewBox="0 0 24 24"
+    width={size}
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const EyeOffSvg = ({ size = 20 }: { size?: number }) => (
+  <svg
+    fill="none"
+    height={size}
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    strokeWidth="2"
+    viewBox="0 0 24 24"
+    width={size}
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path d="M10.733 5.08A10.744 10.744 0 0 1 12 5c4.478 0 8.268 2.943 9.543 7a10.474 10.474 0 0 1-4.132 5.568" />
+    <path d="M6.61 6.61A10.734 10.734 0 0 0 2.457 12c1.275 4.057 5.065 7 9.543 7 1.695 0 3.29-.423 4.685-1.17" />
+    <path d="M14.12 14.12a3 3 0 0 1-4.24-4.24" />
+    <path d="M3 3l18 18" />
+  </svg>
+);
 
 const LoginPage: React.FC<LoginPageProps> = ({ 
   onCreateAccountClick, 
@@ -32,12 +67,41 @@ const LoginPage: React.FC<LoginPageProps> = ({
   const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('gretelRememberMe') === 'true');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showSlowHint, setShowSlowHint] = useState(false);
 
   useEffect(() => {
     if (authError) {
       setError(authError);
     }
   }, [authError]);
+
+  useEffect(() => {
+    perfMark('login:view-mounted');
+    perfMeasure('boot to login view', 'boot:start', 'login:view-mounted');
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setShowSlowHint(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowSlowHint(true), 6000);
+    return () => window.clearTimeout(timer);
+  }, [isLoading]);
+
+  const normalizeLoginError = (message: string) => {
+    const normalized = message || '';
+    if (
+      normalized.toLowerCase().includes('timeout') ||
+      normalized.toLowerCase().includes('timed out') ||
+      normalized.toLowerCase().includes('abort') ||
+      normalized.toLowerCase().includes('failed to fetch') ||
+      normalized.toLowerCase().includes('load failed')
+    ) {
+      return 'Login request timed out. Please check your connection and try again.';
+    }
+    return normalized;
+  };
 
   // FIXED: Added cleanup for potential async operations
   useEffect(() => {
@@ -67,6 +131,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
     setError('');
     if (onLoginStart) onLoginStart();
     setIsLoading(true);
+    perfMark('login:submit');
 
     try {
       // FIX: Pass session object to onLoginSuccess to make login flow more robust.
@@ -76,7 +141,9 @@ const LoginPage: React.FC<LoginPageProps> = ({
       });
 
       if (error) {
-        setError(error.message);
+        setError(normalizeLoginError(error.message));
+        perfMark('login:auth-error');
+        perfMeasure('login auth', 'login:submit', 'login:auth-error');
       } else {
         if (rememberMe) {
           localStorage.setItem('gretelRememberedEmail', email.trim());
@@ -84,11 +151,16 @@ const LoginPage: React.FC<LoginPageProps> = ({
           localStorage.removeItem('gretelRememberedEmail');
         }
         sessionStorage.setItem('needsGoogleRefresh', 'true');
+        perfMark('login:auth-success');
+        perfMeasure('login auth', 'login:submit', 'login:auth-success');
         onLoginSuccess(data.session);
       }
     } catch (err) {
-      setError('An unexpected error occurred during login.');
+      const message = (err as any)?.message || '';
+      setError(normalizeLoginError(message) || 'An unexpected error occurred during login.');
       console.error('Login error:', err);
+      perfMark('login:auth-error');
+      perfMeasure('login auth', 'login:submit', 'login:auth-error');
     } finally {
       setIsLoading(false);
     }
@@ -160,9 +232,9 @@ const LoginPage: React.FC<LoginPageProps> = ({
                       disabled={isLoading}
                   >
                       {isPasswordVisible ? (
-                        <EyeOffIcon size={20} />
+                        <EyeOffSvg size={20} />
                       ) : (
-                        <EyeIcon size={20} />
+                        <EyeSvg size={20} />
                       )}
                   </button>
               </div>
@@ -204,6 +276,11 @@ const LoginPage: React.FC<LoginPageProps> = ({
                 {isLoading && <div className="custom-loader-sm"></div>}
                 {isLoading ? 'Logging in...' : 'Login'}
               </button>
+              {isLoading && showSlowHint && (
+                <p className="mt-3 text-xs text-gray-500 dark:text-gray-400 text-center">
+                  This is taking longer than usual. If you’re on mobile, try switching to WiFi or disabling VPN.
+                </p>
+              )}
             </div>
           </form>
           <div className="space-y-4">

@@ -58,6 +58,22 @@ export type ScheduleItem = { id: string; time: string; title: string; completed:
 export type Top3Item = { id:string; text: string; completed: boolean; };
 export type ReminderBriefingPreference = 'none' | 'morning' | 'afternoon' | 'both';
 export type ReminderItem = { id: string; text: string; completed: boolean; loggedAt?: number; includeInBriefing?: ReminderBriefingPreference; };
+
+export type EventOpsKind = 'event' | 'meeting';
+
+export type EventOpsItem = {
+  id: string;
+  user_id: string;
+  kind: EventOpsKind;
+  event_date: string;
+  name: string;
+  location: string | null;
+  pax: number | null;
+  serving_time: string | null;
+  remarks: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
 export interface DelegatedTaskItem {
   id: string;
   assigneeId: string;
@@ -118,5 +134,13 @@ export interface DashboardState {
     suppressCalendarFetch?: boolean;
     currentMood?: UserMood;
     recentContext?: string[];
+    lastEventOpsNudgeDate?: string;
+    pendingDelegation?: { personName: string; task: string; requestedAt: number };
+    pendingScheduleClarification?: {
+      reason: 'event_ops_conflict' | 'event_ops_missing_time';
+      question: string;
+      createdAt: number;
+      eventOpsItems: Array<Pick<EventOpsItem, 'id' | 'kind' | 'event_date' | 'name' | 'location' | 'serving_time'>>;
+    };
     lastInteraction?: number;
 }

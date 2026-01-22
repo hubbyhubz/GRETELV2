@@ -1,14 +1,12 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import 'animate.css';
 import './styles/global.css';
-import './styles/tour.css';
-import './styles/checkbox.css';
 import './styles/loader.css';
-import './styles/dashboard.css';
-import './styles/theme-toggle.css';
 import App from './App';
 import { ThemeProvider } from './components/ThemeContext';
+import { perfMark, perfMeasure } from './lib/perf';
+
+perfMark('boot:start');
 
 // Suppress benign Supabase/Fetch AbortErrors that occur during React Strict Mode development
 // or rapid component unmounting. These are expected when requests are cancelled.
@@ -52,6 +50,7 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
+perfMark('boot:react-render');
 root.render(
   <ThemeProvider>
     <RootErrorBoundary>
@@ -59,6 +58,8 @@ root.render(
     </RootErrorBoundary>
   </ThemeProvider>
 );
+perfMark('boot:app-mounted');
+perfMeasure('boot total', 'boot:start', 'boot:app-mounted');
 
 // Register Service Worker for PWA and Push Notifications
 if ('serviceWorker' in navigator) {

@@ -1,6 +1,28 @@
 -- Trigger to automatically queue a Push Notification when a new Assistant Message arrives.
 
--- 1. Create the Function
+-- 1. Create the Queue Table (required by trigger + worker)
+CREATE TABLE IF NOT EXISTS "public"."push_notifications_queue" (
+  "id" uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  "user_id" uuid NOT NULL REFERENCES "auth"."users"("id") ON DELETE CASCADE,
+  "title" text NOT NULL,
+  "body" text NOT NULL,
+  "data" jsonb NOT NULL DEFAULT '{}'::jsonb,
+  "created_at" timestamp with time zone DEFAULT now(),
+  "locked_at" timestamp with time zone,
+  "delivered_at" timestamp with time zone,
+  "error" text
+);
+
+CREATE INDEX IF NOT EXISTS "push_notifications_queue_user_id_created_at_idx"
+  ON "public"."push_notifications_queue" ("user_id", "created_at" DESC);
+
+CREATE INDEX IF NOT EXISTS "push_notifications_queue_pending_idx"
+  ON "public"."push_notifications_queue" ("created_at" DESC)
+  WHERE "delivered_at" IS NULL;
+
+ALTER TABLE "public"."push_notifications_queue" ENABLE ROW LEVEL SECURITY;
+
+-- 2. Create the Function
 CREATE OR REPLACE FUNCTION public.queue_push_for_new_message()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -18,7 +40,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 2. Create the Trigger
+-- 3. Create the Trigger
 DROP TRIGGER IF EXISTS on_new_assistant_message ON public.assistant_inbox_messages;
 
 CREATE TRIGGER on_new_assistant_message
@@ -26,5 +48,5 @@ CREATE TRIGGER on_new_assistant_message
   FOR EACH ROW
   EXECUTE FUNCTION public.queue_push_for_new_message();
 
--- 3. (Optional) Log for verification
+-- 4. (Optional) Log for verification
 COMMENT ON TRIGGER on_new_assistant_message ON public.assistant_inbox_messages IS 'Automatically inserts into push_notifications_queue when a new assistant message is created.';
