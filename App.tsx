@@ -48,7 +48,11 @@ function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isLocked, setIsLocked] = useState(false);
+  const [isLocked, setIsLocked] = useState(() => {
+    // Initialize lock state from storage
+    const storedLock = localStorage.getItem('gretel_is_locked');
+    return storedLock === 'true';
+  });
   const [authError, setAuthError] = useState<string | null>(null);
   const [requiresGoogleRefresh, setRequiresGoogleRefresh] = useState(false);
   const [shouldShowPatchNotes, setShouldShowPatchNotes] = useState(false);
@@ -65,6 +69,8 @@ function App() {
   const inactivityTimer = useRef<number | null>(null);
   const isFetchingProfile = useRef(false);
   const patchNotesClosedRef = useRef(false); // Track if user has explicitly closed patch notes
+
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     currentViewRef.current = currentView;
@@ -117,15 +123,40 @@ function App() {
     if (inactivityTimer.current) {
       clearTimeout(inactivityTimer.current);
     }
+    // Update last activity timestamp
+    localStorage.setItem('gretel_last_activity', Date.now().toString());
+    
     inactivityTimer.current = window.setTimeout(() => {
       // Only lock if there is a logged-in user on the dashboard
       if (userProfileRef.current && userProfileRef.current.setup_complete) {
+        console.log('🔒 Inactivity timeout - Locking App');
         setIsLocked(true);
+        localStorage.setItem('gretel_is_locked', 'true');
+        
+        // Sync lock state to Supabase
+        if (session?.user?.id) {
+            supabase.from('profiles').update({ is_app_locked: true }).eq('id', session.user.id).then(({ error }) => {
+                if (error) console.error('Error syncing lock state:', error);
+            });
+        }
       }
     }, INACTIVITY_TIMEOUT);
   };
 
+  // Check for inactivity on mount (in case user refreshed after timeout)
   useEffect(() => {
+    const checkInactivity = () => {
+        const lastActivity = localStorage.getItem('gretel_last_activity');
+        if (lastActivity) {
+            const elapsed = Date.now() - parseInt(lastActivity, 10);
+            if (elapsed > INACTIVITY_TIMEOUT && userProfileRef.current?.setup_complete) {
+                setIsLocked(true);
+                localStorage.setItem('gretel_is_locked', 'true');
+            }
+        }
+    };
+    checkInactivity();
+    
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
     events.forEach(event => window.addEventListener(event, resetInactivityTimer));
     resetInactivityTimer(); // Initial timer start
@@ -405,10 +436,18 @@ function App() {
           tour_completed: finalProfileData.tour_completed || false,
           passiveMemory: finalProfileData.passive_memory || [],
           relationalMemory: finalProfileData.relational_memory || { nodes: [], edges: [] },
+          is_app_locked: finalProfileData.is_app_locked || false,
         };
         
         setUserProfile(profile);
         userProfileRef.current = profile;
+        
+        // Sync lock state: If Supabase says locked, force lock locally.
+        if (finalProfileData.is_app_locked) {
+            console.log('🔒 Remote lock detected from Supabase.');
+            setIsLocked(true);
+            localStorage.setItem('gretel_is_locked', 'true');
+        }
         
         if (currentView === 'privacyPolicy' || currentView === 'termsOfService') {
           console.log('🔒 Preserving legal page navigation.');
@@ -462,10 +501,10 @@ function App() {
         }
       } catch (error: any) {
         console.error('❌ Error loading profile:', error);
-        setAuthError(error?.message || 'Login failed. Please try again.');
-        setCurrentView('login');
-      } finally {
+        // Instead of redirecting to login immediately, show error state
+        setProfileLoadError(error?.message || 'Failed to load profile. Please check your connection.');
         setIsLoading(false);
+      } finally {
         isFetchingProfile.current = false;
       }
     };
@@ -613,6 +652,7 @@ function App() {
   // This makes the login flow more robust and immediately triggers the profile loading effect.
   const handleLoginSuccess = (session: Session | null) => {
     setAuthError(null);
+    setProfileLoadError(null); // Clear any previous errors
     if (session) {
         setSession(session);
     }
@@ -623,6 +663,9 @@ function App() {
     if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
     // Optimistically reset UI so logout feels immediate.
     setIsLocked(false);
+    localStorage.removeItem('gretel_is_locked');
+    localStorage.removeItem('gretel_last_activity');
+    setProfileLoadError(null);
     setSession(null);
     setUserProfile(null);
     setCurrentView('login');
@@ -638,6 +681,16 @@ function App() {
   
   const handleUnlock = () => {
     setIsLocked(false);
+    localStorage.removeItem('gretel_is_locked');
+    localStorage.setItem('gretel_last_activity', Date.now().toString());
+    
+    // Sync unlock state to Supabase
+    if (session?.user?.id) {
+        supabase.from('profiles').update({ is_app_locked: false }).eq('id', session.user.id).then(({ error }) => {
+            if (error) console.error('Error syncing unlock state:', error);
+        });
+    }
+    
     resetInactivityTimer();
   };
   
@@ -726,6 +779,37 @@ function App() {
           <div className="custom-loader-lg"></div>
         </div>
       );
+    }
+
+    // New Error View to prevent Login Loops
+    if (profileLoadError) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
+                <div className="max-w-md w-full bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg text-center border border-gray-200 dark:border-gray-700">
+                    <div className="mx-auto w-12 h-12 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-4">
+                        <svg className="w-6 h-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Unable to Load Profile</h2>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{profileLoadError}</p>
+                    <div className="flex flex-col gap-3">
+                        <button 
+                            onClick={() => window.location.reload()} 
+                            className="w-full py-2 px-4 bg-[#DC143C] hover:bg-[#b81030] text-white rounded-lg font-medium transition-colors"
+                        >
+                            Retry
+                        </button>
+                        <button 
+                            onClick={handleLogout} 
+                            className="w-full py-2 px-4 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors"
+                        >
+                            Log Out
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
     }
     
     if (requiresGoogleRefresh) {

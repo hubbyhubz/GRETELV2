@@ -41,6 +41,7 @@ export interface UserProfile extends WizardData {
   relationalMemory: { nodes: unknown[]; edges: unknown[] };
   last_seen_version?: string | null;
   tour_completed?: boolean;
+  is_app_locked?: boolean;
 }
 
 export type BriefingInputItem = { id: string; type: string; text: string; loggedAt?: number; };
