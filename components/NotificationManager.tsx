@@ -16,7 +16,13 @@ export const NotificationManager: React.FC = () => {
 
   useEffect(() => {
     if ('Notification' in window) {
-      setPermission(Notification.permission);
+      const currentPermission = Notification.permission;
+      setPermission(currentPermission);
+      
+      // Auto-subscribe if already granted to ensure keys are synced
+      if (currentPermission === 'granted') {
+        subscribeUserToPush();
+      }
     }
     registerServiceWorker();
   }, []);
