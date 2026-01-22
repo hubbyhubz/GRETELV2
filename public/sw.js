@@ -1,26 +1,33 @@
 // Service Worker for Push Notifications
 self.addEventListener('push', function(event) {
+  let data = { title: 'New Message', body: 'You have a new message from G.R.E.T.E.L', url: '/' };
+  
   if (event.data) {
-    const data = event.data.json();
-    const options = {
-      body: data.body,
-      icon: data.icon || '/icons/brain.svg',
-      badge: '/icons/brain.svg',
-      vibrate: [100, 50, 100],
-      data: {
-        dateOfArrival: Date.now(),
-        primaryKey: 1,
-        url: data.url || '/'
-      },
-      actions: [
-        { action: 'open', title: 'Open Assistant' }
-      ]
-    };
-    
-    event.waitUntil(
-      self.registration.showNotification(data.title, options)
-    );
+    try {
+      data = event.data.json();
+    } catch (e) {
+      console.log('Push data not JSON, using default');
+    }
   }
+
+  const options = {
+    body: data.body,
+    icon: data.icon || '/icons/brain.svg',
+    badge: '/icons/brain.svg',
+    vibrate: [100, 50, 100],
+    data: {
+      dateOfArrival: Date.now(),
+      primaryKey: 1,
+      url: data.url || '/'
+    },
+    actions: [
+      { action: 'open', title: 'Open Assistant' }
+    ]
+  };
+  
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
 });
 
 self.addEventListener('notificationclick', function(event) {
