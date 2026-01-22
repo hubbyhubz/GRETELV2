@@ -98,4 +98,27 @@ select:focus-visible {
   border-color: #9ca3af !important; /* gray-400 (Slightly lighter than 600) */
 }
 
+/* ============================================
+   MOBILE SIDEBAR ANIMATIONS
+   ============================================ */
+/* Overlay - Fade In/Out */
+.sidebar-overlay {
+  transition: opacity 0.3s ease;
+  opacity: 0;
+  pointer-events: none; /* Passes clicks through when hidden */
+}
 
+.sidebar-overlay.overlay-open {
+  opacity: 1;
+  pointer-events: auto; /* Blocks clicks when visible */
+}
+
+/* Drawer - Slide In/Out */
+.sidebar-animated {
+  transition: transform 0.3s ease-in-out;
+  transform: translateX(-100%); /* Start off-screen left */
+}
+
+.sidebar-animated.sidebar-open {
+  transform: translateX(0); /* Slide in */
+}
