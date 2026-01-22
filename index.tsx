@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import 'animate.css';
-import 'react-big-calendar/lib/css/react-big-calendar.css';
 import './styles/global.css';
 import './styles/tour.css';
 import './styles/checkbox.css';
