@@ -1,19 +1,22 @@
 
-import { useState, useEffect, useRef, useLayoutEffect } from 'react';
-import LoginPage from './components/LoginPage';
-import CreateAccountPage from './components/CreateAccountPage';
-import ForgotPasswordPage from './components/ForgotPasswordPage';
-import ResetPasswordPage from './components/ResetPasswordPage';
-import SetupWizardPage from './components/SetupWizardPage';
-import { MainDashboardPage } from './components/MainDashboardPage';
+import { useState, useEffect, useRef, useLayoutEffect, lazy, Suspense } from 'react';
+
+// Lazy load components to improve performance
+const LoginPage = lazy(() => import('./components/LoginPage'));
+const CreateAccountPage = lazy(() => import('./components/CreateAccountPage'));
+const ForgotPasswordPage = lazy(() => import('./components/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('./components/ResetPasswordPage'));
+const SetupWizardPage = lazy(() => import('./components/SetupWizardPage'));
+const MainDashboardPage = lazy(() => import('./components/MainDashboardPage').then(module => ({ default: module.MainDashboardPage })));
+const PrivacyPolicyPage = lazy(() => import('./components/PrivacyPolicyPage'));
+const TermsOfServicePage = lazy(() => import('./components/TermsOfServicePage'));
+const SimulationIntroPage = lazy(() => import('./components/SimulationIntroPage'));
+const LockScreenPage = lazy(() => import('./components/LockScreenPage'));
+const TwoFactorAuthPage = lazy(() => import('./components/TwoFactorAuthPage'));
+const GoogleRefreshPage = lazy(() => import('./components/GoogleRefreshPage'));
+const TestPage = lazy(() => import('./components/TestPage'));
+
 import ThemeToggleButton from './components/ThemeToggleButton';
-import PrivacyPolicyPage from './components/PrivacyPolicyPage';
-import TermsOfServicePage from './components/TermsOfServicePage';
-import SimulationIntroPage from './components/SimulationIntroPage';
-import LockScreenPage from './components/LockScreenPage';
-import TwoFactorAuthPage from './components/TwoFactorAuthPage';
-import GoogleRefreshPage from './components/GoogleRefreshPage';
-import TestPage from './components/TestPage';
 import { isSupabaseConfigured, supabase, supabaseConfigError } from './components/supabaseClient';
 import type { Session } from '@supabase/supabase-js';
 import type {
@@ -903,7 +906,7 @@ function App() {
     }
   };
 
-  const isDashboardView = session && userProfile?.setup_complete && currentView === 'dashboard' && !requiresGoogleRefresh;
+  const isDashboardView = session && userProfile?.setup_complete && !requiresGoogleRefresh && !['privacyPolicy', 'termsOfService', 'resetPassword', 'twoFactor'].includes(currentView);
 
   if (showIntro) {
     return (
@@ -917,14 +920,22 @@ function App() {
   return (
     <div className={!isDashboardView && currentView !== 'test' ? 'min-h-screen flex items-center justify-center p-4 sm:p-6' : ''}>
       {!isDashboardView && currentView !== 'resetPassword' && currentView !== 'test' && <ThemeToggleButton />}
-      {renderView()}
+      <Suspense fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="custom-loader-lg"></div>
+        </div>
+      }>
+        {renderView()}
+      </Suspense>
       {isDashboardView && <NotificationManager />}
       {isLocked && userProfile && (
-        <LockScreenPage
-          userProfile={userProfile}
-          onUnlock={handleUnlock}
-          onLogout={handleLogout}
-        />
+        <Suspense fallback={null}>
+          <LockScreenPage
+            userProfile={userProfile}
+            onUnlock={handleUnlock}
+            onLogout={handleLogout}
+          />
+        </Suspense>
       )}
     </div>
   );

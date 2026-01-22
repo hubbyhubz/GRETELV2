@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import Lottie, { LottieRefCurrentProps } from 'lottie-react';
+import React, { useState, useEffect } from 'react';
+import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import sendIconAnimation from './Send icon v2.json';
 
 interface LottieSendIconProps {
@@ -13,13 +13,14 @@ const LottieSendIcon: React.FC<LottieSendIconProps> = ({
   onClick,
   className 
 }) => {
-  const lottieRef = useRef<LottieRefCurrentProps>(null);
+  const [dotLottie, setDotLottie] = useState<any>(null);
   const [isHovered, setIsHovered] = useState(false);
 
   const handleClick = () => {
     // Play animation on click
-    if (lottieRef.current) {
-      lottieRef.current.goToAndPlay(0, true);
+    if (dotLottie) {
+      dotLottie.stop();
+      dotLottie.play();
     }
     onClick?.();
   };
@@ -27,16 +28,16 @@ const LottieSendIcon: React.FC<LottieSendIconProps> = ({
   const handleMouseEnter = () => {
     setIsHovered(true);
     // Play animation on hover
-    if (lottieRef.current) {
-      lottieRef.current.goToAndPlay(0, true);
+    if (dotLottie) {
+      dotLottie.play();
     }
   };
 
   const handleMouseLeave = () => {
     setIsHovered(false);
     // Stop animation when not hovering
-    if (lottieRef.current) {
-      lottieRef.current.stop();
+    if (dotLottie) {
+      dotLottie.stop();
     }
   };
 
@@ -58,11 +59,11 @@ const LottieSendIcon: React.FC<LottieSendIconProps> = ({
         transition: 'background-color 0.2s'
       }}
     >
-      <Lottie
-        lottieRef={lottieRef}
-        animationData={sendIconAnimation}
+      <DotLottieReact
+        data={sendIconAnimation}
         loop={false}
         autoplay={false}
+        dotLottieRefCallback={setDotLottie}
         style={{ width: size * 0.8, height: size * 0.8 }}
       />
     </div>

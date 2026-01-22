@@ -288,8 +288,14 @@ const pruneChatState = (messages: ChatMessage[], history: ChatHistoryItem[]) => 
     0
   );
   const cutoff = cutoffDate.getTime();
-  const prunedMessages = messages.filter(msg => typeof msg.id === 'number' ? msg.id >= cutoff : true);
-  const prunedHistory = history.filter(item => (item._ts ?? Date.now()) >= cutoff);
+  
+  // Filter by date only (keep 2 years history)
+  const prunedMessages = messages
+    .filter(msg => typeof msg.id === 'number' ? msg.id >= cutoff : true);
+    
+  const prunedHistory = history
+    .filter(item => (item._ts ?? Date.now()) >= cutoff);
+
   return { prunedMessages, prunedHistory };
 };
 

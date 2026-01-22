@@ -1,12 +1,14 @@
 
-import React, { useCallback } from 'react';
+import React, { useCallback, lazy, Suspense } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSwipe } from '../hooks/useSwipe.ts';
 import { DashboardProvider, useDashboardContext } from './DashboardContext';
-import { AccountSettingsPage } from './AccountSettingsPage';
-import EventsOperationsPage from './EventsOperationsPage.tsx';
+// Lazy load heavy components
+const AccountSettingsPage = lazy(() => import('./AccountSettingsPage').then(m => ({ default: m.AccountSettingsPage })));
+const EventsOperationsPage = lazy(() => import('./EventsOperationsPage.tsx'));
 import { SettingsIcon } from './SettingsIcon';
-import CommandPalette, { type Command } from './CommandPalette';
+const CommandPalette = lazy(() => import('./CommandPalette'));
+import type { Command } from './CommandPalette';
 import {
   LottieSendIcon,
   LucideMicIcon,
@@ -45,25 +47,27 @@ import { PlusIcon } from './AnimatedIcons/PlusIcon.tsx';
 import { GripHorizontalIcon } from './AnimatedIcons/GripHorizontalIcon.tsx';
 import { MessageCircleMoreIcon } from './AnimatedIcons/MessageCircleMoreIcon.tsx';
 import { CalendarDaysIcon } from './AnimatedIcons/CalendarDaysIcon.tsx';
-import FeedbackModal from './FeedbackModal';
-import PatchNotesModal from './PatchNotesModal';
-import ConfirmationModal from './ConfirmationModal';
-import SuccessNotification from './SuccessNotification';
-import EmailVersionModal from './EmailVersionModal';
+
+// Lazy load Modals
+const FeedbackModal = lazy(() => import('./FeedbackModal'));
+const PatchNotesModal = lazy(() => import('./PatchNotesModal'));
+const ConfirmationModal = lazy(() => import('./ConfirmationModal'));
+const SuccessNotification = lazy(() => import('./SuccessNotification'));
+const EmailVersionModal = lazy(() => import('./EmailVersionModal'));
 import ThemeToggleButton from './ThemeToggleButton';
-import ProjectUpdateModal from './ProjectUpdateModal';
-import ProjectPlanningModal from './ProjectPlanningModal';
-import AddDelegatedTaskModal from './AddDelegatedTaskModal';
-import WeeklyReportModal from './WeeklyReportModal';
-import BriefingPointersModal from './BriefingPointersModal';
-import ActionContextMenu from './ActionContextMenu';
-import QuickActionModal from './QuickActionModal';
-import Confetti from './Confetti';
+const ProjectUpdateModal = lazy(() => import('./ProjectUpdateModal'));
+const ProjectPlanningModal = lazy(() => import('./ProjectPlanningModal'));
+const AddDelegatedTaskModal = lazy(() => import('./AddDelegatedTaskModal'));
+const WeeklyReportModal = lazy(() => import('./WeeklyReportModal'));
+const BriefingPointersModal = lazy(() => import('./BriefingPointersModal'));
+const ActionContextMenu = lazy(() => import('./ActionContextMenu'));
+const QuickActionModal = lazy(() => import('./QuickActionModal'));
+const Confetti = lazy(() => import('./Confetti'));
 // import { AppIcon } from './AppIcon';
 // import { KawaiiProgressBar } from './KawaiiProgressBar';
 import { UserProfile, DashboardView } from './types';
 import type { Session } from '@supabase/supabase-js';
-import { OnboardingTour } from './OnboardingTour';
+const OnboardingTour = lazy(() => import('./OnboardingTour').then(m => ({ default: m.OnboardingTour })));
 import { AIMessage } from './ui/ai-message';
 
 interface MainDashboardPageProps {
@@ -904,7 +908,6 @@ const DashboardContent: React.FC<{
                           <CircleHelpIcon size={20} />
                         </button>
                     </div>
-                    <ThemeToggleButton position="static" />
                 </div>
             </header>
 
@@ -950,6 +953,13 @@ const DashboardContent: React.FC<{
                             <button onClick={() => { setCurrentView('settings'); setInitialSettingsTab('profile'); setIsMobileMenuOpen(false); }} className="group flex items-center w-full p-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors duration-200 ease-in-out">
                                 <span className="shrink-0 w-8 flex justify-center mr-3 transition-transform duration-200 ease-in-out group-hover:scale-110 group-active:scale-95"><SettingsIcon size={20} /></span> Settings
                             </button>
+                            <div className="group flex items-center w-full p-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors duration-200 ease-in-out justify-between cursor-pointer" onClick={() => { /* Toggle logic handled by component click */ }}>
+                                <div className="flex items-center">
+                                    <span className="shrink-0 w-8 flex justify-center mr-3 transition-transform duration-200 ease-in-out group-hover:scale-110 group-active:scale-95"><MoonIcon size={20} /></span> 
+                                    <span>Theme</span>
+                                </div>
+                                <div onClick={(e) => e.stopPropagation()}><ThemeToggleButton position="static" /></div>
+                            </div>
                             <button
                               onClick={onLogout}
                               className="group flex items-center w-full p-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg mt-1 transition-colors duration-200 ease-in-out"
@@ -1151,12 +1161,14 @@ const DashboardContent: React.FC<{
         let AccountSettingsPageComponent;
         try {
             AccountSettingsPageComponent = (
-            <AccountSettingsPage 
-                onBackToDashboard={() => setCurrentView('dashboard')} 
-                userProfile={userProfile} 
-                onProfileUpdate={onProfileUpdate} 
-                initialTab={initialSettingsTab || 'profile'}
-            />
+            <Suspense fallback={<div className="flex h-screen items-center justify-center"><div className="custom-loader-lg"></div></div>}>
+                <AccountSettingsPage 
+                    onBackToDashboard={() => setCurrentView('dashboard')} 
+                    userProfile={userProfile} 
+                    onProfileUpdate={onProfileUpdate} 
+                    initialTab={initialSettingsTab || 'profile'}
+                />
+            </Suspense>
         );
         } catch (error: any) {
             console.error('Error creating AccountSettingsPage JSX:', error);
@@ -1356,7 +1368,7 @@ const DashboardContent: React.FC<{
                     >
                       <LogoutIcon size={20} />
                     </button>
-                    <div id="theme-toggle"><ThemeToggleButton position="static" /></div>
+                    <ThemeToggleButton position="static" />
                 </div>
             </header>
 
@@ -1376,7 +1388,9 @@ const DashboardContent: React.FC<{
                     }}
                     style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}
                 >
-                <EventsOperationsPage />
+                <Suspense fallback={<div className="flex h-full items-center justify-center"><div className="custom-loader-lg"></div></div>}>
+                    <EventsOperationsPage />
+                </Suspense>
                 </motion.div>
             ) : (
                 <motion.div
@@ -1999,6 +2013,7 @@ const DashboardContent: React.FC<{
           </div>
 
           {/* Modals */}
+          <Suspense fallback={null}>
           <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} commands={commandPaletteCommands} onExecuteQuery={(q) => handleSendMessage(undefined, q)} assistantName={userProfile.assistantName} />
           {isPatchNotesVisible ? (
             <PatchNotesModal version={appVersion} onClose={handleClosePatchNotes} />
@@ -2109,6 +2124,7 @@ const DashboardContent: React.FC<{
             userProfile={userProfile} 
             onComplete={() => console.log('Tour completed!')}
           />
+          </Suspense>
 
         </div>
     );
