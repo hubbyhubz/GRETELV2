@@ -24,6 +24,7 @@ import type {
   DashboardView,
   CreateAccountFormData
 } from './components/types';
+import { NotificationManager } from './components/NotificationManager';
 import { applyTabTitle, getTabKeyFromTopLevelView } from './lib/tabTitle.ts';
 
 const INACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 minutes
@@ -93,8 +94,8 @@ function App() {
       applyTabTitle('setup');
       return;
     }
-    applyTabTitle(getTabKeyFromTopLevelView(currentView));
-  }, [currentView, requiresGoogleRefresh, userProfile?.setup_complete]);
+    applyTabTitle(getTabKeyFromTopLevelView(currentView, activeDashboard));
+  }, [currentView, requiresGoogleRefresh, userProfile?.setup_complete, activeDashboard]);
 
   if (!isSupabaseConfigured) {
     return (
@@ -833,6 +834,7 @@ function App() {
     <div className={!isDashboardView && currentView !== 'test' ? 'min-h-screen flex items-center justify-center p-4 sm:p-6' : ''}>
       {!isDashboardView && currentView !== 'resetPassword' && currentView !== 'test' && <ThemeToggleButton />}
       {renderView()}
+      {isDashboardView && <NotificationManager />}
       {isLocked && userProfile && (
         <LockScreenPage
           userProfile={userProfile}

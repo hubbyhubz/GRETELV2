@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "notify:run": "node scripts/notify.js",
+    "notify:test": "node scripts/send-test-message.js"
   },
   "dependencies": {
     "@google/genai": "^1.21.0",
@@ -32,9 +34,11 @@
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
+    "dotenv": "^17.2.3",
     "fluent-ffmpeg": "^2.1.3",
     "typescript": "^5.0.2",
     "vite": "^5.0.0",
-    "wavefile": "^11.0.0"
+    "wavefile": "^11.0.0",
+    "web-push": "^3.6.7"
   }
 }

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { TeamMember } from './types';
 
+import { CustomTimePicker } from './CustomTimePicker';
+
 interface AddDelegatedTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -176,12 +178,11 @@ const AddDelegatedTaskModal: React.FC<AddDelegatedTaskModalProps> = ({ isOpen, o
                 <label htmlFor="task-deadline-time" className="text-sm font-bold text-gray-700 dark:text-gray-300 block mb-2">
                   Time (Optional)
                 </label>
-                <input
-                  type="time"
+                <CustomTimePicker
                   id="task-deadline-time"
                   value={deadlineTime}
-                  onChange={(e) => setDeadlineTime(e.target.value)}
-                  className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                  onChange={setDeadlineTime}
+                  className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus-within:ring-2 focus-within:ring-[#DC143C]"
                 />
               </div>
             </div>

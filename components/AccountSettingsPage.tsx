@@ -610,53 +610,7 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
                             </div>
                         </form>
                     )}
-                    {activeTab === 'profile' && (
-                      <div className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-sm sm:shadow border border-gray-200 dark:border-gray-700">
-                        <div className="p-4 sm:p-6">
-                          <h3 className="text-lg font-bold mb-4">Tour & Help</h3>
-                          <div className="space-y-4">
-                            <div className="flex items-start justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                              <div className="flex-1">
-                                <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                  Onboarding Tour
-                                </h4>
-                                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                  Take a guided tour of G.R.E.T.E.L's features. Perfect for new users or as a refresher.
-                                </p>
-                              </div>
-                              <button
-                                onClick={() => {
-                                  // Call the global tour function
-                                  (window as any).startGretelTour?.();
-                                }}
-                                className="ml-4 bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg text-sm whitespace-nowrap"
-                              >
-                                Start Tour
-                              </button>
-                            </div>
-                            <div className="flex items-start justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                              <div className="flex-1">
-                                <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                  Continue Previous Tour
-                                </h4>
-                                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                  Resume the tour from where you left off.
-                                </p>
-                              </div>
-                              <button
-                                onClick={() => {
-                                  // Call the global continue tour function
-                                  (window as any).continueGretelTour?.();
-                                }}
-                                className="ml-4 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg text-sm whitespace-nowrap"
-                              >
-                                Continue
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+
                     {activeTab === 'security' && (
                       <div className="space-y-6">
                         <PasswordChangeForm

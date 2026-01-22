@@ -97,3 +97,5 @@ select:focus-visible {
 .dark select:focus-visible {
   border-color: #9ca3af !important; /* gray-400 (Slightly lighter than 600) */
 }
+
+

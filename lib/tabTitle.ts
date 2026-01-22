@@ -1,11 +1,11 @@
-import type { View } from "../components/types";
+import type { View, DashboardView } from "../components/types";
 
 export function applyTabTitle(tabKey?: string) {
   const baseTitle = "G.R.E.T.E.L";
   document.title = tabKey ? `${baseTitle} • ${tabKey}` : baseTitle;
 }
 
-export function getTabKeyFromTopLevelView(view: View | "test") {
+export function getTabKeyFromTopLevelView(view: View | "test", dashboardView?: DashboardView) {
   switch (view) {
     case "login":
       return "login";
@@ -16,6 +16,8 @@ export function getTabKeyFromTopLevelView(view: View | "test") {
     case "setupWizard":
       return "setup";
     case "dashboard":
+      if (dashboardView === 'events') return "calendar";
+      if (dashboardView === 'analytics') return "analytics";
       return "dashboard";
     case "privacyPolicy":
       return "privacy policy";
