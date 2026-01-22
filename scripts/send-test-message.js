@@ -21,6 +21,12 @@ async function sendTestMessage() {
 
   // 1. Find a user who has enabled notifications (has a subscription)
   // We use the push_subscriptions table to ensure we target someone who can actually receive it.
+  const { count, error: countError } = await supabase
+    .from('push_subscriptions')
+    .select('*', { count: 'exact', head: true });
+    
+  console.log(`📊 Total subscriptions in DB: ${count}`);
+
   const { data: subs, error: subError } = await supabase
     .from('push_subscriptions')
     .select('user_id')

@@ -35,6 +35,7 @@ export const subscribeUserToPush = async () => {
 
   if (!vapidPublicKey) {
     console.error('VITE_VAPID_PUBLIC_KEY is missing');
+    alert('CRITICAL ERROR: VITE_VAPID_PUBLIC_KEY is missing in the build. Push notifications cannot work.');
     return null;
   }
 
@@ -69,13 +70,15 @@ export const subscribeUserToPush = async () => {
 
         if (error) {
             console.error('Error saving subscription to Supabase:', error);
+            alert(`Error saving subscription: ${error.message}`);
         }
       }
     }
 
     return subscription;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to subscribe the user: ', error);
+    alert(`Failed to subscribe: ${error.message || error}`);
     return null;
   }
 };
