@@ -40,10 +40,41 @@ export const subscribeUserToPush = async () => {
   }
 
   try {
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-    });
+    let subscription = await registration.pushManager.getSubscription();
+
+    // If a subscription exists but might have the wrong key (or we want to force refresh), check or just try to subscribe
+    // The browser throws if we try to subscribe with a NEW key while an OLD one exists.
+    if (subscription) {
+      // We can't easily check the key, so we try to subscribe. If it fails, we catch it below.
+      // Or safer: Unsubscribe first if we suspect a mismatch. 
+      // But let's rely on the error handling to be surgical.
+    }
+
+    try {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+      });
+    } catch (err: any) {
+      // Check for the specific error about different applicationServerKey
+      if (err.message && (err.message.includes('applicationServerKey') || err.message.includes('gcm_sender_id'))) {
+        console.warn('Existing subscription has different key. Unsubscribing and resubscribing...');
+        
+        // Unsubscribe the old one
+        const existingSub = await registration.pushManager.getSubscription();
+        if (existingSub) {
+          await existingSub.unsubscribe();
+        }
+
+        // Try again with the new key
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+        });
+      } else {
+        throw err; // Re-throw other errors
+      }
+    }
 
     console.log('Push Subscription:', JSON.stringify(subscription));
     

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Clock, ChevronDown } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 
 interface CustomTimePickerProps {
   value: string;
@@ -64,7 +64,7 @@ export const CustomTimePicker: React.FC<CustomTimePickerProps> = ({ value, onCha
   }, [isOpen]);
 
   return (
-    <div className="relative w-full" ref={containerRef}>
+    <div className="relative w-full" ref={containerRef} id={id}>
       <div 
         className={`flex items-center justify-between cursor-pointer ${className} pr-2`}
         onClick={() => setIsOpen(!isOpen)}
@@ -158,7 +158,7 @@ export const CustomTimePicker: React.FC<CustomTimePickerProps> = ({ value, onCha
         </div>
       )}
       
-      <style jsx>{`
+      <style>{`
         .scrollbar-hide::-webkit-scrollbar {
             display: none;
         }
