@@ -24,7 +24,7 @@ import type {
   DashboardView,
   CreateAccountFormData
 } from './components/types';
-import { applyTabTitle, getTabKeyFromTopLevelView } from './lib/tabTitle';
+import { applyTabTitle, getTabKeyFromTopLevelView } from './lib/tabTitle.ts';
 
 const INACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 minutes
 const APP_VERSION = "1.5.3"; // Version for patch notes
@@ -48,6 +48,7 @@ function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [requiresGoogleRefresh, setRequiresGoogleRefresh] = useState(false);
   const [shouldShowPatchNotes, setShouldShowPatchNotes] = useState(false);
   const [createAccountFormData, setCreateAccountFormData] = useState<CreateAccountFormData>({
@@ -59,9 +60,14 @@ function App() {
   });
 
   const userProfileRef = useRef<UserProfile | null>(null);
+  const currentViewRef = useRef<ExtendedView>(currentView);
   const inactivityTimer = useRef<number | null>(null);
   const isFetchingProfile = useRef(false);
   const patchNotesClosedRef = useRef(false); // Track if user has explicitly closed patch notes
+
+  useEffect(() => {
+    currentViewRef.current = currentView;
+  }, [currentView]);
   
   // Restore patch notes closed state from sessionStorage on mount
   useEffect(() => {
@@ -142,7 +148,7 @@ function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         // Prevent processing if we're already in the correct state (e.g., after password change refresh)
-        if (session?.user?.id === userProfileRef.current?.id && currentView === 'dashboard') {
+        if (session?.user?.id === userProfileRef.current?.id && currentViewRef.current === 'dashboard') {
           console.log('🛡️ Auth state change ignored: already on dashboard with correct user.');
           return;
         }
@@ -317,6 +323,8 @@ function App() {
             setup_complete: true,
             assistantMemory: '',
             team: [],
+            passiveMemory: [],
+            relationalMemory: { nodes: [], edges: [] },
           };
           setUserProfile(fallbackProfile);
           userProfileRef.current = fallbackProfile;
@@ -451,8 +459,9 @@ function App() {
             console.log('⏳ New user - setup not complete. Directing to setupWizard first.');
             setCurrentView('setupWizard');
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('❌ Error loading profile:', error);
+        setAuthError(error?.message || 'Login failed. Please try again.');
         setCurrentView('login');
       } finally {
         setIsLoading(false);
@@ -470,9 +479,10 @@ function App() {
       if (isLoading) {
         console.warn('⚠️ Loading timeout reached - breaking loop and resetting to login');
         setIsLoading(false);
+        setAuthError("Login timed out. Please try again.");
         setCurrentView('login');
       }
-    }, 8000); // 8 second timeout
+    }, 15000); // 15 second timeout
 
     return () => clearTimeout(timeout);
   }, [isLoading]);
@@ -598,9 +608,10 @@ function App() {
     }
   };
   
-  // FIX: Update handleLoginSuccess to explicitly set the session.
+  // FIXED: Update handleLoginSuccess to explicitly set the session.
   // This makes the login flow more robust and immediately triggers the profile loading effect.
   const handleLoginSuccess = (session: Session | null) => {
+    setAuthError(null);
     if (session) {
         setSession(session);
     }
@@ -757,6 +768,8 @@ function App() {
                     onLoginSuccess={handleLoginSuccess}
                     onNavigateToPrivacy={() => navigateToPrivacyPolicy('login')}
                     onNavigateToTerms={() => navigateToTermsOfService('login')}
+                    authError={authError}
+                    onLoginStart={() => setAuthError(null)}
                   />;
         }
     }

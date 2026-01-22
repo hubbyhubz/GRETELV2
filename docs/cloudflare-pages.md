@@ -8,10 +8,7 @@
 ## Required Environment Variables (Cloudflare Pages → Settings → Environment Variables)
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
-- `OPENAI_API_KEY` (recommended)
-
-Compatibility (not recommended long-term):
-- `VITE_OPENAI_API_KEY` also works because the server function can read it, but avoid using `VITE_` for secrets.
+- `VITE_API_KEY` (or `VITE_OPENAI_API_KEY`)
 
 ## SPA Fallback
 This repo includes [public/_redirects](file:///e:/BEATRIX/public/_redirects) to serve `index.html` for all non-asset paths (keeps `/assets/*` serving real JS/CSS).
@@ -21,9 +18,6 @@ This repo includes [public/_redirects](file:///e:/BEATRIX/public/_redirects) to 
 2. `npm run build`
 3. `npx wrangler login`
 4. `npm run deploy:cf`
-
-## Important: Avoid Wrangler-Managed Build Vars in Pages
-If Cloudflare Pages shows “Environment variables are being managed through wrangler.toml”, remove `wrangler.toml` so you can manage build variables in the Cloudflare dashboard.
 
 ## Supabase Auth / OAuth Redirect URLs
 After your Pages URL is created, add it to Supabase:

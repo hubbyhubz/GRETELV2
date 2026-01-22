@@ -1,16 +1,12 @@
-import { motion, useAnimation, type Variants } from "framer-motion";
+import type { Variants } from "framer-motion";
+import { motion } from "framer-motion";
 import type { HTMLAttributes } from "react";
-import { forwardRef, useCallback, useImperativeHandle, useRef } from "react";
-
+import { forwardRef } from "react";
 import { cn } from "../../lib/utils";
-
-export interface XIconHandle {
-  startAnimation: () => void;
-  stopAnimation: () => void;
-}
 
 interface XIconProps extends HTMLAttributes<HTMLDivElement> {
   size?: number;
+  isHovered?: boolean;
 }
 
 const PATH_VARIANTS: Variants = {
@@ -24,46 +20,28 @@ const PATH_VARIANTS: Variants = {
   },
 };
 
-const XIcon = forwardRef<XIconHandle, XIconProps>(
-  ({ onMouseEnter, onMouseLeave, className, size = 28, ...props }, ref) => {
-    const controls = useAnimation();
-    const isControlledRef = useRef(false);
+export interface XIconHandle {
+  startAnimation: () => void;
+  stopAnimation: () => void;
+}
 
-    useImperativeHandle(ref, () => {
-      isControlledRef.current = true;
-
-      return {
-        startAnimation: () => controls.start("animate"),
-        stopAnimation: () => controls.start("normal"),
-      };
-    });
-
-    const handleMouseEnter = useCallback(
-      (e: React.MouseEvent<HTMLDivElement>) => {
-        if (isControlledRef.current) {
-          onMouseEnter?.(e);
-        } else {
-          controls.start("animate");
-        }
-      },
-      [controls, onMouseEnter]
-    );
-
-    const handleMouseLeave = useCallback(
-      (e: React.MouseEvent<HTMLDivElement>) => {
-        if (isControlledRef.current) {
-          onMouseLeave?.(e);
-        } else {
-          controls.start("normal");
-        }
-      },
-      [controls, onMouseLeave]
-    );
+const XIcon = forwardRef<HTMLDivElement, XIconProps>(
+  ({ onMouseEnter, onMouseLeave, className, size = 24, isHovered, ...props }, ref) => {
     return (
       <div
+        ref={ref}
         className={cn(className)}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        style={{ 
+          display: 'inline-flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          cursor: 'pointer',
+          width: `${size}px`,
+          height: `${size}px`,
+          pointerEvents: 'none'
+        }}
         {...props}
       >
         <svg
@@ -72,20 +50,25 @@ const XIcon = forwardRef<XIconHandle, XIconProps>(
           stroke="currentColor"
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth="2"
+          strokeWidth="2.5"
           viewBox="0 0 24 24"
           width={size}
           xmlns="http://www.w3.org/2000/svg"
+          style={{
+            display: 'block',
+            margin: 'auto'
+          }}
         >
           <motion.path
-            animate={controls}
-            d="M18 6 6 18"
+            animate={isHovered ? "animate" : "normal"}
+            d="M5 5L19 19"
             variants={PATH_VARIANTS}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
           />
           <motion.path
-            animate={controls}
-            d="m6 6 12 12"
-            transition={{ delay: 0.2 }}
+            animate={isHovered ? "animate" : "normal"}
+            d="M19 5L5 19"
+            transition={{ delay: 0.15, duration: 0.3, ease: "easeInOut" }}
             variants={PATH_VARIANTS}
           />
         </svg>

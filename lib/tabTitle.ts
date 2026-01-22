@@ -1,52 +1,34 @@
-export type GretelTabKey = 'login' | 'setup' | 'dashboard' | 'settings';
+import type { View } from "../components/types";
 
-const TITLE_PREFIX = 'G.R.E.T.E.L';
-
-export const TAB_TITLE_MAP: Record<GretelTabKey, string> = {
-  login: `${TITLE_PREFIX} Login`,
-  setup: `${TITLE_PREFIX} Setup`,
-  dashboard: `${TITLE_PREFIX} Dashboard`,
-  settings: `${TITLE_PREFIX} Settings`,
-};
-
-export function resolveTabTitle(key: string | undefined): string {
-  if (key && key in TAB_TITLE_MAP) {
-    return TAB_TITLE_MAP[key as GretelTabKey];
-  }
-  if (key) {
-    console.warn(`[tabTitle] Unrecognized route key: ${key}`);
-  } else {
-    console.warn('[tabTitle] Missing route key');
-  }
-  return TITLE_PREFIX;
+export function applyTabTitle(tabKey?: string) {
+  const baseTitle = "G.R.E.T.E.L";
+  document.title = tabKey ? `${baseTitle} • ${tabKey}` : baseTitle;
 }
 
-export function applyTabTitle(key: string | undefined): string {
-  const title = resolveTabTitle(key);
-  if (typeof document !== 'undefined') {
-    document.title = title;
-  }
-  return title;
-}
-
-export function getTabKeyFromTopLevelView(view: string | undefined): GretelTabKey | undefined {
+export function getTabKeyFromTopLevelView(view: View | "test") {
   switch (view) {
-    case 'login':
-    case 'createAccount':
-    case 'forgotPassword':
-    case 'resetPassword':
-    case 'twoFactor':
-      return 'login';
-    case 'setupWizard':
-      return 'setup';
-    case 'dashboard':
-      return 'dashboard';
+    case "login":
+      return "login";
+    case "createAccount":
+      return "create account";
+    case "forgotPassword":
+      return "forgot password";
+    case "setupWizard":
+      return "setup";
+    case "dashboard":
+      return "dashboard";
+    case "privacyPolicy":
+      return "privacy policy";
+    case "termsOfService":
+      return "terms of service";
+    case "resetPassword":
+      return "reset password";
+    case "twoFactor":
+      return "two-factor";
+    case "test":
+      return "test";
     default:
-      return undefined;
+      return "app";
   }
-}
-
-export function getTabKeyFromDashboardContextView(view: string | undefined): GretelTabKey {
-  return view === 'settings' ? 'settings' : 'dashboard';
 }
 

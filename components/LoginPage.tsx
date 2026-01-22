@@ -4,7 +4,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import type { Session } from '@supabase/supabase-js';
-import AppIcon from './AppIcon';
 import { EyeIcon } from './AnimatedIcons/EyeIcon';
 import { EyeOffIcon } from './AnimatedIcons/EyeOffIcon';
 
@@ -14,7 +13,8 @@ interface LoginPageProps {
   onLoginSuccess: (session: Session | null) => void;
   onNavigateToPrivacy: () => void;
   onNavigateToTerms: () => void;
-  // onNavigateToTest?: () => void;
+  authError?: string | null;
+  onLoginStart?: () => void;
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({ 
@@ -22,7 +22,9 @@ const LoginPage: React.FC<LoginPageProps> = ({
   onForgotPasswordClick, 
   onLoginSuccess, 
   onNavigateToPrivacy, 
-  onNavigateToTerms
+  onNavigateToTerms,
+  authError,
+  onLoginStart
 }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,6 +32,12 @@ const LoginPage: React.FC<LoginPageProps> = ({
   const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('gretelRememberMe') === 'true');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (authError) {
+      setError(authError);
+    }
+  }, [authError]);
 
   // FIXED: Added cleanup for potential async operations
   useEffect(() => {
@@ -57,6 +65,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
+    if (onLoginStart) onLoginStart();
     setIsLoading(true);
 
     try {

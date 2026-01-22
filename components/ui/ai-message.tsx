@@ -55,24 +55,21 @@ export function AIMessage({ children, className, actions }: AIMessageProps) {
           h3: ({ node, ...props }) => (
             <h3 className="text-base font-bold mb-2 mt-4 first:mt-0" {...props} />
           ),
-          // Code blocks & Inline code
-          pre: ({ node, ...props }) => (
-            <pre
-              className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg overflow-x-auto mb-4 [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-inherit"
-              {...props}
-            />
-          ),
+          // Code blocks
           code: ({ node, inline, className, children, ...props }: any) => {
-            return (
+            return inline ? (
               <code
-                className={cn(
-                  "bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-xs font-mono",
-                  className
-                )}
+                className="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-xs font-mono"
                 {...props}
               >
                 {children}
               </code>
+            ) : (
+              <pre className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg overflow-x-auto mb-4">
+                <code className="text-xs font-mono block" {...props}>
+                  {children}
+                </code>
+              </pre>
             );
           },
         }}

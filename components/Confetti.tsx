@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import ReactConfetti from 'react-confetti';
-import { useWindowSize } from 'react-use';
+import React, { useEffect, useState, useRef } from 'react';
+import Lottie from 'lottie-react';
+import confettiAnimationData from '../ANIMATION/Confetti.json';
 
 interface ConfettiProps {
   trigger: boolean;
@@ -8,89 +8,53 @@ interface ConfettiProps {
   numberOfPieces?: number;
 }
 
-const Confetti: React.FC<ConfettiProps> = ({ trigger, onComplete, numberOfPieces = 200 }) => {
-  const { width, height } = useWindowSize();
-  const [isActive, setIsActive] = useState(false);
-  const [shouldRender, setShouldRender] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-
-  // Check for mobile viewport and reduced motion preference
-  useEffect(() => {
-    setIsMobile(window.innerWidth < 768);
-    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setPrefersReducedMotion(mediaQuery.matches);
-
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    
-    const handleMotionChange = (e: MediaQueryListEvent) => {
-      setPrefersReducedMotion(e.matches);
-    };
-
-    window.addEventListener('resize', handleResize);
-    mediaQuery.addEventListener('change', handleMotionChange);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      mediaQuery.removeEventListener('change', handleMotionChange);
-    };
-  }, []);
+const Confetti: React.FC<ConfettiProps> = ({ trigger, onComplete }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const animationRef = useRef<any>(null);
 
   useEffect(() => {
-    if (trigger) {
-      if (prefersReducedMotion) {
-        // Skip animation if user prefers reduced motion
-        onComplete?.();
-        return;
-      }
+    if (trigger && !isPlaying) {
+      setIsPlaying(true);
       
-      setShouldRender(true);
-      setIsActive(true);
-      
-      // Stop generating new particles after 3 seconds
-      const stopTimer = setTimeout(() => {
-        setIsActive(false);
-      }, 3000);
-
-      // Remove component after 6 seconds (allowing particles to fall)
-      const cleanupTimer = setTimeout(() => {
-        setShouldRender(false);
+      // The animation duration is approximately 5 seconds (126 frames / 25 fps)
+      const timeout = setTimeout(() => {
+        setIsPlaying(false);
         onComplete?.();
-      }, 6000);
+      }, 5100); // Slightly longer than animation duration to ensure it finishes
 
-      return () => {
-        clearTimeout(stopTimer);
-        clearTimeout(cleanupTimer);
-      };
-    } else {
-      setIsActive(false);
-      setShouldRender(false);
+      return () => clearTimeout(timeout);
+    } else if (!trigger) {
+      setIsPlaying(false);
     }
-  }, [trigger, onComplete, prefersReducedMotion]);
+  }, [trigger, isPlaying, onComplete]);
 
-  if (!shouldRender || prefersReducedMotion) {
+  if (!isPlaying) {
     return null;
   }
 
-  // Optimize particle count based on device
-  const particleCount = isMobile ? Math.min(numberOfPieces, 80) : numberOfPieces;
-
   return (
     <div 
-      className="fixed inset-0 pointer-events-none z-[100]"
-      style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%' }}
+      className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center"
+      style={{ 
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100vw',
+        height: '100vh'
+      }}
     >
-      <ReactConfetti
-        width={width}
-        height={height}
-        numberOfPieces={isActive ? particleCount : 0}
-        recycle={true}
-        gravity={isMobile ? 0.25 : 0.2} // Slightly faster on mobile
-        colors={['#DC143C', '#FFD700', '#4169E1', '#32CD32', '#FF69B4']}
-        tweenDuration={5000}
-        initialVelocityY={20} // Start higher
+      <Lottie
+        lottieRef={animationRef}
+        animationData={confettiAnimationData}
+        loop={false}
+        autoplay={true}
+        style={{
+          width: '100%',
+          height: '100%',
+          maxWidth: '1920px',
+          maxHeight: '1080px'
+        }}
       />
     </div>
   );

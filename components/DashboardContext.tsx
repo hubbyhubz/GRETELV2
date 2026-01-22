@@ -5,13 +5,10 @@ import { sendMessageToGemini } from './geminiService';
 import { getDashboardState, saveDashboardState } from './googleDriveService';
 import { batchAddEventsToCalendar, getTodaysEvents } from './googleCalendarService';
 import { createTask, findOrCreateTaskList, updateTask, deleteTask } from './googleTasksService';
-import { supabase } from './supabaseClient';
 import type { Session } from '@supabase/supabase-js';
 import type { Content } from '@google/genai';
 // FIX: All type imports were pointing to App.tsx which doesn't export them. Changed to import from the correct types.ts file.
-import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, CalendarEvent, UserMood, RelationalGraph } from './types';
-import { fetchAssistantInboxMessages, markAssistantInboxDelivered, markAssistantInboxRead, subscribeAssistantInbox, type AssistantInboxMessageRow } from './assistantInboxService';
-import { playAssistantChime } from '../lib/assistantChime';
+import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, UserMood } from './types';
 
 // Version for the dashboard state structure. Increment this to trigger migrations.
 const DASHBOARD_STATE_VERSION = "1.1.0";
@@ -420,13 +417,13 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     isAddTaskModalOpen: boolean;
     showDelegatedClearConfirm: boolean;
     isSidebarCollapsed: boolean;
-    calendarEvents: CalendarEvent[]; // Events Operations
     showProjectsClearConfirm: boolean;
     currentMode: AssistantMode;
     currentMood: UserMood;
     recentContext: string[];
     modeHistory: ModeHistoryEntry[];
     modeActivatedAt: number | undefined;
+
 
     // All refs needed by UI (if any, usually not)
     desktopTextareaRef: React.RefObject<HTMLTextAreaElement>;
@@ -470,6 +467,7 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     setIsSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
     setShowProjectsClearConfirm: React.Dispatch<React.SetStateAction<boolean>>;
     setWeeklyReport: React.Dispatch<React.SetStateAction<WeeklyReport | null>>;
+
 
     handleSendMessage: (e?: React.FormEvent, prompt?: string, imageUrl?: string) => Promise<void>;
     handleManualReset: () => void;
@@ -520,10 +518,7 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     handleDeactivateMode: () => void;
     handleAddDelegatedTask: (task: { text: string; assigneeId: string; deadlineDate: string; deadlineTime: string; }) => Promise<void>;
     handleClearDelegatedTasks: () => void;
-    setCalendarEvents: React.Dispatch<React.SetStateAction<CalendarEvent[]>>;
-    addCalendarEvent: (event: Omit<CalendarEvent, 'id'>) => void;
-    updateCalendarEvent: (updatedEvent: CalendarEvent) => void;
-    deleteCalendarEvent: (id: string) => void;
+
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -642,7 +637,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [emailVersion, setEmailVersion] = useState<string>('');
     const [isEmailVersionModalOpen, setIsEmailVersionModalOpen] = useState(false);
     const messageIdRef = useRef(0);
-    const assistantInboxUnsubRef = useRef<null | (() => void)>(null);
     
     // Mode State
     const [currentMode, setCurrentMode] = useState<AssistantMode>(null);
@@ -660,63 +654,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [openSidebarSections, setOpenSidebarSections] = useState<Record<string, boolean>>({});
     const [isBriefingPointersVisible, setIsBriefingPointersVisible] = useState(false);
     const [contextMenu, setContextMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0, text: '', flipped: false });
-
-    const mapInboxRowToChatMessage = useCallback((row: AssistantInboxMessageRow): ChatMessage => {
-        const createdAt = row.sent_at ? Date.parse(row.sent_at) : Date.now();
-        const readAt = row.read_at ? Date.parse(row.read_at) : null;
-        const dismissedAt = row.dismissed_at ? Date.parse(row.dismissed_at) : null;
-        return {
-            id: Date.now() * 1000 + (messageIdRef.current++ % 1000),
-            role: 'model',
-            text: row.content,
-            externalId: row.id,
-            createdAt,
-            senderLabel: '[Assistant]',
-            isAssistantNotification: true,
-            readAt,
-            dismissedAt,
-        };
-    }, []);
-
-    const upsertAssistantInboxMessageToChat = useCallback(async (row: AssistantInboxMessageRow) => {
-        if (row.dismissed_at) return;
-
-        setChatMessages(prev => {
-            const existingIndex = prev.findIndex(m => m.externalId === row.id);
-            const mapped = mapInboxRowToChatMessage(row);
-            if (existingIndex >= 0) {
-                const next = [...prev];
-                next[existingIndex] = { ...next[existingIndex], ...mapped, id: next[existingIndex].id };
-                return next;
-            }
-            return [...prev, mapped];
-        });
-
-        setChatHistory(prev => {
-            const last = prev[prev.length - 1];
-            const lastText = (last as any)?.parts?.map((p: any) => p?.text ?? '').join('') ?? '';
-            if (lastText === row.content) return prev;
-            return [...prev, { role: 'model', parts: [{ text: row.content }], _ts: row.sent_at ? Date.parse(row.sent_at) : Date.now() } as any];
-        });
-
-        try {
-            if (!row.delivered_at) {
-                await markAssistantInboxDelivered(row.id);
-            }
-        } catch {
-        }
-
-        try {
-            const shouldAutoRead = typeof document !== 'undefined' && document.visibilityState === 'visible' && currentView === 'dashboard';
-            if (shouldAutoRead && !row.read_at) {
-                await markAssistantInboxRead(row.id);
-            }
-            if (shouldAutoRead) {
-                playAssistantChime();
-            }
-        } catch {
-        }
-    }, [currentView, mapInboxRowToChatMessage]);
   
     // New State for Confirmations & Notifications
     const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -740,25 +677,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [draftedSchedule, setDraftedSchedule] = useState<ScheduleItem[] | null>(null);
     const [draftedPriorities, setDraftedPriorities] = useState<Top3Item[] | null>(null);
     const [_lastPlanDraftText, setLastPlanDraftText] = useState<string>('');
-    // Calendar Events (Events Operations)
-    const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
-
-    const addCalendarEvent = useCallback((event: Omit<CalendarEvent, 'id'>) => {
-        const newEvent: CalendarEvent = {
-            ...event,
-            id: `evt-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        };
-        setCalendarEvents(prev => [...prev, newEvent]);
-    }, []);
-
-    const updateCalendarEvent = useCallback((updatedEvent: CalendarEvent) => {
-        setCalendarEvents(prev => prev.map(evt => evt.id === updatedEvent.id ? updatedEvent : evt));
-    }, []);
-
-    const deleteCalendarEvent = useCallback((id: string) => {
-        setCalendarEvents(prev => prev.filter(evt => evt.id !== id));
-    }, []);
-
     const buildTopPriorities = useCallback((lines: string[]) => {
         const cleaned = lines
             .map((line) => line.replace(/^\d+\.\s*/, '').trim())
@@ -1080,7 +998,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             setNotifiedEventIds(new Set(Array.isArray(state.notifiedEventIds) ? state.notifiedEventIds : []));
             setNudgedDelegatedTaskIds(new Set(Array.isArray(state.nudgedDelegatedTaskIds) ? state.nudgedDelegatedTaskIds : []));
             setSuppressCalendarFetch(state.suppressCalendarFetch || false);
-            setCalendarEvents(Array.isArray(state.calendarEvents) ? state.calendarEvents : []); // Restore Events Operations
           }
         }
       } catch (error) {
@@ -1092,96 +1009,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, [userProfile.id]);
   
     useEffect(() => { loadState(); }, [loadState]); 
-
-    useEffect(() => {
-      const userId = session?.user?.id;
-      if (!userId) return;
-
-      assistantInboxUnsubRef.current?.();
-      assistantInboxUnsubRef.current = null;
-
-      let cancelled = false;
-
-      (async () => {
-        try {
-          const rows = await fetchAssistantInboxMessages(userId);
-          if (cancelled) return;
-          for (const row of rows) {
-            await upsertAssistantInboxMessageToChat(row);
-          }
-        } catch (e) {
-          console.warn('Assistant inbox is unavailable (did you run supabase_assistant_inbox.sql and enable Realtime for the table?)');
-        }
-      })();
-
-      try {
-        assistantInboxUnsubRef.current = subscribeAssistantInbox(userId, {
-          onInsert: (row) => void upsertAssistantInboxMessageToChat(row),
-          onUpdate: (row) => void upsertAssistantInboxMessageToChat(row),
-        });
-      } catch (e) {
-        assistantInboxUnsubRef.current = null;
-      }
-
-      return () => {
-        cancelled = true;
-        assistantInboxUnsubRef.current?.();
-        assistantInboxUnsubRef.current = null;
-      };
-    }, [session?.user?.id, upsertAssistantInboxMessageToChat]);
-
-    useEffect(() => {
-      const userId = session?.user?.id;
-      if (!userId) return;
-      if (typeof window === 'undefined') return;
-      if (!('serviceWorker' in navigator)) return;
-
-      const handler = (event: MessageEvent) => {
-        const data: any = (event as any).data;
-        if (!data || data.type !== 'assistant_push') return;
-        const payload = data.payload || {};
-        const messageId = payload.messageId;
-        const payloadUserId = payload.userId;
-        if (payloadUserId && payloadUserId !== userId) return;
-        if (!messageId) return;
-
-        void (async () => {
-          try {
-            const { data: row, error } = await supabase
-              .from('assistant_inbox_messages')
-              .select('*')
-              .eq('id', messageId)
-              .maybeSingle();
-            if (error || !row) return;
-            await upsertAssistantInboxMessageToChat(row as any);
-          } catch {
-          }
-        })();
-      };
-
-      navigator.serviceWorker.addEventListener('message', handler);
-      return () => {
-        navigator.serviceWorker.removeEventListener('message', handler);
-      };
-    }, [session?.user?.id, upsertAssistantInboxMessageToChat]);
-
-    const assistantAutoReadThrottleRef = useRef(0);
-    useEffect(() => {
-      if (typeof document === 'undefined') return;
-      if (document.visibilityState !== 'visible') return;
-      if (currentView !== 'dashboard') return;
-      const now = Date.now();
-      if (now - assistantAutoReadThrottleRef.current < 2000) return;
-      assistantAutoReadThrottleRef.current = now;
-
-      const unread = chatMessages.filter(
-        (m) => m.isAssistantNotification && m.externalId && !m.readAt && !m.dismissedAt
-      );
-      if (unread.length === 0) return;
-      unread.forEach((m) => {
-        void markAssistantInboxRead(m.externalId as string);
-      });
-    }, [currentView, mobileView, chatMessages]);
 
     // Auto-resize textarea when chatInput changes (including when cleared programmatically)
     useEffect(() => {
@@ -1264,20 +1091,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               nudgedTaskIds: Array.from(nudgedTaskIds),
               notifiedEventIds: Array.from(notifiedEventIds),
               nudgedDelegatedTaskIds: Array.from(nudgedDelegatedTaskIds),
-              suppressCalendarFetch,
-              calendarEvents // Events Operations
+              suppressCalendarFetch
           };
-          saveDashboardState(userProfile.id, currentState).catch((err: any) => {
-             // Swallow "Failed to fetch" errors here too, just in case
-             if (err instanceof Error && err.message.includes('Failed to fetch')) {
-                 console.warn("Suppressing Supabase fetch error in saveState:", err);
-                 return;
-             }
-             console.error("Failed to save state to Supabase:", err);
-          });
+          saveDashboardState(userProfile.id, currentState).catch((err: any) => console.error("Failed to save state to Supabase:", err));
       }, saveDelay);
       return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-    }, [chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt, calendarEvents]);
+    }, [chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt]);
     
     useEffect(() => {
         const fetchGoogleCalendarEvents = async () => {
@@ -1526,8 +1345,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             weeklyLog: [],
             priorityForTomorrow,
             stateVersion: DASHBOARD_STATE_VERSION,
-            completedGCalEventIds: Array.from(completedGCalEventIds),
-            calendarEvents: []
+            completedGCalEventIds: Array.from(completedGCalEventIds)
         };
 
         const historyForRequest: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
@@ -1659,12 +1477,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       const newMessagePart: Content = { 
           role: 'user', 
           parts: imageUrl 
-            ? (() => {
-                const match = imageUrl.match(/^data:(.*?);base64,/);
-                const mimeType = match?.[1] || 'image/jpeg';
-                const data = imageUrl.split(',')[1] || '';
-                return [{ text: fullPrompt }, { inlineData: { mimeType, data } }];
-              })()
+            ? [{ text: fullPrompt }, { inlineData: { mimeType: "image/jpeg", data: imageUrl.split(',')[1] } }] 
             : [{ text: fullPrompt }] 
       };
 
@@ -1693,8 +1506,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             completedGCalEventIds: Array.from(completedGCalEventIds),
             currentMode,
             modeHistory,
-            modeActivatedAt,
-            calendarEvents: []
+            modeActivatedAt
           }
         : {
             chatMessages: shouldHideMessage ? chatMessages : [...chatMessages, newUserMessage],
@@ -1719,8 +1531,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             completedGCalEventIds: Array.from(completedGCalEventIds),
             currentMode,
             modeHistory,
-            modeActivatedAt,
-            calendarEvents
+            modeActivatedAt
           };
       try {
           const currentAccessToken = session?.provider_token || null;
@@ -1880,9 +1691,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           }
 
           if (response.memoryUpdate && response.memoryUpdate.operations) {
-              const updatedGraph: RelationalGraph = userProfile.relationalMemory ? { ...userProfile.relationalMemory } : { nodes: [], edges: [] };
-              if (!updatedGraph.nodes) updatedGraph.nodes = [];
-              if (!updatedGraph.edges) updatedGraph.edges = [];
+              let updatedGraph: any = userProfile.relationalMemory ? { ...userProfile.relationalMemory } : { nodes: [], edges: [] };
+              if (!Array.isArray(updatedGraph.nodes)) updatedGraph.nodes = [];
+              if (!Array.isArray(updatedGraph.edges)) updatedGraph.edges = [];
 
               response.memoryUpdate.operations.forEach((op: any) => {
                   if (op.type === 'add_node') {
@@ -2084,7 +1895,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         if (isSending) return;
         setIsSending(true);
         const currentAccessToken = session?.provider_token || null;
-        const currentDashboardState: DashboardState = { chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, stateVersion: DASHBOARD_STATE_VERSION, completedGCalEventIds: Array.from(completedGCalEventIds), currentMode, modeHistory, modeActivatedAt, calendarEvents };
+        const currentDashboardState: DashboardState = { chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, stateVersion: DASHBOARD_STATE_VERSION, completedGCalEventIds: Array.from(completedGCalEventIds) };
         const historyForGemini: Content[] = chatHistory.map(({ role, parts }) => ({ role, parts }));
         const newHistory: Content[] = [...historyForGemini, { role: 'user', parts: [{ text: prompt }] }];
         try {
@@ -2339,11 +2150,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed: true, briefingInputs, briefingState,
         collapsedCards, weeklyLog, priorityForTomorrow, stateVersion: DASHBOARD_STATE_VERSION,
         completedGCalEventIds: Array.from(completedGCalEventIds),
-        currentMode, currentMood, recentContext, modeHistory, modeActivatedAt,
+        currentMode, modeHistory, modeActivatedAt,
         nudgedTaskIds: Array.from(nudgedTaskIds),
         notifiedEventIds: Array.from(notifiedEventIds),
         nudgedDelegatedTaskIds: Array.from(nudgedDelegatedTaskIds),
-        calendarEvents,
         suppressCalendarFetch
       };
       // Save immediately - don't wait for useEffect
@@ -3039,8 +2849,7 @@ ${reportJson}`;
                 weeklyLog: [],
                 priorityForTomorrow: '',
                 stateVersion: DASHBOARD_STATE_VERSION,
-                completedGCalEventIds: [],
-                calendarEvents: []
+                completedGCalEventIds: []
             };
 
             const historyForRequest: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
@@ -3449,7 +3258,6 @@ ${reportJson}`;
       return Math.round((completed / top3Items.length) * 100);
     }, [displayedScheduleItems, top3Items]);
 
-    // FIX: Complete the value object to match the DashboardContextType interface, fixing the missing properties error.
     const value: DashboardContextType = {
         onLogout: props.onLogout,
         userProfile: props.userProfile,
@@ -3490,8 +3298,7 @@ ${reportJson}`;
         handleActivateMode, handleDeactivateMode,
         setTop3Items,
         onAllPrioritiesCompleted: props.onAllPrioritiesCompleted,
-        onAllScheduleCompleted: props.onAllScheduleCompleted,
-        calendarEvents, setCalendarEvents, addCalendarEvent, updateCalendarEvent, deleteCalendarEvent
+        onAllScheduleCompleted: props.onAllScheduleCompleted
     };
 
     return (

@@ -68,5 +68,3 @@ export { XIcon } from './XIcon';
 export { DelegatedIcon } from './DelegatedIcon';
 
 export { ImageIcon } from './ImageIcon';
-
-export { BellIcon } from './BellIcon';

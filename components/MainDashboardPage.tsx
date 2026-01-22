@@ -1,14 +1,12 @@
 
 import React, { useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useSwipe } from '../hooks/useSwipe';
+import { useSwipe } from '../hooks/useSwipe.ts';
 import { DashboardProvider, useDashboardContext } from './DashboardContext';
 import { AccountSettingsPage } from './AccountSettingsPage';
-import EventsOperationsPage from './EventsOperationsPage';
+import EventsOperationsPage from './EventsOperationsPage.tsx';
 import { SettingsIcon } from './SettingsIcon';
 import CommandPalette, { type Command } from './CommandPalette';
-import { applyTabTitle, getTabKeyFromDashboardContextView } from '../lib/tabTitle';
-import { dismissAssistantInboxMessage, markAssistantInboxRead } from './assistantInboxService';
 import {
   LottieSendIcon,
   LucideMicIcon,
@@ -43,10 +41,10 @@ import {
   ImageIcon,
 } from './AnimatedIcons';
 import { XIcon as AnimatedXIcon } from './AnimatedIcons/XIcon';
-import { PlusIcon } from './AnimatedIcons/PlusIcon';
-import { GripHorizontalIcon } from './AnimatedIcons/GripHorizontalIcon';
-import { MessageCircleMoreIcon } from './AnimatedIcons/MessageCircleMoreIcon';
-import { CalendarDaysIcon } from './AnimatedIcons/CalendarDaysIcon';
+import { PlusIcon } from './AnimatedIcons/PlusIcon.tsx';
+import { GripHorizontalIcon } from './AnimatedIcons/GripHorizontalIcon.tsx';
+import { MessageCircleMoreIcon } from './AnimatedIcons/MessageCircleMoreIcon.tsx';
+import { CalendarDaysIcon } from './AnimatedIcons/CalendarDaysIcon.tsx';
 import FeedbackModal from './FeedbackModal';
 import PatchNotesModal from './PatchNotesModal';
 import ConfirmationModal from './ConfirmationModal';
@@ -115,7 +113,6 @@ const ChatMessage = React.memo<{
     handleMakeChanges: () => void;
     handleConfirmPlan: () => void;
     handleSendMessage: (e?: React.FormEvent, prompt?: string) => Promise<void>;
-    handleCreateReminderFromText: (text: string) => void;
     handleMakeProjectChanges: () => void;
     handleConfirmProjectDraft: () => void;
     draftedProject: any;
@@ -127,7 +124,7 @@ const ChatMessage = React.memo<{
     setIsEmailVersionModalOpen: (open: boolean) => void;
 }>(({
     msg, index, userProfile, formatChatText, handleMakeChanges, handleConfirmPlan, 
-    handleSendMessage, handleCreateReminderFromText, handleMakeProjectChanges, handleConfirmProjectDraft,
+    handleSendMessage, handleMakeProjectChanges, handleConfirmProjectDraft,
     draftedProject, draftedProjectTasks, weeklyReport, lastWeeklyReportIndex,
     emailVersion, setIsWeeklyReportModalOpen, setIsEmailVersionModalOpen
 }) => {
@@ -135,23 +132,9 @@ const ChatMessage = React.memo<{
         <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-[88%] sm:max-w-[85%]`}>
                 {msg.role === 'model' && (
-                    <div className="flex items-center justify-between gap-2 mb-1 px-1 w-full">
-                        <div className="flex items-center gap-2 min-w-0">
-                            <img src={userProfile.assistantAvatar} alt={userProfile.assistantName} className="w-6 h-6 rounded-full" />
-                            <span className="text-xs font-semibold text-gray-600 dark:text-gray-400 truncate">
-                                {userProfile.assistantName}
-                            </span>
-                            {msg.isAssistantNotification && (
-                                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-[#DC143C] dark:bg-red-900/20 dark:text-red-200">
-                                    {msg.senderLabel || '[Assistant]'}
-                                </span>
-                            )}
-                        </div>
-                        {typeof msg.createdAt === 'number' && (
-                            <span className="text-[11px] text-gray-500 dark:text-gray-500 whitespace-nowrap">
-                                {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                        )}
+                    <div className="flex items-center gap-2 mb-1 px-1">
+                        <img src={userProfile.assistantAvatar} alt={userProfile.assistantName} className="w-6 h-6 rounded-full" />
+                        <span className="text-xs font-semibold text-gray-600 dark:text-gray-400">{userProfile.assistantName}</span>
                     </div>
                 )}
                 {msg.role === 'user' ? (
@@ -161,33 +144,9 @@ const ChatMessage = React.memo<{
                     </div>
                 ) : (
                     <AIMessage 
-                        className={`sm:rounded-tl-none sm:mr-auto max-w-full ${msg.isAssistantNotification ? 'border-red-200 bg-red-50/40 dark:bg-red-900/10 dark:border-red-900/30' : ''}`}
+                        className="sm:rounded-tl-none sm:mr-auto max-w-full"
                         actions={
                             <>
-                                {msg.isAssistantNotification && msg.externalId && !msg.dismissedAt && (
-                                    <div className="flex justify-end gap-2">
-                                        {!msg.readAt && (
-                                            <button
-                                                onClick={() => void markAssistantInboxRead(msg.externalId)}
-                                                className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-semibold active-press"
-                                            >
-                                                Mark Read
-                                            </button>
-                                        )}
-                                        <button
-                                            onClick={() => handleCreateReminderFromText(msg.text)}
-                                            className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-semibold active-press"
-                                        >
-                                            Add Reminder
-                                        </button>
-                                        <button
-                                            onClick={() => void dismissAssistantInboxMessage(msg.externalId)}
-                                            className="px-3 py-1.5 rounded-lg bg-[#DC143C] hover:bg-[#b81030] text-white text-sm font-semibold active-press"
-                                        >
-                                            Dismiss
-                                        </button>
-                                    </div>
-                                )}
                                 {msg.isPlanDraft && (
                                     <div className="flex justify-end space-x-2">
                                         <button onClick={handleMakeChanges} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-semibold active-press">
@@ -265,8 +224,6 @@ ChatMessage.displayName = 'ChatMessage';
 const areMessagesEqual = (prevProps: any, nextProps: any) => {
     return prevProps.msg.id === nextProps.msg.id && 
            prevProps.msg.text === nextProps.msg.text &&
-           prevProps.msg.readAt === nextProps.msg.readAt &&
-           prevProps.msg.dismissedAt === nextProps.msg.dismissedAt &&
            prevProps.index === nextProps.index &&
            prevProps.lastWeeklyReportIndex === nextProps.lastWeeklyReportIndex &&
            prevProps.emailVersion === nextProps.emailVersion &&
@@ -447,10 +404,6 @@ const DashboardContent: React.FC<{
         draftedProject, draftedProjectTasks, weeklyReport, isWeeklyReportModalOpen, setIsWeeklyReportModalOpen, emailVersion, isEmailVersionModalOpen, setIsEmailVersionModalOpen, handleGenerateEmailReport,
         currentMode, handleActivateMode, handleDeactivateMode, currentMood,
     } = useDashboardContext();
-
-    React.useLayoutEffect(() => {
-        applyTabTitle(getTabKeyFromDashboardContextView(currentView));
-    }, [currentView]);
 
     // ============================================================================
     // CRITICAL: ALL HOOKS MUST BE DECLARED HERE - BEFORE ANY CONDITIONAL RETURNS
@@ -743,7 +696,7 @@ const DashboardContent: React.FC<{
     const mainContentRef = React.useRef<HTMLDivElement>(null);
 
     const swipeHandlers = useSwipe({
-        onSwipeMove: (dx, _dy) => {
+        onSwipeMove: (dx) => {
             if (window.innerWidth >= 768) return;
             if (!mainContentRef.current) return;
             
@@ -795,9 +748,9 @@ const DashboardContent: React.FC<{
         swipeHandlers.onTouchMove(e);
     };
     
-    const onTouchEndCombined = () => {
+    const onTouchEndCombined = (e: React.TouchEvent) => {
         handleTouchEnd();
-        swipeHandlers.onTouchEnd();
+        swipeHandlers.onTouchEnd(e);
     };
 
     // ============================================================================
@@ -1149,7 +1102,6 @@ const DashboardContent: React.FC<{
                         handleMakeChanges={handleMakeChanges}
                         handleConfirmPlan={handleConfirmPlan}
                         handleSendMessage={handleSendMessage}
-                        handleCreateReminderFromText={handleCreateReminderFromText}
                         handleMakeProjectChanges={handleMakeProjectChanges}
                         handleConfirmProjectDraft={handleConfirmProjectDraft}
                         draftedProject={draftedProject}

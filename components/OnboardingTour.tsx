@@ -1,11 +1,8 @@
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
-// import { Popover } from 'react-tiny-popover';
-// import { useDashboardContext } from './DashboardContext';
-// import { X, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "./supabaseClient";
-import type { UserProfile, TourState } from "./types";
+import type { UserProfile } from "./types";
 
 interface OnboardingTourProps {
   userProfile: UserProfile | null;
@@ -15,6 +12,14 @@ interface OnboardingTourProps {
 // Tour configuration
 const TOUR_VERSION = "1.0.0";
 const TOUR_STORAGE_KEY = "gretel_tour_state";
+
+interface TourState {
+  completed: boolean;
+  currentStep: number;
+  dismissed: boolean;
+  version: string;
+  lastShown: string;
+}
 
 // Full Desktop Tour Steps
 const desktopSteps = [
@@ -182,21 +187,6 @@ const mobileSteps = [
       description: "Your daily calendar and priorities.",
       side: "bottom" as const,
       align: "center" as const,
-      onPopoverRender: (_popover: any) => {
-        // Only run on mobile
-        if (window.innerWidth < 768) {
-          const overlay = document.querySelector('.driver-overlay');
-          const element = document.querySelector('#todays-schedule');
-          
-          if (overlay && element) {
-            // Force a smooth transition for the overlay background/position
-            overlay.classList.add('mobile-schedule-transition');
-            
-            // Optional: Scroll to element smoothly to ensure it's centered
-            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
-        }
-      }
     },
   },
   {
@@ -249,58 +239,27 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
       // Mark that we've loaded for this user
       userProfileIdRef.current = userProfile.id;
       
-      // STRATEGY: Prefer Supabase > LocalStorage > Default
-      
-      // 1. Check Supabase (Source of Truth)
-      if (userProfile.tour_state) {
-        setTourState(userProfile.tour_state);
-        
-        // Sync back to local storage for offline/fallback
-        localStorage.setItem(TOUR_STORAGE_KEY, JSON.stringify(userProfile.tour_state));
-        if (userProfile.tour_state.completed) {
-            localStorage.setItem('hasCompletedTour', 'true');
-        }
-        return;
-      }
-
-      // 2. Check LocalStorage (Migration path)
+      // Check tour_completed from profile (per-account tracking)
+      const isCompleted = userProfile.tour_completed || false;
+      // Still use localStorage for current step/progress (local state)
       const savedState = localStorage.getItem(TOUR_STORAGE_KEY);
-      const hasLocalCompletedFlag = localStorage.getItem('hasCompletedTour') === 'true';
-      const isCompleted = userProfile.tour_completed || hasLocalCompletedFlag || false;
-
+      let currentStep = 0;
       if (savedState) {
         try {
           const parsed = JSON.parse(savedState);
-          // If we have local state, migrate it to this object structure
-          // Ensure we respect the 'completed' flag from either source
-          const migratedState: TourState = {
-            completed: isCompleted || parsed.completed || false,
-            currentStep: parsed.currentStep || 0,
-            dismissed: parsed.dismissed || false,
-            version: parsed.version || TOUR_VERSION,
-            lastShown: parsed.lastShown || new Date().toISOString(),
-          };
-          
-          setTourState(migratedState);
-          
-          // Trigger a save to Supabase to complete the migration
-          saveTourState(migratedState, true);
-          return;
+          currentStep = parsed.currentStep || 0;
         } catch (e) {
           // Ignore parse errors
         }
       }
-
-      // 3. Default State (New User)
-      const newTourState: TourState = {
+      const newTourState = {
         completed: isCompleted,
-        currentStep: 0,
+        currentStep: isCompleted ? 0 : currentStep,
         dismissed: isCompleted,
         version: TOUR_VERSION,
         lastShown: new Date().toISOString(),
       };
       setTourState(newTourState);
-      
     } else if (!userProfile) {
       // Reset ref when userProfile is null (logged out)
       userProfileIdRef.current = null;
@@ -308,33 +267,16 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
     }
   }, [userProfile]);
 
-//   const getDefaultTourState = (): TourState => ({
-//     completed: false,
-//     currentStep: 0,
-//     dismissed: false,
-//     version: TOUR_VERSION,
-//     lastShown: new Date().toISOString(),
-//   });
-
   const saveTourState = async (state: TourState, saveToSupabase = false) => {
     // Always save local progress (step) to localStorage
     localStorage.setItem(TOUR_STORAGE_KEY, JSON.stringify(state));
-    
-    // Explicitly set the simple flag requested by user requirement
-    if (state.completed) {
-        localStorage.setItem('hasCompletedTour', 'true');
-    }
-
     setTourState(state);
     
-    // Save to Supabase (per-account tracking)
-    if (saveToSupabase && userProfile) {
+    // Save completion status to Supabase (per-account tracking)
+    if (saveToSupabase && userProfile && state.completed) {
       const { error } = await supabase
         .from('profiles')
-        .update({ 
-          tour_completed: state.completed,
-          tour_state: state
-        })
+        .update({ tour_completed: true })
         .eq('id', userProfile.id);
       
       if (error) {
@@ -346,11 +288,6 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
   const isMobile = () => window.innerWidth < 768;
 
   const startTour = (fromStep = 0) => {
-    // Disable tour on mobile viewports (< 768px)
-    if (isMobile()) {
-      return;
-    }
-
     const steps = isMobile() ? mobileSteps : desktopSteps;
     const slicedSteps = steps.slice(fromStep);
     let previousPosition: { top: string; left: string; right: string; bottom: string } | null = null;
@@ -373,35 +310,6 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
         const popoverElement = popover.wrapper;
         popoverElement.style.setProperty("--driver-popover-accent", "#DC143C");
         
-        // Add sliding entrance animation class
-        // Use requestAnimationFrame to ensure the element is in the DOM and ready for animation
-        requestAnimationFrame(() => {
-          // Remove any existing slide classes first
-          popoverElement.classList.remove(
-            'slide-in-right', 'slide-in-left', 
-            'slide-in-up', 'slide-in-down',
-            'slide-out-right', 'slide-out-left', 
-            'slide-out-up', 'slide-out-down'
-          );
-          
-          // Determine direction based on popover side/position or simply default to slideInRight
-          // For a cleaner A to B travel effect, we can alternate or choose based on side
-          let animationClass = 'slide-in-right';
-          const side = popoverElement.getAttribute('data-side') || 'right'; // Driver.js might set this
-          
-          // Logic to choose entrance direction - can be customized based on step index or side
-          if (side === 'left') animationClass = 'slide-in-left';
-          else if (side === 'top') animationClass = 'slide-in-down';
-          else if (side === 'bottom') animationClass = 'slide-in-up';
-          else animationClass = 'slide-in-right'; // Default
-          
-          // Force reflow
-          void popoverElement.offsetWidth;
-          
-          // Add animation class
-          popoverElement.classList.add(animationClass);
-        });
-
         // Fix progress text to show correct numbers based on original steps, not sliced steps
         // Calculate actual current step (1-indexed): fromStep + activeIndex + 1
         const actualCurrentStep = fromStep + (state.activeIndex ?? 0) + 1;
@@ -653,7 +561,7 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
               dismissed: true, // Set dismissed to true to prevent auto-start
               completed: false, // Reset completed to false when continuing later (allows resuming)
               lastShown: new Date().toISOString(),
-            }, true); // Save to Supabase on "Continue Later" for cross-device resume
+            }, false); // Don't save to Supabase on "Continue Later" - only on completion
             
             // Add exit animation
             const popoverEl = popover.wrapper;
@@ -717,20 +625,6 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
           }
           
           if (prevButton) {
-            // Add click listener for back button to trigger slideOut animation (B to A)
-            // We need to clone and replace the button to avoid adding multiple listeners
-            // OR just ensure our logic runs before the driver.js action
-            
-            // Note: driver.js handles the actual navigation. We want to add visual flair if possible.
-            // But since driver.js destroys/re-creates popovers or moves them, strictly animating "out" 
-            // before the move is tricky without intercepting the event fully.
-            // However, the "entrance" animation on the NEW step (handled in onPopoverRender) 
-            // combined with the "travel" transition in CSS creates the A to B effect.
-            
-            // To enhance B to A (Back) specifically:
-            // We can detect if we are going back by comparing indices, but onNextClick only fires on Next.
-            // The onPrevClick handler is where we should handle "Back" logic.
-            
             const canGoBack = fromStep > 0 || (options.state.activeIndex ?? 0) > 0;
             if (canGoBack) {
               // Aggressively enable the button - remove ALL disabled-related classes including driver-popover-btn-disabled
@@ -783,7 +677,7 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
           ...tourState!,
           currentStep: nextStep,
           lastShown: new Date().toISOString(),
-        }, true);
+        }, false);
         driverObj.moveNext();
       },
       
@@ -803,7 +697,7 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
             ...tourState!,
             currentStep: previousStep,
             lastShown: new Date().toISOString(),
-          }, true);
+          }, false);
           
           // Destroy current tour and restart from previous step
           driverObj.destroy();
@@ -1060,31 +954,18 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
 };
 
 // Helper function to show feature announcement
-export const showFeatureAnnouncement = (steps: typeof desktopSteps, userId?: string) => {
+export const showFeatureAnnouncement = (steps: typeof desktopSteps) => {
   const driverObj = driver({
     showProgress: false,
     steps,
     popoverClass: "gretel-feature-announcement",
     nextBtnText: "Next →",
     doneBtnText: "Got it! ✓",
-    onDestroyStarted: async () => {
-      // Mark feature as seen locally
+    onDestroyStarted: () => {
+      // Mark feature as seen
       const seenFeatures = JSON.parse(localStorage.getItem("gretel_seen_features") || "[]");
-      if (!seenFeatures.includes(TOUR_VERSION)) {
-          seenFeatures.push(TOUR_VERSION);
-          localStorage.setItem("gretel_seen_features", JSON.stringify(seenFeatures));
-      }
-
-      // Mark feature as seen in Supabase
-      if (userId) {
-          const { data } = await supabase.from('profiles').select('seen_features').eq('id', userId).single();
-          const dbSeen: string[] = data?.seen_features || [];
-          if (!dbSeen.includes(TOUR_VERSION)) {
-             await supabase.from('profiles').update({
-                 seen_features: [...dbSeen, TOUR_VERSION]
-             }).eq('id', userId);
-          }
-      }
+      seenFeatures.push(TOUR_VERSION);
+      localStorage.setItem("gretel_seen_features", JSON.stringify(seenFeatures));
     },
   });
   

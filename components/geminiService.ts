@@ -2,6 +2,10 @@
 import type { Content } from "@google/genai";
 import type { UserProfile, DashboardState } from './types';
 
+const openAiApiKey =
+  import.meta.env.VITE_OPENAI_API_KEY ??
+  import.meta.env.VITE_API_KEY ??
+  '';
 const openAiModel = import.meta.env.VITE_OPENAI_MODEL ?? 'gpt-4o';
 
 const buildSystemInstruction = (userProfile: UserProfile, dashboardState: DashboardState, googleCalendarEvents: any[], currentDate: Date): string => {
@@ -18,32 +22,6 @@ const buildSystemInstruction = (userProfile: UserProfile, dashboardState: Dashbo
             }
         } catch (e) {
             formattedMemory = userProfile.assistantMemory;
-        }
-    }
-    
-    // Inject Passive Memory (Episodic/Relational)
-    if (userProfile.passiveMemory && userProfile.passiveMemory.length > 0) {
-        formattedMemory += '\n\n**PERSONAL CONTEXT (PASSIVE MEMORY):**\n' + userProfile.passiveMemory.map(mem => `- ${mem}`).join('\n');
-    }
-
-    // Inject Recent Context (Last 3 Days)
-    if (dashboardState.recentContext && dashboardState.recentContext.length > 0) {
-        formattedMemory += '\n\n**RECENT CONTEXT (LAST 3 DAYS):**\n' + dashboardState.recentContext.map(ctx => `- ${ctx}`).join('\n');
-    }
-
-    // Inject Relational Memory Graph
-    if (userProfile.relationalMemory) {
-        const { nodes, edges } = userProfile.relationalMemory;
-        if (nodes.length > 0) {
-            formattedMemory += '\n\n**RELATIONAL KNOWLEDGE GRAPH:**\n';
-            formattedMemory += 'Entities:\n' + nodes.map(n => `- ${n.name} (${n.type}): ${JSON.stringify(n.attributes)}`).join('\n');
-            if (edges.length > 0) {
-                formattedMemory += '\nRelationships:\n' + edges.map(e => {
-                    const source = nodes.find(n => n.id === e.sourceId)?.name || e.sourceId;
-                    const target = nodes.find(n => n.id === e.targetId)?.name || e.targetId;
-                    return `- ${source} ${e.relationship} ${target} (${e.context || ''})`;
-                }).join('\n');
-            }
         }
     }
     
@@ -153,37 +131,6 @@ While keeping your friendly tone, strictly follow these formatting standards:
 2. **List Rule:** Use bullet points for any explanation longer than 2 sentences.
 3. **Structure:** Separate the intro, the list, and the conclusion with line breaks.
 
-**EMOTIONAL INTELLIGENCE & TONE ADAPTATION (MANDATORY)** 
-Before generating any response, you MUST perform a silent "Sentiment Analysis" on the user's input. You must adapt your persona to match their energy level. 
- 
-**1. DETECT THE VIBE:** 
-*   **High Stress / Urgency:** (Short sentences, typos, all caps, words like "ASAP", "now", "broken") 
-    *   *Your Mode:* **The Crisis Manager.** 
-    *   *Rule:* Zero fluff. No "I understand". Just action. Use short, punchy sentences. 
-    *   *Example:* "Got it. Moving the 2 PM meeting. What's next?" 
-*   **Low Energy / Tired:** (Complaining about workload, words like "exhausted", "long day", "too much") 
-    *   *Your Mode:* **The Supportive Partner.** 
-    *   *Rule:* Low cognitive load. Do not ask open-ended questions. Offer simple "Yes/No" choices. Validate their feelings. 
-    *   *Example:* "You've had a marathon day. I've cleared your evening schedule so you can rest. Do you want me to push tomorrow's 9 AM too?" 
-*   **High Energy / Excited:** (Exclamation points, emojis, words like "great", "huge win", "finally") 
-    *   *Your Mode:* **The Hype Man.** 
-    *   *Rule:* Mirror their excitement. Use positive reinforcement. 
-    *   *Example:* "That is huge news! Let's ride this momentum. I've blocked out time tomorrow to capitalize on this." 
-*   **Neutral / Transactional:** (Standard commands like "Add task", "What's my schedule") 
-    *   *Your Mode:* **The Efficient Executive.** 
-    *   *Rule:* Professional, crisp, reliable. (This is your default). 
- 
-**2. NATURAL LANGUAGE RULES (ANTI-ROBOT PROTOCOLS):** 
-*   **Kill the "Robot Voice":** Never say "I have updated your dashboard" or "I have processed your request." 
-    *   *Instead say:* "Done.", "Sorted.", "It's on the list.", or "Handled." 
-*   **Vary Your Openers:** Do not start every sentence with "Here is..." or "I have...". 
-    *   *Use Transitional Phrases:* "By the way...", "That reminds me...", "Quick heads up...", "To be honest..." 
-*   **Micro-Memory:** If the user mentioned they were tired *yesterday*, and they log in today, acknowledge it. "Hope you got some rest last night." 
- 
-**3. COGNITIVE LOAD MANAGEMENT:** 
-*   **The "Overwhelm" Check:** Check the **Today's Schedule** provided in the context. If the user has >6 hours of meetings today OR >5 pending priorities/tasks, DO NOT ask them for their "long-term goals." They are drowning. Help them swim. 
-    *   *Action:* Automatically suggest deferring non-essential tasks. "You are overloaded today. I'm moving 'Review Q3 specs' to Thursday. Okay?"
-
 **IMPORTANT: SYSTEM MESSAGE HANDLING**
 When you receive a user message that starts with "SYSTEM:", this is a special instruction from the application (not the user directly). You MUST:
 1. Follow the instruction exactly as written
@@ -227,11 +174,6 @@ This is the user's current view of their day. Use this as context for all your r
 These are immutable events already on the user's calendar. You MUST NOT schedule anything that conflicts with these times. You should incorporate them into any schedule you generate, treating them as fixed appointments.
 ${formattedEvents}
 
-**EVENTS OPERATIONS (BANQUET EVENTS):**
-${dashboardState.calendarEvents && dashboardState.calendarEvents.length > 0 
-  ? JSON.stringify(dashboardState.calendarEvents, null, 2) 
-  : 'No banquet events scheduled.'}
-
 **RESPONSE JSON STRUCTURE & AVAILABLE "TOOLS"**
 Your response MUST be a JSON object. The 'text' property is mandatory. You can also include any of the following optional properties to manipulate the user's dashboard.
 
@@ -249,17 +191,11 @@ Your response MUST be a JSON object. The 'text' property is mandatory. You can a
 },
 "projectUpdate": { "projectName": "string", "milestoneText": "string" },
 "newMemoryToSave": "string",
-"memoryUpdate": {
-  "operations": [
-    { "type": "add_node", "node": { "type": "string", "name": "string", "attributes": {} } },
-    { "type": "add_edge", "edge": { "sourceName": "string", "targetName": "string", "relationship": "string", "context": "string" } }
-  ]
-},
 "weeklyLogUpdates": [{ "type": "'accomplishment' | 'challenge'", "text": "string" }],
 "priorityForTomorrowUpdate": "string",
 "weeklyReport": { "summary": "string", "accomplishments": ["string"], "challenges": ["string"], "projects": [{"name": "string", "progress": "number", "status": "string", "nextMilestone": "string (optional)"}], "nextSteps": ["string"], "weekRange": "string (optional)" },
-"isProjectDraft": true,
-"currentMood": "'stressed' | 'excited' | 'tired' | 'neutral'"
+"isProjectDraft": true
+
 
 **CRITICAL WORKFLOWS (HIGHEST PRIORITY INSTRUCTIONS)**
 You MUST follow these workflows precisely. They override all other rules.
@@ -409,6 +345,11 @@ export const sendMessageToGemini = async (
   currentDate: Date,
   _accessToken: string | null // FIX: Keep for future use with tools, prefix with _ to mark as unused
 ): Promise<any> => {
+  if (!openAiApiKey) {
+    return {
+      text: "I'm sorry, the AI service is not configured. Please add `VITE_OPENAI_API_KEY` in your environment.",
+    };
+  }
   const systemInstruction = buildSystemInstruction(userProfile, dashboardState, googleCalendarEvents, currentDate);
 
   try {
@@ -416,52 +357,20 @@ export const sendMessageToGemini = async (
     const maxMessageChars = 2500;
     const trimmedHistory = history.slice(-8);
     let totalChars = 0;
-    
-    // Updated mapping to handle multimodal content (text + images)
     const historyMessages = trimmedHistory
       .map((item) => {
-        const role = item.role === 'model' ? 'assistant' : 'user';
-        
-        // Check if there are image parts
-        const imagePart = item.parts?.find(p => p.inlineData);
-        const textPart = item.parts?.find(p => p.text);
-        
-        let content: any = '';
-        
-        if (imagePart) {
-            // Multimodal payload
-            content = [
-                { type: "text", text: textPart?.text || "" },
-                { 
-                    type: "image_url", 
-                    image_url: { 
-                        url: `data:${imagePart.inlineData?.mimeType || 'image/jpeg'};base64,${imagePart.inlineData?.data}` 
-                    } 
-                }
-            ];
-            totalChars += (textPart?.text?.length || 0) + 1000; // Estimate image weight
-        } else {
-            // Text-only payload
-            const text = item.parts?.map(part => part.text ?? '').join('') ?? '';
-            const clipped = text.length > maxMessageChars ? `${text.slice(0, maxMessageChars)}…` : text;
-            content = clipped;
-            totalChars += clipped.length;
-        }
-
-        return { role, content };
+        const text = item.parts?.map(part => part.text ?? '').join('') ?? '';
+        const clipped = text.length > maxMessageChars ? `${text.slice(0, maxMessageChars)}…` : text;
+        totalChars += clipped.length;
+        return {
+          role: item.role === 'model' ? 'assistant' : 'user',
+          content: clipped
+        };
       })
-      .filter(message => {
-          if (Array.isArray(message.content)) return true;
-          return message.content && message.content.trim().length > 0;
-      });
-
+      .filter(message => message.content.trim().length > 0);
     while (historyMessages.length > 0 && totalChars > maxHistoryChars) {
       const removed = historyMessages.shift();
-      if (typeof removed?.content === 'string') {
-          totalChars -= removed.content.length;
-      } else {
-          totalChars -= 1000; // Approximate reduction
-      }
+      totalChars -= removed?.content?.length ?? 0;
     }
 
     const messages = [
@@ -469,14 +378,16 @@ export const sendMessageToGemini = async (
       ...historyMessages
     ];
 
-    const response = await fetch('/api/chat', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Authorization: `Bearer ${openAiApiKey}`,
       },
       body: JSON.stringify({
         model: openAiModel,
         messages,
+        response_format: { type: 'json_object' },
         max_tokens: 2000,
         temperature: 0.7,
       }),
@@ -484,14 +395,34 @@ export const sendMessageToGemini = async (
 
     if (!response.ok) {
       const errorBody = await response.text();
-      const error = Object.assign(new Error(errorBody || 'AI request failed'), { status: response.status });
+      const error = Object.assign(new Error(errorBody), { status: response.status });
       throw error;
     }
 
-    return await response.json();
+    const data = await response.json();
+    const responseText = data?.choices?.[0]?.message?.content ?? '';
+    
+    // The model sometimes wraps its JSON response in ```json ... ```. This extracts it.
+    const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+    // FIX: Ensure jsonString is always a string, defaulting to responseText if match fails.
+    const jsonString = jsonMatch?.[1] ?? responseText;
+
+    try {
+      // FIX: Handle case where jsonString might be empty after extraction
+      if (!jsonString.trim()) {
+      console.warn("OpenAI returned an empty or non-JSON response.");
+        return { text: responseText || "I'm sorry, I seem to have lost my train of thought. Could you please repeat that?" };
+      }
+      const parsedResponse = JSON.parse(jsonString);
+      return parsedResponse;
+    } catch (jsonError) {
+      console.error("Failed to parse JSON from OpenAI response:", jsonString);
+      // Fallback for non-JSON responses, return the text part
+      return { text: responseText };
+    }
   } catch (error) {
-    console.error("Error calling AI service:", error);
-    let message = "I'm sorry, I couldn't reach the AI service right now. Please try again in a moment.";
+    console.error("Error calling OpenAI API:", error);
+    let message = "I'm sorry, I'm having trouble connecting to my services right now. Please try again in a moment.";
     const errorText = error instanceof Error ? error.message : String(error);
     const status = (error as { status?: number })?.status;
     let parsedError: any = null;
@@ -500,19 +431,18 @@ export const sendMessageToGemini = async (
     } catch {
       parsedError = null;
     }
-    const extracted =
-      (typeof parsedError?.error === 'string' && parsedError.error.trim() ? parsedError.error.trim() : null) ||
-      (typeof parsedError?.error?.message === 'string' && parsedError.error.message.trim() ? parsedError.error.message.trim() : null) ||
-      (typeof parsedError?.message === 'string' && parsedError.message.trim() ? parsedError.message.trim() : null);
-
-    if (status === 401 || status === 403) {
-      message = extracted || "Authentication error with the AI service. Please check your API key.";
-    } else if (status === 500) {
-      message = extracted || "The AI service is not configured on the server.";
+    if (errorText.includes('401') || errorText.includes('403') || status === 401 || status === 403) {
+      message = "Authentication error with the AI service. Please check your API key.";
     } else if (status === 429) {
-      message = extracted || "The AI service is rate-limited right now. Please wait a minute and try again.";
-    } else if (typeof status === 'number' && status >= 400) {
-      message = extracted || message;
+      const code = parsedError?.error?.code || parsedError?.error?.type;
+      const apiMessage = parsedError?.error?.message;
+      if (code === 'insufficient_quota') {
+        message = "OpenAI reports insufficient quota for this key. Please check billing/limits on your OpenAI account or use a new key.";
+      } else if (apiMessage) {
+        message = `OpenAI 429: ${apiMessage}`;
+      } else {
+        message = "The AI service is rate-limited right now. Please wait about a minute and try again.";
+      }
     }
     return { text: message, isError: true };
   }

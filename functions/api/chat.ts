@@ -2,6 +2,13 @@ const TITLE_FALLBACK = "I'm sorry, I couldn't process that request.";
 
 type ChatCompletionMessage = { role: "system" | "user" | "assistant"; content: any };
 
+type PagesFunctionContext<Env = unknown> = {
+  request: Request;
+  env: Env;
+};
+
+type PagesFunction<Env = unknown> = (context: PagesFunctionContext<Env>) => Promise<Response>;
+
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 60;
 
@@ -67,7 +74,7 @@ function extractOpenAiErrorMessage(raw: string): string {
   return raw || "Upstream error";
 }
 
-export const onRequest: PagesFunction = async ({ request, env }) => {
+export const onRequest: PagesFunction<any> = async ({ request, env }) => {
   if (request.method === "OPTIONS") {
     return jsonResponse({ ok: true });
   }
