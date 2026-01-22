@@ -88,3 +88,39 @@ ALTER TABLE profiles DROP COLUMN IF EXISTS tour_completed;
 - Existing users who haven't completed the tour will see it auto-start on their next login
 - LocalStorage is still used for tour progress (current step) for "Continue Later" functionality
 - All completion/version tracking is now per-account, so users can log in from different browsers and won't see duplicate modals/tours
+
+---
+
+# Migration Instructions: Event Ops Calendar (Supabase)
+
+## Goal
+Enable the Event Ops calendar to save and load Events/Meetings from Supabase by creating the `public.event_ops_items` table and its RLS policies.
+
+## Step 1: Run the SQL Migration
+1. Go to Supabase Dashboard → **SQL Editor**
+2. Open and run the **Event Ops Calendar** section from [supabase_schema_update.sql](file:///e:/BEATRIX/supabase_schema_update.sql#L31-L75)
+
+## Step 2: Verify the Migration
+Confirm the table exists in Supabase:
+- Supabase Dashboard → **Database** → **Tables** → look for `event_ops_items`
+
+Optional verification query (SQL Editor):
+```sql
+select to_regclass('public.event_ops_items') as event_ops_items_table;
+```
+Expected: `event_ops_items_table` returns `public.event_ops_items` (not null).
+
+## Step 3: Refresh the App
+After the table exists:
+1. Hard refresh the app page (Ctrl+Shift+R)
+2. In Event Ops, click the **Refresh** button
+
+## If Issues Persist
+- If you see a “schema cache” / “could not find the table” error:
+  - Wait ~30 seconds and refresh (PostgREST schema cache can lag briefly).
+  - In Supabase: **Settings → API → Reload schema** (if available), then refresh the app again.
+
+## Environments (Dev + Prod)
+Repeat the same SQL migration in both Supabase projects:
+- Development Supabase project
+- Production Supabase project
