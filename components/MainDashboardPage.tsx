@@ -1022,10 +1022,10 @@ const DashboardContent: React.FC<{
                 )}
 
                 {pendingScheduleClarification && (
-                    <div className="mb-2 p-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-sm text-blue-900 dark:text-blue-100 flex items-start justify-between gap-3" style={{ pointerEvents: 'auto' }}>
+                    <div className="mb-2 p-2 rounded-lg border border-[color:var(--primary-200)] dark:border-[color:var(--primary-700)] bg-[color:var(--primary-50)] dark:bg-[color:var(--primary-950)] text-sm text-[color:var(--primary-900)] dark:text-[color:var(--primary-100)] flex items-start justify-between gap-3" style={{ pointerEvents: 'auto' }}>
                         <div className="min-w-0">
                             <div className="font-semibold">Need your plan before I block your schedule</div>
-                            <div className="text-blue-800/90 dark:text-blue-200/90 truncate">{pendingScheduleClarification.question}</div>
+                            <div className="text-[color:var(--primary-800)]/90 dark:text-[color:var(--primary-200)]/90 truncate">{pendingScheduleClarification.question}</div>
                             <div className="mt-1 space-y-0.5">
                                 {pendingScheduleClarification.eventOpsItems.slice(0, 3).map(item => (
                                     <div key={item.id} className="truncate">
@@ -1033,11 +1033,11 @@ const DashboardContent: React.FC<{
                                     </div>
                                 ))}
                             </div>
-                            <div className="text-blue-800/90 dark:text-blue-200/90">Reply with your plan (e.g., “I’m on the event 10–2, then admin work”).</div>
+                            <div className="text-[color:var(--primary-800)]/90 dark:text-[color:var(--primary-200)]/90">Reply with your plan (e.g., “I’m on the event 10–2, then admin work”).</div>
                         </div>
                         <button
                             onClick={cancelPendingScheduleClarification}
-                            className="shrink-0 px-3 py-1.5 rounded-lg bg-white/80 dark:bg-gray-800/60 border border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-100 hover:bg-white dark:hover:bg-gray-800 transition-colors"
+                            className="shrink-0 px-3 py-1.5 rounded-lg bg-white/80 dark:bg-[color:var(--primary-900)]/30 border border-[color:var(--primary-300)] dark:border-[color:var(--primary-700)] text-[color:var(--primary-900)] dark:text-[color:var(--primary-100)] hover:bg-[color:var(--primary-100)] dark:hover:bg-[color:var(--primary-900)] transition-colors"
                         >
                             Cancel
                         </button>
