@@ -18,11 +18,14 @@ export const NotificationManager: React.FC = () => {
     if ('Notification' in window) {
       const currentPermission = Notification.permission;
       setPermission(currentPermission);
+      console.log('NotificationManager: Permission state:', currentPermission);
       
       // Auto-subscribe if already granted to ensure keys are synced
       if (currentPermission === 'granted') {
         subscribeUserToPush();
       }
+    } else {
+      console.warn('NotificationManager: Notifications not supported in this browser.');
     }
     registerServiceWorker();
   }, []);

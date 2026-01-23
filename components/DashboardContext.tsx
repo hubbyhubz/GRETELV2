@@ -541,6 +541,8 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     refreshGoogleCalendarEvents: () => Promise<void>;
     clearGoogleCalendarEvents: () => void;
 
+    pendingSchedule: ScheduleItem[] | null;
+    finalizeSchedule: () => Promise<void>;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -3829,6 +3831,9 @@ ${reportJson}`;
       ]);
     }, [pendingScheduleClarification]);
 
+    const pendingSchedule = draftedSchedule;
+    const finalizeSchedule = handleConfirmPlan;
+
     const value: DashboardContextType = {
         onLogout: props.onLogout,
         userProfile: props.userProfile,
@@ -3850,6 +3855,8 @@ ${reportJson}`;
         weeklyLog, priorityForTomorrow, weeklyReport, isWeeklyReportModalOpen, emailVersion, isEmailVersionModalOpen, setIsEmailVersionModalOpen, notificationModal, briefingScript, isBriefingScriptVisible, showScheduleClearConfirm, showPrioritiesClearConfirm, showRemindersClearConfirm, showProjectsClearConfirm,
         projectToDelete, isAddTaskModalOpen, showDelegatedClearConfirm,
         displayedScheduleItems, isSidebarCollapsed,
+        pendingSchedule,
+        finalizeSchedule,
         currentMode, currentMood, recentContext, modeHistory, modeActivatedAt,
         pendingDelegation,
         pendingScheduleClarification,

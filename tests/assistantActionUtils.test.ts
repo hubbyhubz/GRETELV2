@@ -54,7 +54,7 @@ describe('assistantActionUtils', () => {
     const opts = {
       nowTs: 123,
       defaultIncludeInBriefing: 'none' as const,
-      resolveInclude: (v: unknown) => (v === 'morning' ? 'morning' : 'none') as const,
+      resolveInclude: (v: unknown): 'morning' | 'none' => (v === 'morning' ? 'morning' : 'none'),
       normalize: (items: ReminderItem[]) => items,
     };
     const added = applyReminderOps(base, [{ op: 'add', item: { text: 'Call supplier', includeInBriefing: 'morning' } }], opts);

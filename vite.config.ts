@@ -1,4 +1,5 @@
-import { defineConfig, loadEnv } from 'vite';
+import { loadEnv } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
@@ -13,6 +14,10 @@ export default ({ mode }) => {
     define: {
       // Expose the API_KEY to the client-side code through process.env
       'process.env.API_KEY': JSON.stringify(env.API_KEY)
+    },
+    test: {
+      include: ['tests/**/*.{test,spec}.{ts,tsx,js,jsx}'],
+      exclude: ['**/Rubbish/**'],
     },
     build: {
       rollupOptions: {

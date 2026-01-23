@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient';
 // FIX: Update import path from '../App' to './types' to resolve module export errors.
 import type { DashboardState } from './types';
+import { syncAssistantBrainDashboardState } from './assistantBrainService';
 
 const TABLE_NAME = 'dashboard_states';
 
@@ -68,6 +69,8 @@ export const saveDashboardState = async (userId: string, state: DashboardState):
       console.error('Error updating dashboard state to Supabase:', updateError);
       throw new Error(updateError.message);
     }
+
+    syncAssistantBrainDashboardState(userId, state).catch(() => {});
   } else {
     // No record exists, so we perform an INSERT.
     const { error: insertError } = await supabase
@@ -80,5 +83,7 @@ export const saveDashboardState = async (userId: string, state: DashboardState):
       console.error('Error inserting dashboard state to Supabase:', insertError);
       throw new Error(insertError.message);
     }
+
+    syncAssistantBrainDashboardState(userId, state).catch(() => {});
   }
 };

@@ -14,6 +14,7 @@ import type {
 import { NotificationManager } from './components/NotificationManager';
 import { applyTabTitle, getTabKeyFromTopLevelView } from './lib/tabTitle.ts';
 import { perfMark, perfMeasure } from './lib/perf';
+import { ensureAssistantBrain, syncAssistantBrainProfile } from './components/assistantBrainService';
 
 // Lazy load components to improve performance
 const CreateAccountPage = lazy(() => import('./components/CreateAccountPage'));
@@ -160,7 +161,7 @@ function App() {
           <h1 className="text-xl font-bold mb-2">G.R.E.T.E.L Configuration Error</h1>
           <p className="text-sm text-gray-700 mb-4">{supabaseConfigError}</p>
           <div className="text-sm text-gray-700 space-y-1">
-            <div className="font-semibold">Cloudflare Pages → Environment Variables</div>
+            <div className="font-semibold">Vercel → Project → Settings → Environment Variables</div>
             <div>VITE_SUPABASE_URL</div>
             <div>VITE_SUPABASE_ANON_KEY</div>
           </div>
@@ -509,6 +510,9 @@ function App() {
         
         setUserProfile(profile);
         userProfileRef.current = profile;
+
+        ensureAssistantBrain(profile.id).catch(() => {});
+        syncAssistantBrainProfile(profile.id, profile).catch(() => {});
         
         // Sync lock state: If Supabase says locked, force lock locally.
         if (finalProfileData.is_app_locked) {
@@ -719,6 +723,7 @@ function App() {
         // If successful, update the app's central user profile state.
         setUserProfile(normalizedProfile);
         userProfileRef.current = normalizedProfile;
+        syncAssistantBrainProfile(normalizedProfile.id, normalizedProfile).catch(() => {});
     }
   };
   
@@ -833,6 +838,8 @@ function App() {
         const updatedProfile = { ...userProfile, ...updates, setup_complete: true };
         setUserProfile(updatedProfile);
         userProfileRef.current = updatedProfile;
+
+        syncAssistantBrainProfile(updatedProfile.id, updatedProfile).catch(() => {});
         
         // Clean up the flag in case it's still present from the initial login
         sessionStorage.removeItem('needsGoogleRefresh'); 

@@ -1,3 +1,71 @@
+# Session Summary - January 22, 2026
+
+## Overview
+Enhanced the assistant-driven planning flow with safer multi-turn clarifications and Event Ops-aware time blocking. Added incremental CRUD support via `*Ops` response fields, improved UX with “pending” banners, and fixed a React DOM prop warning for animated icons.
+
+---
+
+## 🚀 Major Features Implemented
+
+### 1. Event Ops-Aware Block Scheduling + Clarification Loop
+**Goal:** Prevent the assistant from generating a confusing time-blocked schedule when today’s Event Ops conflict with or are unclear relative to the proposed plan.
+
+**Behavior:**
+- Validates draft schedules against today’s Event Ops items.
+- If timing is missing or the draft overlaps a serving-time block, the assistant asks:
+  - “I see there is an event today—what’s your plan for today so I can properly block your schedule?”
+- Stores a pending clarification state and re-generates a schedule after the user replies.
+
+**Files Modified/Created:**
+- `e:\BEATRIX\components\DashboardContext.tsx`
+- `e:\BEATRIX\components\assistantActionUtils.ts`
+- `e:\BEATRIX\components\MainDashboardPage.tsx`
+- `e:\BEATRIX\docs\assistant-actions.md`
+
+### 2. Assistant Response Contract Extensions (Safer CRUD + Clarifications)
+**Goal:** Allow the assistant to safely add/update/delete schedule, priorities, reminders, projects, and delegated tasks without full list replacements.
+
+**Changes:**
+- Added `scheduleOps`, `priorityOps`, `reminderOps`, `projectOps`, and `delegatedTaskOps`.
+- Preserved the existing delegation slot-filling behavior when a deadline is missing.
+- Added an assistant-visible clarification type for Event Ops plan uncertainty.
+
+**Files Modified/Created:**
+- `e:\BEATRIX\components\geminiService.ts`
+- `e:\BEATRIX\components\DashboardContext.tsx`
+- `e:\BEATRIX\components\assistantActionUtils.ts`
+
+### 3. UX: Pending Banners + Cancel Actions
+**Goal:** Make it obvious when the assistant is waiting for user input to proceed.
+
+**Changes:**
+- “Awaiting deadline” banner for pending delegation deadlines.
+- “Need your plan before I block your schedule” banner when Event Ops clarification is required.
+- Cancel actions for both states.
+
+**Files Modified:**
+- `e:\BEATRIX\components\MainDashboardPage.tsx`
+- `e:\BEATRIX\components\DashboardContext.tsx`
+
+### 4. React Warning Fix: `isHovered` Prop Forwarding
+**Goal:** Remove React warnings caused by forwarding `isHovered` into Lucide SVG DOM props.
+
+**Files Modified:**
+- `e:\BEATRIX\components\AnimatedIcons\CalendarDaysIcon.tsx`
+
+---
+
+## ✅ Testing & Validation
+- `npm test` (Vitest): all tests passing
+- `npm run build` (Vite): production build passing
+
+---
+
+**Session Date:** January 22, 2026
+**Status:** ✅ Completed and verified locally
+
+---
+
 # Session Summary - January 21, 2026
 
 ## Overview

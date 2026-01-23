@@ -1,7 +1,31 @@
 import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Get environment variables - try multiple possible names for compatibility
+export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 
+  import.meta.env.SUPABASE_URL || 
+  (typeof window !== 'undefined' && (window as any).__SUPABASE_URL__) ||
+  '';
+
+export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 
+  import.meta.env.SUPABASE_ANON_KEY || 
+  (typeof window !== 'undefined' && (window as any).__SUPABASE_ANON_KEY__) ||
+  '';
+
+// Diagnostic logging (only in development or if values are missing)
+if (typeof window !== 'undefined') {
+  const isDev = import.meta.env.DEV || window.location.hostname === 'localhost';
+  if (isDev || !supabaseUrl || !supabaseAnonKey) {
+    console.log('[Supabase Config] URL configured:', !!supabaseUrl && !supabaseUrl.includes('YOUR_SUPABASE_URL'));
+    console.log('[Supabase Config] Key configured:', !!supabaseAnonKey && !supabaseAnonKey.includes('YOUR_SUPABASE_ANON_KEY'));
+    if (!supabaseUrl || supabaseUrl.includes('YOUR_SUPABASE_URL')) {
+      console.warn('[Supabase Config] VITE_SUPABASE_URL is missing or not set correctly');
+    }
+    if (!supabaseAnonKey || supabaseAnonKey.includes('YOUR_SUPABASE_ANON_KEY')) {
+      console.warn('[Supabase Config] VITE_SUPABASE_ANON_KEY is missing or not set correctly');
+    }
+  }
+}
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -19,8 +43,9 @@ const fetchWithTimeoutAndRetry: typeof fetch = async (input, init) => {
   const method = (init?.method || (typeof input !== 'string' && !(input instanceof URL) ? input.method : 'GET') || 'GET').toUpperCase();
   const isAuth = url.includes('/auth/v1/');
   const isAuthToken = isAuth && url.includes('/auth/v1/token');
-  const timeoutMs = isAuth ? 12000 : 20000;
-  const maxAttempts = isAuthToken && method === 'POST' ? 3 : 1;
+  const isFunctions = url.includes('/functions/v1/');
+  const timeoutMs = isAuth ? 12000 : isFunctions ? 120000 : 20000;
+  const maxAttempts = isAuthToken && method === 'POST' ? 3 : isFunctions ? 2 : 1;
 
   let lastError: unknown = null;
 
@@ -88,21 +113,46 @@ export const supabaseConfigError = !urlConfigured
     : '';
 
 if (!urlConfigured) {
-  console.error('Supabase URL is not configured. Please set VITE_SUPABASE_URL.');
+  console.error('❌ Supabase URL is not configured. Please set VITE_SUPABASE_URL in your hosting provider environment variables (Vercel Project → Settings → Environment Variables).');
+  console.error('   Make sure the variable name is exactly: VITE_SUPABASE_URL');
 }
 
 if (!keyConfigured) {
-  console.error('Supabase anon key is not configured. Please set VITE_SUPABASE_ANON_KEY.');
+  console.error('❌ Supabase anon key is not configured. Please set VITE_SUPABASE_ANON_KEY in your hosting provider environment variables (Vercel Project → Settings → Environment Variables).');
+  console.error('   Make sure the variable name is exactly: VITE_SUPABASE_ANON_KEY');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    // storage: window.sessionStorage, // Using default localStorage for persistence by commenting this line out.
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-  },
-  global: {
-    fetch: fetchWithTimeoutAndRetry,
-  },
-});
+// Only create client if both values are properly configured
+// This prevents 403 errors from invalid requests
+let supabase: SupabaseClient<any, 'public', any>;
+
+if (urlConfigured && keyConfigured) {
+  try {
+    supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        // storage: window.sessionStorage, // Using default localStorage for persistence by commenting this line out.
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true,
+      },
+      global: {
+        fetch: fetchWithTimeoutAndRetry,
+      },
+    });
+    console.log('✅ Supabase client initialized successfully');
+  } catch (error) {
+    console.error('❌ Failed to create Supabase client:', error);
+    // Create a dummy client to prevent crashes, but it won't work
+    supabase = createClient('https://placeholder.supabase.co', 'placeholder-key', {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    });
+  }
+} else {
+  console.error('❌ Cannot create Supabase client: configuration is missing');
+  // Create a dummy client to prevent crashes, but it won't work
+  supabase = createClient('https://placeholder.supabase.co', 'placeholder-key', {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+  });
+}
+
+export { supabase };

@@ -33,16 +33,24 @@ const buildSystemInstruction = (
     
     const userNameForAI = userProfile.nickname || userProfile.name;
 
+    const maxEventsForPrompt = 12;
+    const eventsForPrompt = googleCalendarEvents.slice(0, maxEventsForPrompt);
     const formattedEvents = googleCalendarEvents.length > 0
-        ? JSON.stringify(googleCalendarEvents.map(event => ({
+        ? JSON.stringify(eventsForPrompt.map(event => ({
             summary: event.summary,
             start: event.start?.dateTime || event.start?.date,
             end: event.end?.dateTime || event.end?.date,
           })), null, 2)
         : 'No events scheduled in Google Calendar for today.';
+    const moreEventsNote =
+        googleCalendarEvents.length > maxEventsForPrompt
+            ? `\n\nNote: ${googleCalendarEvents.length - maxEventsForPrompt} more calendar events omitted for brevity.`
+            : '';
 
+    const maxEventOpsForPrompt = 30;
+    const eventOpsForPrompt = eventOpsItems.slice(0, maxEventOpsForPrompt);
     const formattedEventOps = eventOpsItems.length > 0
-        ? JSON.stringify(eventOpsItems.map(item => ({
+        ? JSON.stringify(eventOpsForPrompt.map(item => ({
             kind: item.kind,
             date: item.event_date,
             name: item.name,
@@ -52,6 +60,10 @@ const buildSystemInstruction = (
             remarks: item.remarks,
           })), null, 2)
         : 'No Event Ops calendar items available.';
+    const moreEventOpsNote =
+        eventOpsItems.length > maxEventOpsForPrompt
+            ? `\n\nNote: ${eventOpsItems.length - maxEventOpsForPrompt} more Event Ops items omitted for brevity.`
+            : '';
 
     // Mode-specific instructions
     const modeInstructions = dashboardState.currentMode ? `
@@ -191,10 +203,12 @@ This is the user's current view of their day. Use this as context for all your r
 **EXISTING GOOGLE CALENDAR EVENTS FOR TODAY:**
 These are immutable events already on the user's calendar. You MUST NOT schedule anything that conflicts with these times. You should incorporate them into any schedule you generate, treating them as fixed appointments.
 ${formattedEvents}
+${moreEventsNote}
 
 **EVENT OPS CALENDAR (EVENTS + MEETINGS):**
 These items come from the Event Ops calendar in the app (stored in Supabase). Use them for context when the user asks about upcoming plans, event preparation, staffing, logistics, or meeting readiness. If the user has upcoming Event Ops items and it is relevant, proactively mention them and ask if they want prep tasks added to the schedule (but do not change the schedule unless asked).
 ${formattedEventOps}
+${moreEventOpsNote}
 
 **RESPONSE JSON STRUCTURE & AVAILABLE "TOOLS"**
 Your response MUST be a JSON object. The 'text' property is mandatory. You can also include any of the following optional properties to manipulate the user's dashboard.
@@ -235,7 +249,7 @@ If the user asks you to delegate a task but does not provide a deadline, you MUS
 1. Set clarificationRequest with type 'delegation_deadline', plus personName, task, and a clear question.
 2. Do NOT include delegationUpdate until the deadline is provided by the user.
 
-If you are asked to draft a time-blocked schedule for today and there are Event Ops items today, you MUST incorporate them. If timing or coverage is unclear (for example, missing serving_time), ask a follow-up question and set clarificationRequest with type 'schedule_event_ops_plan'. In that case, return only text and clarificationRequest (do not return schedule, priorities, or isPlanDraft yet).
+If you are asked to draft a time-blocked schedule for today and there are Event Ops items today, you MUST incorporate them. Treat them as mandatory blocks. If timing or coverage is unclear, make a reasonable assumption based on the event time (e.g., prep 1 hour before), or ask a follow-up only if absolutely necessary.
 
 If you are asked to delete or update an item (schedule, priority, reminder, delegated task, project) but the target is ambiguous, you MUST ask a clarifying question instead of guessing. Prefer *Ops fields for add/update/delete operations.
 
@@ -390,17 +404,12 @@ export const sendMessageToGemini = async (
   _accessToken: string | null, // FIX: Keep for future use with tools, prefix with _ to mark as unused
   eventOpsItems: EventOpsItem[] = []
 ): Promise<any> => {
-  if (!openAiApiKey) {
-    return {
-      text: "I'm sorry, the AI service is not configured. Please add `VITE_OPENAI_API_KEY` in your environment.",
-    };
-  }
   const systemInstruction = buildSystemInstruction(userProfile, dashboardState, googleCalendarEvents, currentDate, eventOpsItems);
 
   try {
-    const maxHistoryChars = 12000;
-    const maxMessageChars = 2500;
-    const trimmedHistory = history.slice(-8);
+    const maxHistoryChars = 8000;
+    const maxMessageChars = 2200;
+    const trimmedHistory = history.slice(-6);
     let totalChars = 0;
     const historyMessages = trimmedHistory
       .map((item) => {
@@ -423,47 +432,151 @@ export const sendMessageToGemini = async (
       ...historyMessages
     ];
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${openAiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: openAiModel,
-        messages,
-        response_format: { type: 'json_object' },
-        max_tokens: 2000,
-        temperature: 0.7,
-      }),
-    });
+    const callDirect = async (apiKey: string): Promise<any> => {
+      if (!apiKey) {
+        const error = Object.assign(new Error('Missing OpenAI API key'), { status: 500 });
+        throw error;
+      }
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      const error = Object.assign(new Error(errorBody), { status: response.status });
-      throw error;
-    }
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: openAiModel,
+          messages,
+          response_format: { type: 'json_object' },
+          max_tokens: 2000,
+          temperature: 0.7,
+        }),
+      });
 
-    const data = await response.json();
-    const responseText = data?.choices?.[0]?.message?.content ?? '';
-    
-    // The model sometimes wraps its JSON response in ```json ... ```. This extracts it.
-    const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
-    // FIX: Ensure jsonString is always a string, defaulting to responseText if match fails.
-    const jsonString = jsonMatch?.[1] ?? responseText;
+      if (!response.ok) {
+        const errorBody = await response.text();
+        const error = Object.assign(new Error(errorBody), { status: response.status });
+        throw error;
+      }
+
+      const data = await response.json();
+      const responseText = data?.choices?.[0]?.message?.content ?? '';
+      const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+      const jsonString = jsonMatch?.[1] ?? responseText;
+
+      try {
+        if (!jsonString.trim()) {
+          console.warn("OpenAI returned an empty or non-JSON response.");
+          return { text: responseText || "I'm sorry, I seem to have lost my train of thought. Could you please repeat that?" };
+        }
+        return JSON.parse(jsonString);
+      } catch {
+        console.error("Failed to parse JSON from OpenAI response:", jsonString);
+        return { text: responseText };
+      }
+    };
 
     try {
-      // FIX: Handle case where jsonString might be empty after extraction
-      if (!jsonString.trim()) {
-      console.warn("OpenAI returned an empty or non-JSON response.");
-        return { text: responseText || "I'm sorry, I seem to have lost my train of thought. Could you please repeat that?" };
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages,
+          temperature: 0.7,
+          max_tokens: 900,
+        }),
+      });
+
+      const contentType = response.headers.get('content-type') || '';
+      const raw = await response.text();
+      let parsed: any = null;
+      if (contentType.toLowerCase().includes('application/json')) {
+        try {
+          parsed = JSON.parse(raw || '{}');
+        } catch (parseError) {
+          console.error('[Chat API] Failed to parse JSON response:', parseError, 'Raw:', raw);
+        }
       }
-      const parsedResponse = JSON.parse(jsonString);
-      return parsedResponse;
-    } catch (jsonError) {
-      console.error("Failed to parse JSON from OpenAI response:", jsonString);
-      // Fallback for non-JSON responses, return the text part
-      return { text: responseText };
+
+      if (response.ok) {
+        if (parsed && typeof parsed === 'object') return parsed;
+        throw Object.assign(new Error('Invalid AI response'), { status: 502 });
+      }
+
+      const serverError = typeof parsed?.error === 'string' ? parsed.error : raw;
+      console.error('[Chat API] Server error:', response.status, serverError);
+      throw Object.assign(new Error(serverError || 'Server error'), { status: response.status });
+    } catch (pagesError: any) {
+      // Log the error for debugging
+      console.error('[Chat API] Request failed:', pagesError);
+      
+      // Check if it's a network error (common after hard refresh)
+      const isNetworkError = pagesError instanceof TypeError && 
+        (pagesError.message.includes('Failed to fetch') || 
+         pagesError.message.includes('NetworkError') ||
+         pagesError.message.includes('Load failed'));
+      
+      // Retry once for network errors (might be transient after hard refresh)
+      if (isNetworkError) {
+        console.log('[Chat API] Network error detected, retrying once...');
+        try {
+          await new Promise(resolve => setTimeout(resolve, 500)); // Brief delay
+          const retryResponse = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              messages,
+              temperature: 0.7,
+              max_tokens: 900,
+            }),
+          });
+          
+          const retryContentType = retryResponse.headers.get('content-type') || '';
+          const retryRaw = await retryResponse.text();
+          let retryParsed: any = null;
+          if (retryContentType.toLowerCase().includes('application/json')) {
+            try {
+              retryParsed = JSON.parse(retryRaw || '{}');
+            } catch {
+              console.error('[Chat API] Failed to parse retry JSON response');
+            }
+          }
+          
+          if (retryResponse.ok) {
+            if (retryParsed && typeof retryParsed === 'object') {
+              console.log('[Chat API] Retry succeeded');
+              return retryParsed;
+            }
+          }
+        } catch (retryError) {
+          console.error('[Chat API] Retry also failed:', retryError);
+        }
+      }
+      
+      if (openAiApiKey) {
+        try {
+          console.log('[Chat API] Falling back to direct OpenAI API call');
+          return await callDirect(openAiApiKey);
+        } catch (directError) {
+          console.error('[Chat API] Direct API call also failed:', directError);
+        }
+      }
+
+      const status = pagesError?.status;
+      const details = pagesError instanceof Error ? pagesError.message : String(pagesError);
+      if (typeof details === 'string' && details.includes('Missing OPENAI_API_KEY')) {
+        return { text: "I'm sorry, the AI service is not configured. An admin must set **OPENAI_API_KEY** in Vercel → Project → Settings → Environment Variables." };
+      }
+      // Handle regional restrictions
+      if (status === 403 && typeof details === 'string' && 
+          (details.toLowerCase().includes('country') || details.toLowerCase().includes('region') || details.toLowerCase().includes('territory'))) {
+        return { text: "I'm sorry, the AI service is unavailable right now (403). Country, region, or territory not supported. This is a regional restriction from the API provider." };
+      }
+      // Handle network errors with a more helpful message
+      if (isNetworkError) {
+        return { text: "I'm having trouble connecting to the AI service. This might be a temporary network issue. Please try again in a moment." };
+      }
+      return { text: `I'm sorry, the AI service is unavailable right now (${status || 'error'}). ${details || ''}`.trim() };
     }
   } catch (error) {
     console.error("Error calling OpenAI API:", error);
@@ -477,7 +590,12 @@ export const sendMessageToGemini = async (
       parsedError = null;
     }
     if (errorText.includes('401') || errorText.includes('403') || status === 401 || status === 403) {
-      message = "Authentication error with the AI service. Please check your API key.";
+      // Check if it's a regional restriction
+      if (errorText.toLowerCase().includes('country') || errorText.toLowerCase().includes('region') || errorText.toLowerCase().includes('territory')) {
+        message = "I'm sorry, the AI service is unavailable right now (403). Country, region, or territory not supported. This is a regional restriction from the API provider.";
+      } else {
+        message = "Authentication error with the AI service. Please check your API key.";
+      }
     } else if (status === 429) {
       const code = parsedError?.error?.code || parsedError?.error?.type;
       const apiMessage = parsedError?.error?.message;

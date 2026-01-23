@@ -411,6 +411,7 @@ const DashboardContent: React.FC<{
         draftedProject, draftedProjectTasks, weeklyReport, isWeeklyReportModalOpen, setIsWeeklyReportModalOpen, emailVersion, isEmailVersionModalOpen, setIsEmailVersionModalOpen, handleGenerateEmailReport,
         currentMode, handleActivateMode, handleDeactivateMode, currentMood,
         pendingDelegation, cancelPendingDelegation, pendingScheduleClarification, cancelPendingScheduleClarification,
+        pendingSchedule, finalizeSchedule,
     } = useDashboardContext();
 
     // ============================================================================
@@ -1121,9 +1122,20 @@ const DashboardContent: React.FC<{
                             className="disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center" 
                             title="Send"
                         >
-                            <LottieSendIcon size={56} />
+                            <LottieSendIcon size={40} />
                         </button>
                          </>
+                     )}
+                     
+                     {/* Mobile Suggestion Button - Only visible in mobile view */}
+                     {inputType === 'mobile' && (
+                         <button
+                            onClick={() => setIsCommandPaletteOpen(true)}
+                            className="p-2 ml-1 text-gray-500 hover:text-[#DC143C] hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                            title="Suggestions"
+                         >
+                            <span className="text-xl">✨</span>
+                         </button>
                      )}
                 </div>
             </div>
@@ -1480,12 +1492,39 @@ const DashboardContent: React.FC<{
                        <div id="todays-schedule" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-hover-animation">
                             <div className="flex items-center justify-between">
                                 <h2 className="text-sm font-bold text-[#DC143C] flex items-center"><CalendarIcon size={16} /><span className="ml-2">Today's Schedule</span></h2>
-                                <button onClick={() => { (window as any).stopGretelTour?.(); setShowScheduleClearConfirm(true); }} className="h-7 w-7 rounded-full inline-flex items-center justify-center text-gray-500 hover:text-red-500 dark:hover:text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-500/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500" title="Clear Schedule">
-                                    <TrashIcon size={16} />
-                            </button>
+                                <div className="flex items-center gap-2">
+                                    {pendingSchedule && (
+                                        <button 
+                                            onClick={finalizeSchedule}
+                                            disabled={isSyncing}
+                                            className="px-3 py-1 text-xs font-bold bg-[#DC143C] text-white rounded-full hover:bg-[#B01030] disabled:opacity-50 flex items-center gap-1 active-press"
+                                        >
+                                            {isSyncing ? 'Syncing...' : 'Finalize'}
+                                        </button>
+                                    )}
+                                    <button onClick={() => { (window as any).stopGretelTour?.(); setShowScheduleClearConfirm(true); }} className="h-7 w-7 rounded-full inline-flex items-center justify-center text-gray-500 hover:text-red-500 dark:hover:text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-500/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500" title="Clear Schedule">
+                                        <TrashIcon size={16} />
+                                    </button>
+                                </div>
                             </div>
                             <div className="mt-3 text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                                {displayedScheduleItems.length === 0 ? (
+                                {pendingSchedule && (
+                                    <div className="mb-4 p-3 rounded-xl border border-dashed border-[#DC143C]/40 bg-[#DC143C]/5 dark:bg-[#DC143C]/10 animate-pulse">
+                                        <div className="text-xs font-bold text-[#DC143C] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-[#DC143C]"></span>
+                                            Pending Schedule
+                                        </div>
+                                        <div className="space-y-2">
+                                            {pendingSchedule.map((item, idx) => (
+                                                <div key={`pending-${idx}`} className="flex gap-3 text-xs opacity-80">
+                                                    <span className="font-semibold shrink-0 w-24">{item.time}</span>
+                                                    <span className="truncate">{item.title}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                {displayedScheduleItems.length === 0 && !pendingSchedule ? (
                                     <p className="text-gray-500">No schedule items for today.</p>
                                 ) : (
                                     displayedScheduleItems.map(item => {

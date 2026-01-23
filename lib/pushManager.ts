@@ -38,6 +38,8 @@ export const subscribeUserToPush = async () => {
     alert('CRITICAL ERROR: VITE_VAPID_PUBLIC_KEY is missing in the build. Push notifications cannot work.');
     return null;
   }
+  
+  console.log('PushManager: Using VAPID Key:', vapidPublicKey.slice(0, 10) + '...');
 
   try {
     let subscription = await registration.pushManager.getSubscription();
