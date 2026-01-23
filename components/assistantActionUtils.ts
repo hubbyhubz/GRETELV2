@@ -373,6 +373,12 @@ export const detectEventOpsScheduleClarification = (params: {
 
   const conflicts: any[] = [];
   (Array.isArray(proposedSchedule) ? proposedSchedule : []).forEach((slot) => {
+    const slotTitle = normalizeNeedle(slot?.title);
+    if (slotTitle) {
+      if (slotTitle.includes('event ops')) return;
+      const matchesOwnEvent = todayItems.some((it: any) => slotTitle.includes(normalizeNeedle(it?.name)));
+      if (matchesOwnEvent) return;
+    }
     const parsed = parseScheduleRangeToMinutes(String(slot?.time || ''));
     if (!parsed) return;
     blocks.forEach((b) => {

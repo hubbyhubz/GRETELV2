@@ -10,7 +10,7 @@ import type { Content } from '@google/genai';
 // FIX: All type imports were pointing to App.tsx which doesn't export them. Changed to import from the correct types.ts file.
 import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, UserMood, EventOpsItem } from './types';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
-import { applyPriorityOps as applyPriorityOpsUtil, applyProjectOps as applyProjectOpsUtil, applyReminderOps as applyReminderOpsUtil, applyScheduleOps as applyScheduleOpsUtil, detectEventOpsScheduleClarification, normalizeNeedle as normalizeNeedleUtil, parseDeadlineFromText as parseDeadlineFromTextUtil } from './assistantActionUtils';
+import { applyPriorityOps as applyPriorityOpsUtil, applyProjectOps as applyProjectOpsUtil, applyReminderOps as applyReminderOpsUtil, applyScheduleOps as applyScheduleOpsUtil, buildEventOpsBlocksForToday, detectEventOpsScheduleClarification, normalizeNeedle as normalizeNeedleUtil, parseDeadlineFromText as parseDeadlineFromTextUtil, parseScheduleRangeToMinutes } from './assistantActionUtils';
 import { bestFuzzyMatch, inferFinalizePlan, inferFreeStyle } from './freeStyleNlu';
 
 // Version for the dashboard state structure. Increment this to trigger migrations.
@@ -238,7 +238,7 @@ const formatBriefingContext = (context: {
 
   if (context.briefingInputs.length > 0) {
     if (lines.length > 0) lines.push('');
-    lines.push('BRIEFING INPUTS:');
+    lines.push('VIEW POINTERS:');
     context.briefingInputs.forEach(item => lines.push(`- ${item.type}: ${item.text}`));
   }
 
@@ -538,7 +538,7 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     createScheduleItem: (item: { time: string; title: string }) => void;
     updateScheduleItem: (id: string, updates: Partial<Pick<ScheduleItem, 'time' | 'title' | 'completed'>>) => void;
     deleteScheduleItem: (id: string) => void;
-    syncScheduleToGoogleCalendar: (scheduleOverride?: ScheduleItem[]) => Promise<void>;
+    syncScheduleToGoogleCalendar: (scheduleOverride?: ScheduleItem[]) => Promise<boolean>;
     refreshGoogleCalendarEvents: () => Promise<void>;
     clearGoogleCalendarEvents: () => void;
 
@@ -1637,7 +1637,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         setIsSending(true);
         try {
           await handleConfirmPlan();
-          const modelText = "Locked in — I finalized your plan and synced it to Google Calendar.";
+          const modelText = "Got it — I moved your draft into Today’s Schedule as pending. Review it, then click Finalize to sync it to Google Calendar.";
           setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
           const nowTs = Date.now();
           setChatHistory(prev => [
@@ -1778,6 +1778,18 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       }
 
       if (pendingScheduleClarification && !isProjectDraftRequest && !fileToProcess && !imageUrl && !isSystemPrompt && !isFinalization) {
+          const keyFactsForPrompt = (() => {
+            const raw = String(userProfile.assistantMemory || '').trim();
+            if (!raw) return '';
+            try {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed) && parsed.length > 0) return parsed.map((x) => `- ${String(x)}`).join('\n');
+              if (typeof parsed === 'string') return parsed.trim();
+              return raw;
+            } catch {
+              return raw;
+            }
+          })();
           const exclusions = new Set<string>();
           const exclusionLabels: string[] = [];
           if (freeStyle.intent === 'exclude_item' || freeStyle.intent === 'mark_done') {
@@ -1808,6 +1820,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               eventOpsSummary || '- None',
               exclusionLabels.length > 0 ? `User constraints: Exclude these Event Ops items (already handled): ${exclusionLabels.join(', ')}` : '',
               freeStyle.intent === 'proceed' ? `User signal: Proceed without unnecessary questions; make reasonable assumptions if needed.` : '',
+              keyFactsForPrompt ? `Key Facts (must respect):\n${keyFactsForPrompt}` : '',
               `User’s plan/context (most recent message):`,
               messageText,
               `Return a JSON response with text, schedule (array of objects with time/title), priorities, and isPlanDraft: true.`,
@@ -2051,16 +2064,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               }
           }
 
-          if (isFinalization) {
-              if (draftedSchedule) {
-                  setScheduleItems(draftedSchedule);
-                  setDraftedSchedule(null);
-              }
-              if (draftedPriorities) {
-                  setTop3Items(draftedPriorities);
-                  setDraftedPriorities(null);
-              }
-          } else if (response.isPlanDraft === true || response.isPlanDraft === "true") {
+          if (response.isPlanDraft === true || response.isPlanDraft === "true") {
               if (response.text) {
                   setLastPlanDraftText(response.text);
               }
@@ -2099,6 +2103,40 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 location: item.location,
                 serving_time: item.serving_time,
               }));
+
+              const minutesToAmPm = (minutes: number) => {
+                const h24 = Math.floor(minutes / 60) % 24;
+                const m = minutes % 60;
+                const meridiem = h24 >= 12 ? 'PM' : 'AM';
+                const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+                return `${h12}:${String(m).padStart(2, '0')} ${meridiem}`;
+              };
+
+              const existingTitles = new Set(scheduleCandidate.map(s => normalizeNeedle(s.title)));
+              const { blocks: eventOpsBlocks } = buildEventOpsBlocksForToday(eventOpsCompact, todayYmd);
+              const eventOpsAdditions: ScheduleItem[] = [];
+              eventOpsBlocks.forEach(({ start, end, item }: any) => {
+                const needle = normalizeNeedle(item?.name);
+                if (!needle) return;
+                const alreadyIncluded = Array.from(existingTitles).some(t => t.includes(needle)) || existingTitles.has(`event ops — ${needle}`);
+                if (alreadyIncluded) return;
+                const time = `${minutesToAmPm(start)} - ${minutesToAmPm(end)}`;
+                const id = `eventops-${String(item.id)}`;
+                const title = `Event Ops — ${String(item.name)}`;
+                eventOpsAdditions.push({ id, time, title, completed: false });
+              });
+              if (eventOpsAdditions.length > 0) {
+                scheduleCandidate = [...scheduleCandidate, ...eventOpsAdditions].filter((s, idx, arr) => arr.findIndex(x => x.id === s.id) === idx);
+                scheduleCandidate.sort((a, b) => {
+                  const pa = parseScheduleRangeToMinutes(String(a.time || ''));
+                  const pb = parseScheduleRangeToMinutes(String(b.time || ''));
+                  if (!pa && !pb) return 0;
+                  if (!pa) return 1;
+                  if (!pb) return -1;
+                  return pa.start - pb.start;
+                });
+              }
+
               const validation = detectEventOpsScheduleClarification({
                 todayYmd,
                 eventOpsItems: eventOpsCompact,
@@ -2309,11 +2347,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               }
               briefingFinalizeRequestRef.current = null;
           }
-          const shouldConsumeBriefingContext =
-            pendingBriefingWindow &&
-            (response.keep_draft || (response.keep && !isBriefingFinalizeResponse));
+          const shouldMergeBriefingContext = Boolean(response.keep_draft || (response.keep && !isBriefingFinalizeResponse));
+          const shouldConsumeBriefingContext = Boolean(pendingBriefingWindow) && shouldMergeBriefingContext;
           if (nextKeepNotes !== null) {
-            const mergedNotes = shouldConsumeBriefingContext
+            const mergedNotes = shouldMergeBriefingContext
               ? mergeBriefingNotes(nextKeepNotes, briefingContext)
               : nextKeepNotes;
             setKeepNotes(mergedNotes);
@@ -2682,7 +2719,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setDraftedSchedule(null);
       setDraftedPriorities(null);
 
-      setIsScheduleConfirmed(true);
+      setIsScheduleConfirmed(false);
       
       // Force immediate save to cloud state after finalization - save directly with finalized data
       // Save immediately with the finalized data to ensure persistence on refresh
@@ -2691,7 +2728,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         scheduleItems: scheduleToFinalize || scheduleItems, 
         top3Items: prioritiesToFinalize || top3Items, 
         reminders, projects, completedProjects, keepNotes, delegatedTasks,
-        team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed: true, briefingInputs, briefingState,
+        team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed: false, briefingInputs, briefingState,
         collapsedCards, weeklyLog, priorityForTomorrow, stateVersion: DASHBOARD_STATE_VERSION,
         completedGCalEventIds: Array.from(completedGCalEventIds),
         currentMode, modeHistory, modeActivatedAt,
@@ -2705,34 +2742,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       
       // Also trigger force save flag for the useEffect to catch any subsequent state changes
       forceSaveRef.current = true;
-      
-      const currentAccessToken = session?.provider_token || null;
-      // Use the finalized schedule for calendar sync
-      const scheduleToSync = scheduleToFinalize || scheduleItems;
-      if (scheduleToSync.length === 0) { 
-        console.warn("No schedule items to sync.");
-        return; 
-      }
-      
-      try {
-        setIsSyncing(true);
-        await batchAddEventsToCalendar(currentAccessToken, scheduleToSync);
-        setNotificationModal({
-            isOpen: true,
-            title: 'Sync Successful',
-            message: 'Your schedule has been successfully synced with your Google Calendar.'
-        });
-      } catch (error: any) { 
-          console.error('Error during calendar sync:', error);
-          if (error.status === 401 || error.status === 403) {
-              setCloudError("Your Google connection has expired. Please reconnect.");
-              onGoogleAuthError();
-          } else {
-              setCloudError(`Failed to sync schedule: ${error.message}. Please try reconnecting your Google account.`);
-          }
-      } finally { 
-        setIsSyncing(false); 
-      }
+      setNotificationModal({
+        isOpen: true,
+        title: 'Schedule Ready',
+        message: 'Your draft schedule is now in Today’s Schedule as pending. Review it, then click Finalize to sync to Google Calendar.',
+      });
     }, [session, scheduleItems, draftedSchedule, draftedPriorities, onGoogleAuthError]);
     
     useEffect(() => {
@@ -2740,24 +2754,54 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       const nowForEventOps = new Date();
       const todayYmd = toYmdLocal(nowForEventOps);
       if (eventOpsItems.length > 0 && lastEventOpsNudgeDate !== todayYmd) {
-        const upcomingSummary = eventOpsItems
-          .slice(0, 6)
-          .map(item => {
-            const label = item.kind === 'event' ? 'Event' : 'Meeting';
-            const timePart = item.kind === 'event' && item.serving_time ? ` • Serving ${String(item.serving_time).slice(0, 5)}` : '';
-            const locationPart = item.location ? ` • ${item.location}` : '';
-            return `- ${item.event_date}: ${label} — ${item.name}${timePart}${locationPart}`;
-          })
-          .join('\n');
+        const todayItems = eventOpsItems.filter(it => String(it.event_date) === todayYmd);
+        if (todayItems.length > 0) {
+          const scheduleLike = (draftedSchedule && draftedSchedule.length > 0) ? draftedSchedule : scheduleItems;
+          const scheduleTitles = scheduleLike.map(s => normalizeNeedleUtil(s.title));
+          const unscheduledToday = todayItems.filter(it => {
+            const needle = normalizeNeedleUtil(it.name);
+            if (!needle) return true;
+            return !scheduleTitles.some(t => t.includes(needle));
+          });
 
-        const messageText =
-          `Heads up — here are your upcoming **Event Ops** items (next 7 days):\n\n${upcomingSummary}\n\nWant me to add prep tasks to your **Today’s Schedule**?`;
+          const conflictCheck = detectEventOpsScheduleClarification({
+            todayYmd,
+            eventOpsItems: todayItems.map(it => ({
+              id: it.id,
+              kind: it.kind,
+              event_date: it.event_date,
+              name: it.name,
+              location: it.location,
+              serving_time: it.serving_time,
+            })),
+            proposedSchedule: scheduleLike.map(s => ({ time: s.time, title: s.title })),
+          });
 
-        setChatMessages(prev => [
-          ...prev,
-          { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: messageText }
-        ]);
-        setLastEventOpsNudgeDate(todayYmd);
+          if ('needsClarification' in conflictCheck && conflictCheck.needsClarification) {
+            const messageText = `Heads up — your **Today’s Schedule** looks like it may conflict with an **Event Ops** item.\n\n${conflictCheck.question}\n\nWant me to adjust your schedule draft to fit it?`;
+            setChatMessages(prev => [
+              ...prev,
+              { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: messageText }
+            ]);
+            setLastEventOpsNudgeDate(todayYmd);
+          } else if (unscheduledToday.length > 0) {
+            const upcomingSummary = unscheduledToday
+              .slice(0, 6)
+              .map(item => {
+                const label = item.kind === 'event' ? 'Event' : 'Meeting';
+                const timePart = item.kind === 'event' && item.serving_time ? ` • Serving ${String(item.serving_time).slice(0, 5)}` : '';
+                const locationPart = item.location ? ` • ${item.location}` : '';
+                return `- ${item.event_date}: ${label} — ${item.name}${timePart}${locationPart}`;
+              })
+              .join('\n');
+            const messageText = `Heads up — you have **Event Ops** items today that aren’t in your schedule yet:\n\n${upcomingSummary}\n\nWant me to block time for them in **Today’s Schedule**?`;
+            setChatMessages(prev => [
+              ...prev,
+              { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: messageText }
+            ]);
+            setLastEventOpsNudgeDate(todayYmd);
+          }
+        }
       }
   
       const parseGenericDate = (dateString: string): Date | null => {
@@ -2895,6 +2939,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         setDraftedSchedule(null);
         setGoogleCalendarEvents([]);
         setCompletedGCalEventIds(new Set());
+        setIsScheduleConfirmed(false);
         setSuppressCalendarFetch(true);
         setShowScheduleClearConfirm(false);
     }, []);
@@ -2905,6 +2950,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         const time = item.time.trim() || 'All Day';
         const id = `sched-${Date.now()}-${Math.random().toString(16).slice(2)}`;
         setScheduleItems(prev => [...prev, { id, time, title, completed: false }]);
+        setIsScheduleConfirmed(false);
     }, []);
 
     const updateScheduleItem = useCallback((id: string, updates: Partial<Pick<ScheduleItem, 'time' | 'title' | 'completed'>>) => {
@@ -2916,10 +2962,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 return { ...item, ...updates, time: nextTime || 'All Day', title: nextTitle || item.title };
             })
         );
+        setIsScheduleConfirmed(false);
     }, []);
 
     const deleteScheduleItem = useCallback((id: string) => {
         setScheduleItems(prev => prev.filter(item => item.id !== id));
+        setIsScheduleConfirmed(false);
     }, []);
 
     const refreshGoogleCalendarEvents = useCallback(async () => {
@@ -2954,7 +3002,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 title: 'Google Not Connected',
                 message: 'Connect Google to sync your schedule.'
             });
-            return;
+            return false;
         }
 
         const scheduleToSync = (scheduleOverride ?? scheduleItems).filter(item => !item.isGoogleEvent);
@@ -2964,7 +3012,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 title: 'Nothing To Sync',
                 message: 'There are no local schedule items to sync.'
             });
-            return;
+            return false;
         }
 
         try {
@@ -2975,14 +3023,16 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 title: 'Sync Successful',
                 message: 'Your schedule has been successfully synced with your Google Calendar.'
             });
+            return true;
         } catch (error: any) {
             console.error('Error during calendar sync:', error);
             if (error?.status === 401 || error?.status === 403) {
                 setCloudError("Your Google connection has expired. Please reconnect.");
                 onGoogleAuthError();
-                return;
+                return false;
             }
             setCloudError(`Failed to sync schedule: ${error?.message || error}. Please try reconnecting your Google account.`);
+            return false;
         } finally {
             setIsSyncing(false);
         }
@@ -3100,8 +3150,14 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, []);
 
     const handleFinalizeBriefing = useCallback(() => {
-        const trimmedNotes = keepNotes?.trim();
-        const notesBlock = trimmedNotes ? `\n\n--- BRIEFING NOTES TO CONVERT ---\n${trimmedNotes}` : '';
+        const context = filterBriefingContext(null, reminders, briefingInputs, delegatedTasks);
+        const baseNotes = keepNotes?.trim() || '';
+        const merged = mergeBriefingNotes(baseNotes, {
+          briefingReminders: context.briefingReminders,
+          briefingInputs: context.briefingInputs,
+          briefingDelegatedTasks: context.briefingDelegatedTasks,
+        });
+        const notesBlock = merged ? `\n\n--- BRIEFING NOTES TO CONVERT ---\n${merged}` : '';
         setBriefingScript('Generating briefing script...');
         setIsBriefingScriptVisible(true);
         if (briefingFinalizeTimeoutRef.current) {
@@ -3115,7 +3171,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             undefined,
             `Finalize the briefing as talking points. Convert the briefing notes into a spoken script with numbered sections and bullet points. Use plain text only in the final output.${notesBlock}`
         );
-    }, [handleSendMessage, keepNotes]);
+    }, [handleSendMessage, keepNotes, reminders, briefingInputs, delegatedTasks]);
     const handleChatInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => { 
         const textarea = e.target;
         setChatInput(textarea.value); 
@@ -3936,8 +3992,16 @@ ${reportJson}`;
       ]);
     }, [pendingScheduleClarification]);
 
-    const pendingSchedule = draftedSchedule;
-    const finalizeSchedule = handleConfirmPlan;
+    const pendingSchedule = (!isScheduleConfirmed && scheduleItems.some(it => !it.isGoogleEvent))
+      ? scheduleItems.filter(it => !it.isGoogleEvent)
+      : null;
+
+    const finalizeSchedule = useCallback(async () => {
+      const ok = await syncScheduleToGoogleCalendar();
+      if (!ok) return;
+      setIsScheduleConfirmed(true);
+      forceSaveRef.current = true;
+    }, [syncScheduleToGoogleCalendar]);
 
     const value: DashboardContextType = {
         onLogout: props.onLogout,

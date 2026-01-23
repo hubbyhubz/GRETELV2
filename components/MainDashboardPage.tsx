@@ -159,8 +159,8 @@ const ChatMessage = React.memo<{
                                         <button onClick={handleMakeChanges} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-semibold active-press">
                                             I'll Make Changes
                                         </button>
-                                        <button onClick={async () => { await handleConfirmPlan(); handleSendMessage(undefined, 'Looks good, finalize the plan.'); }} className="px-3 py-1.5 rounded-lg bg-[#DC143C] hover:bg-[#b81030] text-white text-sm font-semibold active-press">
-                                            Looks Good, Finalize
+                                        <button onClick={async () => { await handleConfirmPlan(); }} className="px-3 py-1.5 rounded-lg bg-[#DC143C] hover:bg-[#b81030] text-white text-sm font-semibold active-press">
+                                            Approve Draft
                                         </button>
                                     </div>
                                 )}
@@ -1102,10 +1102,10 @@ const DashboardContent: React.FC<{
                     />
                      <button 
                         onClick={() => fileInputRef.current?.click()}
-                        className={`p-2 transition-colors rounded-lg ${selectedImage ? 'text-[#DC143C] bg-red-50' : 'text-[#DC143C] hover:text-[#DC143C] hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                        className={`p-2 transition-colors rounded-lg ${selectedImage ? 'text-[color:var(--primary-600)] bg-[color:var(--primary-50)]' : 'text-gray-500 hover:text-[color:var(--primary-600)] hover:bg-gray-200 dark:hover:bg-gray-600'}`}
                         title="Upload Image"
                      >
-                        <ImageIcon size={20} className="text-[#DC143C]" />
+                        <ImageIcon size={20} />
                      </button>
 
                      {isSending ? (
@@ -1119,24 +1119,21 @@ const DashboardContent: React.FC<{
                                 clearSelectedImage();
                             }} 
                             disabled={!chatInput.trim() && !attachedFile && !selectedImage} 
-                            className="disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center" 
+                            className="disabled:opacity-50 disabled:cursor-not-allowed p-2 text-gray-500 hover:text-[color:var(--primary-600)] hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors flex items-center justify-center" 
                             title="Send"
                         >
-                            <LottieSendIcon size={40} />
+                            <LottieSendIcon size={24} hoverBackground={false} />
                         </button>
                          </>
                      )}
                      
-                     {/* Mobile Suggestion Button - Only visible in mobile view */}
-                     {inputType === 'mobile' && (
-                         <button
-                            onClick={() => setIsCommandPaletteOpen(true)}
-                            className="p-2 ml-1 text-gray-500 hover:text-[#DC143C] hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
-                            title="Suggestions"
-                         >
-                            <span className="text-xl">✨</span>
-                         </button>
-                     )}
+                     <button
+                        onClick={() => setIsCommandPaletteOpen(true)}
+                        className="md:hidden p-2 ml-1 text-gray-500 hover:text-[color:var(--primary-600)] hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                        title="Suggestions"
+                     >
+                        <LucideCommandIcon size={20} />
+                     </button>
                 </div>
             </div>
     );
@@ -1514,13 +1511,8 @@ const DashboardContent: React.FC<{
                                             <span className="w-1.5 h-1.5 rounded-full bg-[#DC143C]"></span>
                                             Pending Schedule
                                         </div>
-                                        <div className="space-y-2">
-                                            {pendingSchedule.map((item, idx) => (
-                                                <div key={`pending-${idx}`} className="flex gap-3 text-xs opacity-80">
-                                                    <span className="font-semibold shrink-0 w-24">{item.time}</span>
-                                                    <span className="truncate">{item.title}</span>
-                                                </div>
-                                            ))}
+                                        <div className="text-xs text-gray-700 dark:text-gray-200 opacity-90">
+                                            Review your schedule below, make any edits, then click Finalize to sync to Google Calendar.
                                         </div>
                                     </div>
                                 )}

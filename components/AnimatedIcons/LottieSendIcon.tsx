@@ -6,12 +6,14 @@ interface LottieSendIconProps {
   size?: number;
   onClick?: () => void;
   className?: string;
+  hoverBackground?: boolean;
 }
 
 const LottieSendIcon: React.FC<LottieSendIconProps> = ({ 
   size = 56, 
   onClick,
-  className 
+  className,
+  hoverBackground = true
 }) => {
   const [dotLottie, setDotLottie] = useState<any>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -54,7 +56,7 @@ const LottieSendIcon: React.FC<LottieSendIconProps> = ({
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: isHovered ? 'rgba(220, 20, 60, 0.1)' : 'transparent',
+        backgroundColor: hoverBackground && isHovered ? 'rgba(220, 20, 60, 0.1)' : 'transparent',
         borderRadius: '8px',
         transition: 'background-color 0.2s'
       }}
