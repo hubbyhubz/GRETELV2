@@ -11,6 +11,7 @@ import type { Content } from '@google/genai';
 import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, UserMood, EventOpsItem } from './types';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 import { applyPriorityOps as applyPriorityOpsUtil, applyProjectOps as applyProjectOpsUtil, applyReminderOps as applyReminderOpsUtil, applyScheduleOps as applyScheduleOpsUtil, detectEventOpsScheduleClarification, normalizeNeedle as normalizeNeedleUtil, parseDeadlineFromText as parseDeadlineFromTextUtil } from './assistantActionUtils';
+import { bestFuzzyMatch, inferFinalizePlan, inferFreeStyle } from './freeStyleNlu';
 
 // Version for the dashboard state structure. Increment this to trigger migrations.
 const DASHBOARD_STATE_VERSION = "1.1.0";
@@ -1618,6 +1619,91 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         return;
       }
 
+      const freeStyle = inferFreeStyle({
+        messageText,
+        pendingScheduleClarification: !!pendingScheduleClarification,
+        eventOpsItems: pendingScheduleClarification?.eventOpsItems?.map((it) => ({ id: it.id, name: it.name })) ?? [],
+        scheduleItems: scheduleItems.map((it) => ({ id: it.id, title: it.title })),
+        reminders: reminders.map((it) => ({ id: it.id, text: it.text })),
+      });
+
+      const hasDraftPlan = Boolean((draftedSchedule && draftedSchedule.length > 0) || (draftedPriorities && draftedPriorities.length > 0));
+      const freeStyleFinalize = hasDraftPlan && inferFinalizePlan(messageText);
+      if (freeStyleFinalize && !isProjectDraftRequest && !attachedFile && !imageUrl && !isSystemPromptPreview) {
+        const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
+        setChatMessages(prev => [...prev, { id: userMessageId, role: 'user', text: messageText }]);
+        setChatInput('');
+        setAttachedFile(null);
+        setIsSending(true);
+        try {
+          await handleConfirmPlan();
+          const modelText = "Locked in — I finalized your plan and synced it to Google Calendar.";
+          setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
+          const nowTs = Date.now();
+          setChatHistory(prev => [
+            ...prev,
+            { role: 'user', parts: [{ text: messageText }], _ts: nowTs },
+            { role: 'model', parts: [{ text: JSON.stringify({ text: modelText }) }], _ts: nowTs }
+          ]);
+        } finally {
+          if (generationRequestRef.current == null) {
+            setIsSending(false);
+          } else {
+            setIsSending(false);
+          }
+        }
+        return;
+      }
+
+      if (freeStyle.intent === 'cancel_pending' && pendingScheduleClarification && !isProjectDraftRequest && !attachedFile && !imageUrl && !isSystemPromptPreview) {
+        const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
+        setChatMessages(prev => [...prev, { id: userMessageId, role: 'user', text: messageText }]);
+        setChatInput('');
+        setAttachedFile(null);
+        cancelPendingScheduleClarification();
+        const nowTs = Date.now();
+        setChatHistory(prev => [
+          ...prev,
+          { role: 'user', parts: [{ text: messageText }], _ts: nowTs },
+          { role: 'model', parts: [{ text: JSON.stringify({ text: 'Canceled pending schedule blocking.' }) }], _ts: nowTs }
+        ]);
+        return;
+      }
+
+      if ((freeStyle.intent === 'exclude_item' || freeStyle.intent === 'mark_done') && freeStyle.entities[0]?.confidence >= 0.7 && !isProjectDraftRequest && !attachedFile && !imageUrl && !isSystemPromptPreview) {
+        const target = freeStyle.entities[0];
+        const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
+        setChatMessages(prev => [...prev, { id: userMessageId, role: 'user', text: messageText }]);
+        setChatInput('');
+        setAttachedFile(null);
+
+        if (target.kind === 'schedule_item' && target.id) {
+          if (freeStyle.intent === 'exclude_item') {
+            setScheduleItems(prev => prev.filter((it) => it.id !== target.id));
+            const modelText = `Okay — I removed “${target.name || 'that item'}” from today’s schedule.`;
+            setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
+          } else {
+            setScheduleItems(prev => prev.map((it) => (it.id === target.id ? { ...it, completed: true } : it)));
+            const modelText = `Got it — I marked “${target.name || 'that item'}” as completed.`;
+            setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
+          }
+          return;
+        }
+
+        if (target.kind === 'reminder' && target.id) {
+          if (freeStyle.intent === 'exclude_item') {
+            setReminders(prev => prev.filter((it) => it.id !== target.id));
+            const modelText = `Okay — I removed the reminder “${target.name || 'that reminder'}”.`;
+            setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
+          } else {
+            setReminders(prev => prev.map((it) => (it.id === target.id ? { ...it, completed: true } : it)));
+            const modelText = `Got it — I marked the reminder “${target.name || 'that reminder'}” as completed.`;
+            setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
+          }
+          return;
+        }
+      }
+
       const requestId = Symbol('generation-request');
       generationRequestRef.current = requestId;
 
@@ -1642,7 +1728,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           newUserMessage.imageUrl = imageUrl;
       }
       
-      const isFinalization = messageText.toLowerCase() === "looks good, finalize the plan.";
+      const isFinalization = hasDraftPlan && inferFinalizePlan(messageText);
       const briefingNow = getBriefingNow();
       const isMorningBriefingTrigger = messageText === "Prepare the morning briefing.";
       const isAfternoonBriefingTrigger = messageText === "Prepare the afternoon briefing.";
@@ -1692,7 +1778,24 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       }
 
       if (pendingScheduleClarification && !isProjectDraftRequest && !fileToProcess && !imageUrl && !isSystemPrompt && !isFinalization) {
-          const eventOpsSummary = pendingScheduleClarification.eventOpsItems
+          const exclusions = new Set<string>();
+          const exclusionLabels: string[] = [];
+          if (freeStyle.intent === 'exclude_item' || freeStyle.intent === 'mark_done') {
+            const entity = freeStyle.entities[0];
+            if (entity?.kind === 'event_ops_item' && entity.id) {
+              exclusions.add(entity.id);
+              if (entity.name) exclusionLabels.push(entity.name);
+            } else if (entity?.name) {
+              const match = bestFuzzyMatch(entity.name, pendingScheduleClarification.eventOpsItems);
+              if (match && match.score >= 0.45) {
+                exclusions.add(match.item.id);
+                exclusionLabels.push(match.label);
+              }
+            }
+          }
+
+          const effectiveEventOpsItems = pendingScheduleClarification.eventOpsItems.filter((it) => !exclusions.has(it.id));
+          const eventOpsSummary = effectiveEventOpsItems
               .map(item => {
                   const timePart = item.serving_time ? ` • ${String(item.serving_time).slice(0, 5)}` : '';
                   const locationPart = item.location ? ` • ${item.location}` : '';
@@ -1703,10 +1806,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               `Draft an 8-hour time-blocked schedule for today.`,
               `Event Ops items today:`,
               eventOpsSummary || '- None',
+              exclusionLabels.length > 0 ? `User constraints: Exclude these Event Ops items (already handled): ${exclusionLabels.join(', ')}` : '',
+              freeStyle.intent === 'proceed' ? `User signal: Proceed without unnecessary questions; make reasonable assumptions if needed.` : '',
               `User’s plan/context (most recent message):`,
               messageText,
               `Return a JSON response with text, schedule (array of objects with time/title), priorities, and isPlanDraft: true.`,
-          ].join('\n');
+          ].filter(Boolean).join('\n');
       }
       
       const historyForGemini: Content[] = chatHistory.map(({ role, parts }) => ({ role, parts }));
