@@ -7,6 +7,25 @@ function json(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
+function safeSnippet(value, maxLen = 300) {
+  if (value == null) return '';
+  const s = typeof value === 'string' ? value : (() => {
+    try { return JSON.stringify(value); } catch { return String(value); }
+  })();
+  return s.length > maxLen ? `${s.slice(0, maxLen)}…` : s;
+}
+
+function summarizePushError(err) {
+  const statusCode = err?.statusCode;
+  const message = err?.message || String(err);
+  const body = safeSnippet(err?.body);
+  const summaryParts = [];
+  if (statusCode) summaryParts.push(`status=${statusCode}`);
+  if (message) summaryParts.push(`message=${safeSnippet(message, 180)}`);
+  if (body) summaryParts.push(`body=${body}`);
+  return summaryParts.join(' | ') || 'Unknown push error';
+}
+
 function isAuthorized(req) {
   const isCron = req.headers['x-vercel-cron'] === '1';
   if (isCron) return true;
@@ -86,7 +105,17 @@ export default async function handler(req, res) {
   if (queue.error) return json(res, 500, { error: queue.error.message || String(queue.error) });
   if (inbox.error) return json(res, 500, { error: inbox.error.message || String(inbox.error) });
 
-  const chosen = [...queue.messages.map((m) => ({ source: 'queue', msg: m })), ...inbox.messages.map((m) => ({ source: 'inbox', msg: m }))];
+  const queuedMessageIds = new Set(
+    (queue.messages || [])
+      .map((m) => m?.data?.message_id)
+      .filter(Boolean)
+      .map(String)
+  );
+  const inboxFiltered = (inbox.messages || []).filter((m) => !queuedMessageIds.has(String(m.id)));
+  const chosen = [
+    ...queue.messages.map((m) => ({ source: 'queue', msg: m })),
+    ...inboxFiltered.map((m) => ({ source: 'inbox', msg: m })),
+  ];
   if (chosen.length === 0) return json(res, 200, { ok: true, processed: 0, source: 'none' });
 
   const results = [];
@@ -108,14 +137,16 @@ export default async function handler(req, res) {
       .eq('user_id', userId);
 
     if (subErr) {
-      await markDelivered(supabase, source, id, source === 'queue' ? { error: subErr.message || String(subErr), locked_at: null } : { delivered_at: new Date().toISOString() });
-      results.push({ id, ok: false, error: subErr.message || String(subErr) });
+      if (source === 'queue') {
+        await markDelivered(supabase, source, id, { error: subErr.message || String(subErr), locked_at: null });
+      }
+      results.push({ id, ok: false, delivered: 0, failed: 0, error: subErr.message || String(subErr) });
       continue;
     }
 
     if (!subs || subs.length === 0) {
       await markDelivered(supabase, source, id, source === 'queue' ? { delivered_at: new Date().toISOString(), error: 'No subscriptions', locked_at: null } : { delivered_at: new Date().toISOString() });
-      results.push({ id, ok: true, delivered: 0 });
+      results.push({ id, ok: true, delivered: 0, failed: 0, note: 'No subscriptions' });
       continue;
     }
 
@@ -128,6 +159,8 @@ export default async function handler(req, res) {
     });
 
     let delivered = 0;
+    let failed = 0;
+    const failureSamples = [];
     for (const sub of subs) {
       try {
         await webpush.sendNotification(
@@ -138,16 +171,43 @@ export default async function handler(req, res) {
           payload
         );
         delivered += 1;
+        await supabase
+          .from('push_subscriptions')
+          .update({ last_used_at: new Date().toISOString() })
+          .eq('id', sub.id);
       } catch (err) {
+        failed += 1;
         const statusCode = err?.statusCode;
+        if (failureSamples.length < 3) {
+          failureSamples.push({ subId: sub.id, error: summarizePushError(err) });
+        }
         if (statusCode === 410 || statusCode === 404) {
           await supabase.from('push_subscriptions').delete().eq('id', sub.id);
         }
       }
     }
 
-    await markDelivered(supabase, source, id, source === 'queue' ? { delivered_at: new Date().toISOString(), error: null, locked_at: null } : { delivered_at: new Date().toISOString() });
-    results.push({ id, ok: true, delivered });
+    const nowIso = new Date().toISOString();
+    const partialError = failed > 0 ? `Partial push failure: ${failed}/${subs.length} devices failed` : null;
+
+    if (delivered === 0) {
+      if (source === 'queue') {
+        const summarized = failureSamples.length > 0 ? `No deliveries. ${failureSamples.map((f) => `${f.subId}: ${f.error}`).join(' ; ')}` : 'No deliveries.';
+        await markDelivered(supabase, source, id, { delivered_at: null, error: summarized, locked_at: null });
+      }
+      results.push({ id, ok: false, delivered, failed, failures: failureSamples });
+      continue;
+    }
+
+    await markDelivered(
+      supabase,
+      source,
+      id,
+      source === 'queue'
+        ? { delivered_at: nowIso, error: partialError, locked_at: null }
+        : { delivered_at: nowIso }
+    );
+    results.push({ id, ok: true, delivered, failed, failures: failureSamples.length > 0 ? failureSamples : undefined });
   }
 
   return json(res, 200, { ok: true, processed: results.length, results });
