@@ -311,8 +311,8 @@ export default function EventsOperationsPage() {
   };
 
   return (
-    <div className="flex-1 min-h-0 w-full bg-gray-100 dark:bg-gray-900 p-4">
-      <div className="w-full h-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 flex flex-col">
+    <div className="flex-1 min-h-0 w-full bg-gray-100 dark:bg-gray-900 p-4 overflow-y-auto">
+      <div className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 flex flex-col min-h-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Event Ops Calendar</h2>
@@ -352,8 +352,8 @@ export default function EventsOperationsPage() {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
-          <div className="lg:col-span-2 flex flex-col min-h-0">
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 lg:flex-1 lg:min-h-0">
+          <div className="lg:col-span-2 flex flex-col lg:min-h-0">
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
               <div className="grid grid-cols-7 bg-primary-600 text-white">
                 {weekdayLabels.map(label => (
@@ -433,8 +433,8 @@ export default function EventsOperationsPage() {
             </div>
           </div>
 
-          <div className="flex flex-col min-h-0">
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 flex flex-col min-h-0">
+          <div className="flex flex-col lg:min-h-0">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 flex flex-col lg:min-h-0">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">Details</h3>

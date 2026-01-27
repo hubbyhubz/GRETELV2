@@ -13,7 +13,6 @@ import type {
 } from './components/types';
 import { NotificationManager } from './components/NotificationManager';
 import { applyTabTitle, getTabKeyFromTopLevelView } from './lib/tabTitle.ts';
-import { perfMark, perfMeasure } from './lib/perf';
 import { syncAssistantBrainProfile } from './components/assistantBrainService';
 import { useAuthListener } from './hooks/useAuthListener';
 import { useProfileData } from './hooks/useProfileData';
@@ -53,7 +52,7 @@ function App() {
 
   // Custom Hooks
   const { session, isLoading: authLoading, setSession } = useAuthListener();
-  const { userProfile, isFetching: profileLoading, error: profileError, updateProfileLocal, userProfileRef } = useProfileData(session);
+  const { userProfile, isFetching: profileLoading, error: profileError, updateProfileLocal } = useProfileData(session);
   const { isLocked, setIsLocked, handleUnlock, resetInactivityTimer } = useInactivityLock(session, userProfile);
 
   const isLoading = authLoading || (!!session && profileLoading && !userProfile);
@@ -302,9 +301,8 @@ function App() {
   const handleLoginSuccess = (nextSession: Session | null) => {
     setAuthError(null);
     resetInactivityTimer();
-    if (!nextSession?.provider_token) {
-      setRequiresGoogleConnect(true);
-    }
+    const hasLinkedGoogle = Boolean((nextSession?.user as any)?.identities?.some((i: any) => i?.provider === 'google'));
+    setRequiresGoogleConnect(!hasLinkedGoogle);
   };
 
   const handleLogout = async () => {
@@ -406,8 +404,8 @@ function App() {
     if (!session || !userProfile?.setup_complete) return;
     if (requiresGoogleRefresh) return;
 
-    const hasToken = Boolean(session.provider_token);
-    if (hasToken) {
+    const hasLinkedGoogle = Boolean((session.user as any)?.identities?.some((i: any) => i?.provider === 'google'));
+    if (hasLinkedGoogle) {
       if (requiresGoogleConnect) setRequiresGoogleConnect(false);
       return;
     }
