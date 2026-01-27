@@ -89,7 +89,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose }) => {
     <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4 animate__animated animate__fadeIn animate__faster" onClick={handleBackdropClick}>
       <div className={`w-full max-w-lg bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 border border-gray-200 dark:border-gray-700 animate__animated ${isClosing ? 'animate__bounceOut' : 'animate__bounceIn'}`} onClick={(e) => e.stopPropagation()}>
         <form onSubmit={handleSubmit} noValidate>
-          <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-4">Submit Feedback or Suggestion</h3>
+          <h3 className="text-xl font-bold text-primary-600 mb-4">Submit Feedback or Suggestion</h3>
           
           <div className="mb-4">
               <label className="text-sm font-bold text-gray-700 dark:text-gray-300 block mb-2">Category</label>
@@ -112,7 +112,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose }) => {
                   value={feedbackText}
                   onChange={(e) => setFeedbackText(e.target.value)}
                   rows={6}
-                  className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                  className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-600"
                   placeholder="Please be as detailed as possible..."
                   required
               />
@@ -122,7 +122,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose }) => {
 
           <div className="flex justify-end space-x-4 mt-6">
             <button type="button" onClick={handleClose} className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 text-gray-800 dark:text-white font-bold py-2 px-4 rounded-lg transition-all duration-200 active:scale-95">Cancel</button>
-            <button type="submit" disabled={isSubmitting} className="bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg flex items-center disabled:bg-gray-400 transition-all duration-200 active:scale-95">
+            <button type="submit" disabled={isSubmitting} className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg flex items-center disabled:bg-gray-400 transition-all duration-200 active:scale-95">
               {isSubmitting && <div className="custom-loader-sm"></div>}
               {isSubmitting ? 'Submitting...' : 'Submit Feedback'}
             </button>

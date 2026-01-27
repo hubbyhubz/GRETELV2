@@ -21,7 +21,7 @@ const LucideAlarmIcon = forwardRef<HTMLDivElement, LucideAlarmIconProps>(
         }}
         {...props}
       >
-        <AlarmClock size={size} color="#DC143C" strokeWidth={2} />
+        <AlarmClock size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

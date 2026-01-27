@@ -1,76 +1,120 @@
-import { motion } from "framer-motion";
+import type { Variants } from "framer-motion";
+import { motion, useAnimation } from "framer-motion";
 import type { HTMLAttributes } from "react";
-import { forwardRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
 import { cn } from "../../lib/utils";
+
+export interface LogoutIconHandle {
+  startAnimation: () => void;
+  stopAnimation: () => void;
+}
 
 interface LogoutIconProps extends HTMLAttributes<HTMLDivElement> {
   size?: number;
   isHovered?: boolean;
 }
 
-const LogoutIcon = forwardRef<HTMLDivElement, LogoutIconProps>(
-  ({ onMouseEnter, onMouseLeave, className, size = 24, isHovered: externalIsHovered, ...props }, ref) => {
-    const [internalIsHovered, setInternalIsHovered] = useState(false);
-    const isHovered = externalIsHovered !== undefined ? externalIsHovered : internalIsHovered;
+const PATH_VARIANTS: Variants = {
+  normal: {
+    x: 0,
+    translateX: 0,
+  },
+  animate: {
+    x: 2,
+    translateX: [0, -3, 0],
+    transition: {
+      duration: 0.4,
+    },
+  },
+};
 
-    const handleMouseEnter = (e: React.MouseEvent<HTMLDivElement>) => {
-      setInternalIsHovered(true);
-      onMouseEnter?.(e);
-    };
+const LogoutIcon = forwardRef<LogoutIconHandle, LogoutIconProps>(
+  ({ onMouseEnter, onMouseLeave, className, size = 28, isHovered, ...props }, ref) => {
+    const controls = useAnimation();
+    const isControlledRef = useRef(false);
 
-    const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => {
-      setInternalIsHovered(false);
-      onMouseLeave?.(e);
-    };
+    useImperativeHandle(ref, () => {
+      isControlledRef.current = true;
+      return {
+        startAnimation: () => controls.start("animate"),
+        stopAnimation: () => controls.start("normal"),
+      };
+    });
+
+    useEffect(() => {
+      controls.set("normal");
+    }, [controls]);
+
+    useEffect(() => {
+      if (typeof isHovered !== "boolean") return;
+      controls.start(isHovered ? "animate" : "normal");
+    }, [controls, isHovered]);
+
+    const handleMouseEnter = useCallback(
+      (e: React.MouseEvent<HTMLDivElement>) => {
+        if (typeof isHovered === "boolean") {
+          onMouseEnter?.(e);
+          return;
+        }
+        if (isControlledRef.current) {
+          onMouseEnter?.(e);
+          return;
+        }
+        controls.start("animate");
+      },
+      [controls, isHovered, onMouseEnter]
+    );
+
+    const handleMouseLeave = useCallback(
+      (e: React.MouseEvent<HTMLDivElement>) => {
+        if (typeof isHovered === "boolean") {
+          onMouseLeave?.(e);
+          return;
+        }
+        if (isControlledRef.current) {
+          onMouseLeave?.(e);
+          return;
+        }
+        controls.start("normal");
+      },
+      [controls, isHovered, onMouseLeave]
+    );
 
     return (
-      <motion.div
-        ref={ref}
-        className={cn("select-none p-1 rounded-md transition-colors duration-200", className)}
+      <div
+        className={cn(className)}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        whileTap={{ scale: 0.95 }}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: `${size}px`,
+          height: `${size}px`,
+        }}
         {...props}
       >
-        <motion.svg
-          animate={isHovered ? "animate" : "normal"}
-          variants={{
-            normal: { x: 0 },
-            animate: { x: 0 }
-          }}
+        <svg
           viewBox="0 0 24 24"
           width={size}
+          height={size}
           xmlns="http://www.w3.org/2000/svg"
           fill="none"
-          stroke="#DC143C"
+          stroke="currentColor"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
+          style={{
+            display: "block",
+            margin: "auto",
+            pointerEvents: "none",
+          }}
         >
-          <motion.path 
-            d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" 
-            variants={{
-                normal: { rotateY: 0, originX: 0 },
-                animate: { 
-                    rotateY: -25, 
-                    transition: { duration: 0.5, ease: "easeInOut" }
-                }
-            }}
-          />
-          <polyline points="16 17 21 12 16 7" />
-          <motion.line 
-            x1="21" x2="9" y1="12" y2="12" 
-            variants={{
-                normal: { x: 0, opacity: 1 },
-                animate: { 
-                    x: 5, 
-                    opacity: [1, 0, 1],
-                    transition: { duration: 1, repeat: Infinity }
-                }
-            }}
-          />
-        </motion.svg>
-      </motion.div>
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+          <motion.polyline animate={controls} points="16 17 21 12 16 7" variants={PATH_VARIANTS} />
+          <motion.line animate={controls} variants={PATH_VARIANTS} x1="21" x2="9" y1="12" y2="12" />
+        </svg>
+      </div>
     );
   }
 );

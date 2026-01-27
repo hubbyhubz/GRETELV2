@@ -15,6 +15,15 @@ export default ({ mode }) => {
       // Expose the API_KEY to the client-side code through process.env
       'process.env.API_KEY': JSON.stringify(env.API_KEY)
     },
+    server: {
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          secure: false,
+        }
+      }
+    },
     test: {
       include: ['tests/**/*.{test,spec}.{ts,tsx,js,jsx}'],
       exclude: ['**/Rubbish/**'],

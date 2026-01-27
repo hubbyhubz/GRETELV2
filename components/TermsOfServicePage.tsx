@@ -22,7 +22,7 @@ const TermsOfServicePage: React.FC<TermsOfServicePageProps> = ({ onBack, source 
     <div className="w-full max-w-3xl bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-lg sm:shadow-2xl p-4 max-[360px]:p-3 min-[414px]:p-5 sm:p-6 border border-gray-200 dark:border-gray-700 transition-colors duration-300 animate-fade-in">
       <div className="space-y-6">
         <div className="text-center">
-          <h1 className="text-2xl sm:text-3xl font-black text-[#DC143C] tracking-wider uppercase">
+          <h1 className="text-2xl sm:text-3xl font-black text-primary-600 tracking-wider uppercase">
             G.R.E.T.E.L
           </h1>
           <h2 className="mt-4 text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-200">Terms of Service</h2>
@@ -55,7 +55,7 @@ const TermsOfServicePage: React.FC<TermsOfServicePageProps> = ({ onBack, source 
         <div className="text-center pt-6">
           <button
             onClick={onBack}
-            className="w-full sm:w-auto bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105"
+            className="w-full sm:w-auto bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105"
           >
             {getButtonText(source)}
           </button>

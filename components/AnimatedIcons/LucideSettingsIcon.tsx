@@ -20,7 +20,7 @@ const LucideSettingsIcon = forwardRef<HTMLDivElement, LucideSettingsIconProps>(
         transition={{ type: "spring", stiffness: 50, damping: 10 }}
         {...props}
       >
-        <Settings size={size} color="#DC143C" strokeWidth={2} />
+        <Settings size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

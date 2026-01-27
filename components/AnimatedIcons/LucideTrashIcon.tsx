@@ -1,11 +1,14 @@
 import { motion } from "framer-motion";
 import { Trash2 } from "lucide-react";
-import type { HTMLAttributes } from "react";
+import type { ComponentPropsWithoutRef } from "react";
 import { forwardRef } from "react";
 
-interface LucideTrashIconProps extends HTMLAttributes<HTMLDivElement> {
+type LucideTrashIconProps = Omit<
+  ComponentPropsWithoutRef<typeof motion.div>,
+  "children"
+> & {
   size?: number;
-}
+};
 
 const LucideTrashIcon = forwardRef<HTMLDivElement, LucideTrashIconProps>(
   ({ className, size = 24, ...props }, ref) => {
@@ -22,7 +25,7 @@ const LucideTrashIcon = forwardRef<HTMLDivElement, LucideTrashIconProps>(
         }}
         {...props}
       >
-        <Trash2 size={size} color="#DC143C" strokeWidth={2} />
+        <Trash2 size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

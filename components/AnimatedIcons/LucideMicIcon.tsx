@@ -25,7 +25,7 @@ const LucideMicIcon = forwardRef<HTMLDivElement, LucideMicIconProps>(
         whileHover={{ scale: isRecording ? 1.15 : 1.1 }}
         {...props}
       >
-        <Mic size={size} color="#DC143C" strokeWidth={2} />
+        <Mic size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

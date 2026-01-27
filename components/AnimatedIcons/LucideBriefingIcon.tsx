@@ -21,7 +21,7 @@ const LucideBriefingIcon = forwardRef<HTMLDivElement, LucideBriefingIconProps>(
         transition={{ type: "spring", stiffness: 180, damping: 15 }}
         {...props}
       >
-        <FileText size={size} color="#DC143C" strokeWidth={2} />
+        <FileText size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

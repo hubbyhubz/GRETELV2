@@ -20,7 +20,7 @@ const AlarmIcon = forwardRef<HTMLDivElement, AlarmIconProps>(
       >
         <motion.svg
           animate={isHovered ? "animate" : "normal"}
-          fill="#DC143C"
+          fill="var(--primary-600)"
           height={size}
           transition={{ type: "keyframes", duration: 0.5, ease: "easeInOut" }}
           variants={{

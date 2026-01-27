@@ -50,7 +50,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
   const confirmButtonClasses = isDestructive
     ? "bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200 active-press"
-    : "bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg transition-all duration-200 active-press";
+    : "bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200 active-press";
 
   return (
     <div
@@ -65,7 +65,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         className={`w-full max-w-sm bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 border border-gray-200 dark:border-gray-700 animate__animated ${isClosing ? 'animate__bounceOut' : 'animate__bounceIn'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id="confirmation-title" className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">
+        <h2 id="confirmation-title" className="text-xl font-bold text-primary-600 mb-2">
           {title}
         </h2>
         <p className="text-gray-600 dark:text-gray-400 mb-6">

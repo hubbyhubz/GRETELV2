@@ -50,7 +50,7 @@ const CircleCheckboxIcon: React.FC<CircleCheckboxIconProps> = ({
       <svg
         fill="none"
         height={size}
-        stroke="#DC143C"
+        stroke="var(--primary-600)"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth="2"

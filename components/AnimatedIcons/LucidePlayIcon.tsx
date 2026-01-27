@@ -22,7 +22,7 @@ const LucidePlayIcon = forwardRef<HTMLDivElement, LucidePlayIconProps>(
         transition={{ type: "spring", stiffness: 150, damping: 10 }}
         {...props}
       >
-        <Play size={size} color="#DC143C" strokeWidth={2} fill="#DC143C" />
+        <Play size={size} color="var(--primary-600)" strokeWidth={2} fill="var(--primary-600)" />
       </motion.div>
     );
   }

@@ -1,6 +1,26 @@
 import { supabase } from './supabaseClient';
 import type { DashboardState, UserProfile } from './types';
 
+/**
+ * ASSISTANT BRAIN ARCHITECTURE DECISION
+ * 
+ * The assistant brain stores centralized per-user data (profile + dashboard state snapshots).
+ * 
+ * IMPORTANT: We do NOT read brain data in the chat flow for performance reasons:
+ * - Chat responses need to be fast (< 200ms to AI call)
+ * - Profile and dashboard state are already in memory
+ * - Brain data is redundant for real-time chat
+ * 
+ * Brain is used for:
+ * - Background sync (profile/dashboard → brain)
+ * - Future analytics and reporting
+ * - Long-term memory storage
+ * - Historical data analysis
+ * 
+ * If you need brain data in chat, fetch it ONCE per session and cache it,
+ * NOT on every message (would add 50-200ms latency per message).
+ */
+
 const TABLE_NAME = 'assistant_brains';
 const UPSERT_RPC_NAME = 'assistant_brain_upsert';
 
@@ -103,3 +123,57 @@ export const syncAssistantBrainDashboardState = async (userId: string, state: Da
   });
 };
 
+/**
+ * Read assistant brain data (for background tasks only, NOT chat flow)
+ * 
+ * WARNING: Do NOT call this in the chat message handler (geminiService.ts).
+ * It adds database latency (50-200ms) to every message.
+ * 
+ * Use cases:
+ * - Background analytics
+ * - Weekly report generation
+ * - Historical data analysis
+ * - Session initialization (fetch once, cache in component state)
+ */
+export const getAssistantBrain = async (userId: string): Promise<Record<string, unknown> | null> => {
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select('brain')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[AssistantBrain] Error reading assistant brain:', error);
+    return null;
+  }
+
+  return (data?.brain as Record<string, unknown>) || null;
+};
+
+/**
+ * Save conversation summary to brain (for analytics, not used in chat flow)
+ * 
+ * This can be called after a conversation session ends to store insights
+ * for future analysis or weekly reports.
+ */
+export const saveConversationSummary = async (
+  userId: string,
+  summary: {
+    date: string;
+    topic?: string;
+    key_points?: string[];
+    message_count?: number;
+    user_satisfaction_hint?: 'positive' | 'neutral' | 'negative';
+  }
+): Promise<void> => {
+  const brain = await getAssistantBrain(userId);
+  const existingSummaries = (brain?.conversation_summaries as Array<unknown>) || [];
+  
+  // Keep only last 30 summaries to prevent brain from growing too large
+  const recentSummaries = existingSummaries.slice(-29);
+  
+  await upsertAssistantBrainPatch(userId, {
+    conversation_summaries: [...recentSummaries, { ...summary, saved_at_ms: nowMs() }],
+    last_conversation_summary_at_ms: nowMs(),
+  });
+};

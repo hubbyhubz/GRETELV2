@@ -1,7 +1,0 @@
-name = "gretel-notify-worker"
-main = "src/index.ts"
-compatibility_date = "2023-12-01"
-compatibility_flags = ["nodejs_compat"]
-
-[triggers]
-crons = ["* * * * *"] # Run every minute

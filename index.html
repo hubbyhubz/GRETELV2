@@ -86,6 +86,21 @@
         }
       }
 
+      /* Subtle light bulb animation - gentle fade in/out */
+      @keyframes lightbulbPulse {
+        0%, 100% {
+          opacity: 0.6;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.1);
+        }
+      }
+      .animate-lightbulb {
+        animation: lightbulbPulse 2s ease-in-out infinite;
+      }
+
       /* Stagger animation delays for list items */
       .animate-delay-0 { animation-delay: 0ms; }
       .animate-delay-1 { animation-delay: 50ms; }

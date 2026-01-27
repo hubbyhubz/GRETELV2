@@ -69,7 +69,7 @@ const EmailVersionModal: React.FC<EmailVersionModalProps> = ({ isOpen, emailCont
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
           <div>
-            <h2 className="text-xl font-bold text-[#DC143C]">Email Version</h2>
+            <h2 className="text-xl font-bold text-primary-600">Email Version</h2>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Ready to send</p>
           </div>
           <div className="flex items-center gap-2">

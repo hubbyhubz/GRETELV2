@@ -7,7 +7,7 @@
   - SVG Checkmark Size: 10px x 10px (Centered)
   - SVG Stroke Width: 2px (Maintains clarity at smaller scale)
   - Animation: Scaled down splash effect (0.66x factor)
-  - Color: Crimson Red (#DC143C)
+  - Color: Crimson Red (var(--primary-600))
 */
 
 .checkbox-wrapper-12 {
@@ -105,48 +105,48 @@
 
 @-moz-keyframes splash-12 {
   40% {
-    background: #DC143C;
-    box-shadow: 0 -12px 0 -5px #DC143C, 10px -5px 0 -5px #DC143C, 10px 5px 0 -5px #DC143C, 0 12px 0 -5px #DC143C, -10px 5px 0 -5px #DC143C, -10px -5px 0 -5px #DC143C;
+    background: var(--primary-600);
+    box-shadow: 0 -12px 0 -5px var(--primary-600), 10px -5px 0 -5px var(--primary-600), 10px 5px 0 -5px var(--primary-600), 0 12px 0 -5px var(--primary-600), -10px 5px 0 -5px var(--primary-600), -10px -5px 0 -5px var(--primary-600);
   }
 
   100% {
-    background: #DC143C;
+    background: var(--primary-600);
     box-shadow: 0 -24px 0 -6px transparent, 21px -10px 0 -6px transparent, 21px 10px 0 -6px transparent, 0 24px 0 -6px transparent, -21px 10px 0 -6px transparent, -21px -10px 0 -6px transparent;
   }
 }
 
 @-webkit-keyframes splash-12 {
   40% {
-    background: #DC143C;
-    box-shadow: 0 -12px 0 -5px #DC143C, 10px -5px 0 -5px #DC143C, 10px 5px 0 -5px #DC143C, 0 12px 0 -5px #DC143C, -10px 5px 0 -5px #DC143C, -10px -5px 0 -5px #DC143C;
+    background: var(--primary-600);
+    box-shadow: 0 -12px 0 -5px var(--primary-600), 10px -5px 0 -5px var(--primary-600), 10px 5px 0 -5px var(--primary-600), 0 12px 0 -5px var(--primary-600), -10px 5px 0 -5px var(--primary-600), -10px -5px 0 -5px var(--primary-600);
   }
 
   100% {
-    background: #DC143C;
+    background: var(--primary-600);
     box-shadow: 0 -24px 0 -6px transparent, 21px -10px 0 -6px transparent, 21px 10px 0 -6px transparent, 0 24px 0 -6px transparent, -21px 10px 0 -6px transparent, -21px -10px 0 -6px transparent;
   }
 }
 
 @-o-keyframes splash-12 {
   40% {
-    background: #DC143C;
-    box-shadow: 0 -12px 0 -5px #DC143C, 10px -5px 0 -5px #DC143C, 10px 5px 0 -5px #DC143C, 0 12px 0 -5px #DC143C, -10px 5px 0 -5px #DC143C, -10px -5px 0 -5px #DC143C;
+    background: var(--primary-600);
+    box-shadow: 0 -12px 0 -5px var(--primary-600), 10px -5px 0 -5px var(--primary-600), 10px 5px 0 -5px var(--primary-600), 0 12px 0 -5px var(--primary-600), -10px 5px 0 -5px var(--primary-600), -10px -5px 0 -5px var(--primary-600);
   }
 
   100% {
-    background: #DC143C;
+    background: var(--primary-600);
     box-shadow: 0 -24px 0 -6px transparent, 21px -10px 0 -6px transparent, 21px 10px 0 -6px transparent, 0 24px 0 -6px transparent, -21px 10px 0 -6px transparent, -21px -10px 0 -6px transparent;
   }
 }
 
 @keyframes splash-12 {
   40% {
-    background: #DC143C;
-    box-shadow: 0 -12px 0 -5px #DC143C, 10px -5px 0 -5px #DC143C, 10px 5px 0 -5px #DC143C, 0 12px 0 -5px #DC143C, -10px 5px 0 -5px #DC143C, -10px -5px 0 -5px #DC143C;
+    background: var(--primary-600);
+    box-shadow: 0 -12px 0 -5px var(--primary-600), 10px -5px 0 -5px var(--primary-600), 10px 5px 0 -5px var(--primary-600), 0 12px 0 -5px var(--primary-600), -10px 5px 0 -5px var(--primary-600), -10px -5px 0 -5px var(--primary-600);
   }
 
   100% {
-    background: #DC143C;
+    background: var(--primary-600);
     box-shadow: 0 -24px 0 -6px transparent, 21px -10px 0 -6px transparent, 21px 10px 0 -6px transparent, 0 24px 0 -6px transparent, -21px 10px 0 -6px transparent, -21px -10px 0 -6px transparent;
   }
 }

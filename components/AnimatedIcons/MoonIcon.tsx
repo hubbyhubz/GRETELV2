@@ -31,7 +31,7 @@ const MoonIcon = forwardRef<HTMLDivElement, MoonIconProps>(
       >
         <motion.svg
           animate={isHovered ? "animate" : "normal"}
-          fill="#DC143C"
+          fill="var(--primary-600)"
           height={size}
           transition={{ type: "spring", stiffness: 150, damping: 12 }}
           variants={{

@@ -56,7 +56,7 @@ const LottieSendIcon: React.FC<LottieSendIconProps> = ({
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: hoverBackground && isHovered ? 'rgba(220, 20, 60, 0.1)' : 'transparent',
+        backgroundColor: hoverBackground && isHovered ? 'rgba(var(--primary-600-rgb), 0.1)' : 'transparent',
         borderRadius: '8px',
         transition: 'background-color 0.2s'
       }}

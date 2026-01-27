@@ -328,7 +328,7 @@ export default function EventsOperationsPage() {
             >
               Prev
             </button>
-            <div className="px-3 py-2 text-sm rounded-md bg-[#DC143C]/10 text-[#DC143C] dark:text-[#ff8aa0] border border-[#DC143C]/20">
+            <div className="px-3 py-2 text-sm rounded-md bg-primary-600/10 text-primary-600 dark:text-primary-300 border border-primary-600/20">
               {formatMonthTitle(viewMonth)}
             </div>
             <button
@@ -345,7 +345,7 @@ export default function EventsOperationsPage() {
                 setViewMonth(startOfMonth(now));
                 setSelectedDate(toYmd(now));
               }}
-              className="px-3 py-2 text-sm rounded-md bg-[#DC143C] text-white hover:bg-[#B01030]"
+              className="px-3 py-2 text-sm rounded-md bg-primary-600 text-white hover:bg-primary-700"
             >
               Today
             </button>
@@ -355,7 +355,7 @@ export default function EventsOperationsPage() {
         <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
           <div className="lg:col-span-2 flex flex-col min-h-0">
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <div className="grid grid-cols-7 bg-[#DC143C] text-white">
+              <div className="grid grid-cols-7 bg-primary-600 text-white">
                 {weekdayLabels.map(label => (
                   <div key={label} className="py-2 text-center text-xs font-bold tracking-wide">
                     {label}
@@ -377,8 +377,8 @@ export default function EventsOperationsPage() {
                       data-date={key}
                       className={[
                         'h-24 md:h-28 p-2 border border-gray-100 dark:border-gray-700 text-left flex flex-col justify-between',
-                        'hover:bg-[#DC143C]/5 transition-colors',
-                        isSelected ? 'bg-[#DC143C]/10 border-[#DC143C]/30' : '',
+                        'hover:bg-primary-600/5 transition-colors',
+                        isSelected ? 'bg-primary-600/10 border-primary-600/30' : '',
                         muted ? 'opacity-60' : '',
                       ].join(' ')}
                     >
@@ -386,14 +386,14 @@ export default function EventsOperationsPage() {
                         <div
                           className={[
                             'h-7 w-7 rounded-full flex items-center justify-center text-sm font-bold',
-                            isToday(day) ? 'bg-[#DC143C] text-white' : 'text-gray-900 dark:text-gray-100',
-                            isSelected && !isToday(day) ? 'text-[#DC143C]' : '',
+                            isToday(day) ? 'bg-primary-600 text-white' : 'text-gray-900 dark:text-gray-100',
+                            isSelected && !isToday(day) ? 'text-primary-600' : '',
                           ].join(' ')}
                         >
                           {day.getDate()}
                         </div>
                         {dayItems.length > 0 && (
-                          <div className="text-xs font-semibold text-[#DC143C]">
+                          <div className="text-xs font-semibold text-primary-600">
                             {dayItems.length}
                           </div>
                         )}
@@ -404,7 +404,7 @@ export default function EventsOperationsPage() {
                             key={item.id}
                             className={[
                               'h-2 w-2 rounded-full',
-                              item.kind === 'event' ? 'bg-[#DC143C]' : 'bg-[#DC143C]/50',
+                              item.kind === 'event' ? 'bg-primary-600' : 'bg-primary-600/50',
                             ].join(' ')}
                             title={`${item.kind === 'event' ? 'Event' : 'Meeting'}: ${item.name}`}
                           />
@@ -445,7 +445,7 @@ export default function EventsOperationsPage() {
                     type="button"
                     onClick={() => openCreate('event')}
                     disabled={tableMissing}
-                    className="px-3 py-2 text-sm rounded-md bg-[#DC143C] text-white hover:bg-[#B01030] disabled:opacity-50"
+                    className="px-3 py-2 text-sm rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
                   >
                     Add Event
                   </button>
@@ -453,7 +453,7 @@ export default function EventsOperationsPage() {
                     type="button"
                     onClick={() => openCreate('meeting')}
                     disabled={tableMissing}
-                    className="px-3 py-2 text-sm rounded-md border border-[#DC143C]/30 text-[#DC143C] hover:bg-[#DC143C]/10 disabled:opacity-50"
+                    className="px-3 py-2 text-sm rounded-md border border-primary-600/30 text-primary-600 hover:bg-primary-600/10 disabled:opacity-50"
                   >
                     Add Meeting
                   </button>
@@ -479,8 +479,8 @@ export default function EventsOperationsPage() {
                               className={[
                                 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold',
                                 item.kind === 'event'
-                                  ? 'bg-[#DC143C]/15 text-[#DC143C]'
-                                  : 'bg-[#DC143C]/10 text-[#DC143C]',
+                                  ? 'bg-primary-600/15 text-primary-600'
+                                  : 'bg-primary-600/10 text-primary-600',
                               ].join(' ')}
                             >
                               {item.kind === 'event' ? 'Event' : 'Meeting'}
@@ -548,7 +548,7 @@ export default function EventsOperationsPage() {
                   type="date"
                   value={form.event_date}
                   onChange={(e) => setForm(prev => ({ ...prev, event_date: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                  className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
                 />
               </div>
               <div className="md:col-span-1">
@@ -558,7 +558,7 @@ export default function EventsOperationsPage() {
                 <input
                   value={form.name}
                   onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                  className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
                 />
               </div>
 
@@ -567,7 +567,7 @@ export default function EventsOperationsPage() {
                 <input
                   value={form.location}
                   onChange={(e) => setForm(prev => ({ ...prev, location: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                  className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
                 />
               </div>
 
@@ -579,7 +579,7 @@ export default function EventsOperationsPage() {
                       value={form.pax}
                       onChange={(e) => setForm(prev => ({ ...prev, pax: e.target.value }))}
                       inputMode="numeric"
-                      className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                      className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
                     />
                   </div>
                   <div className="md:col-span-1">
@@ -587,7 +587,7 @@ export default function EventsOperationsPage() {
                     <CustomTimePicker
                       value={form.serving_time}
                       onChange={(value) => setForm(prev => ({ ...prev, serving_time: value }))}
-                      className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                      className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-600"
                     />
                   </div>
                 </>
@@ -599,7 +599,7 @@ export default function EventsOperationsPage() {
                   value={form.remarks}
                   onChange={(e) => setForm(prev => ({ ...prev, remarks: e.target.value }))}
                   rows={4}
-                  className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                  className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
                 />
               </div>
             </div>
@@ -616,7 +616,7 @@ export default function EventsOperationsPage() {
               <button
                 type="button"
                 onClick={upsertItem}
-                className="bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-400 transition-all duration-200 active:scale-95"
+                className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-400 transition-all duration-200 active:scale-95"
                 disabled={isSaving}
               >
                 {isSaving ? 'Saving…' : 'Save'}

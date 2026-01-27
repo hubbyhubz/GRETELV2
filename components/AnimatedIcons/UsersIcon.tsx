@@ -104,7 +104,7 @@ const UsersIcon = forwardRef<UsersIconHandle, UsersIconProps>(
         <svg
           fill="none"
           height={size}
-          stroke="#DC143C"
+          stroke="var(--primary-600)"
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth="2"

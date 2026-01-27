@@ -40,7 +40,7 @@ const EyeOffIcon = forwardRef<HTMLDivElement, EyeOffIconProps>(
           viewBox="0 0 24 24"
           width={size}
           xmlns="http://www.w3.org/2000/svg"
-          style={{ color: '#DC143C' }}
+          style={{ color: 'var(--primary-600)' }}
         >
           <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
           <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />

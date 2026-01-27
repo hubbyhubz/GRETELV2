@@ -74,3 +74,20 @@
     transform: translateX(0);
   }
 }
+
+.crimson-loader-bar {
+  width: 100%;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 0 0.5em #0001, 0 0.15em 0.25em #0001;
+  overflow: hidden;
+}
+
+.crimson-loader-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-600), var(--primary-500));
+  border-radius: inherit;
+  transition: width 0.4s cubic-bezier(0.250, 0.460, 0.450, 0.940);
+}

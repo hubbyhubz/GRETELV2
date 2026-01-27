@@ -21,7 +21,7 @@ const LucideCalendarIcon = forwardRef<HTMLDivElement, LucideCalendarIconProps>(
         transition={{ type: "spring", stiffness: 180, damping: 15 }}
         {...props}
       >
-        <CalendarCheck size={size} color="#DC143C" strokeWidth={2} />
+        <CalendarCheck size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

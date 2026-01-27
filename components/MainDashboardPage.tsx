@@ -13,7 +13,6 @@ import { SettingsIcon } from './SettingsIcon';
 const CommandPalette = lazy(() => import('./CommandPalette'));
 import type { Command } from './CommandPalette';
 import {
-  LottieSendIcon,
   LucideMicIcon,
   CircleCheckIcon,
   CircleHelpIcon,
@@ -63,12 +62,14 @@ const ProjectPlanningModal = lazy(() => import('./ProjectPlanningModal'));
 const AddDelegatedTaskModal = lazy(() => import('./AddDelegatedTaskModal'));
 const WeeklyReportModal = lazy(() => import('./WeeklyReportModal'));
 const BriefingPointersModal = lazy(() => import('./BriefingPointersModal'));
+const BriefingNotesModal = lazy(() => import('./BriefingNotesModal'));
 const ActionContextMenu = lazy(() => import('./ActionContextMenu'));
 const QuickActionModal = lazy(() => import('./QuickActionModal'));
+const ScheduleEditorModal = lazy(() => import('./ScheduleEditorModal'));
 const Confetti = lazy(() => import('./Confetti'));
 // import { AppIcon } from './AppIcon';
 // import { KawaiiProgressBar } from './KawaiiProgressBar';
-import { UserProfile, DashboardView } from './types';
+import { UserProfile, DashboardView, ScheduleItem } from './types';
 import type { Session } from '@supabase/supabase-js';
 const OnboardingTour = lazy(() => import('./OnboardingTour').then(m => ({ default: m.OnboardingTour })));
 import { AIMessage } from './ui/ai-message';
@@ -111,15 +112,327 @@ class SettingsErrorBoundary extends React.Component<{ children: React.ReactNode 
     }
 }
 
+interface InterviewModalProps {
+    isOpen: boolean;
+    title: string;
+    isGenerating: boolean;
+    questions?: string[];
+    answers?: string[];
+    otherNotes?: string;
+    onChangeAnswer?: (index: number, value: string) => void;
+    onChangeOtherNotes?: (value: string) => void;
+    variant?: 'standard' | 'end-of-day';
+    carryOverItems?: Array<{ id: string; title: string; dateFlagged: string }>;
+    onCarryOverDecision?: (taskId: string, decision: 'yes' | 'no') => void;
+    smartEodQuestions?: Array<{ id: string; question: string; answer: string }>;
+    isSmartEodLoading?: boolean;
+    onChangeSmartEodAnswer?: (questionId: string, value: string) => void;
+    endOfDayDraft?: { attendance: string; morale: number | null; coachingNotes: string; otherNotes: string };
+    onChangeEndOfDayDraft?: (next: { attendance: string; morale: number | null; coachingNotes: string; otherNotes: string }) => void;
+    primaryActionLabel?: string;
+    onClose: () => void;
+    onGenerate: () => void;
+}
+
+const InterviewModal: React.FC<InterviewModalProps> = ({
+    isOpen,
+    title,
+    isGenerating,
+    questions = [],
+    answers = [],
+    otherNotes = '',
+    onChangeAnswer,
+    onChangeOtherNotes,
+    variant = 'standard',
+    carryOverItems = [],
+    onCarryOverDecision,
+    smartEodQuestions = [],
+    isSmartEodLoading = false,
+    onChangeSmartEodAnswer,
+    endOfDayDraft,
+    onChangeEndOfDayDraft,
+    primaryActionLabel,
+    onClose,
+    onGenerate,
+}) => {
+    const [isClosing, setIsClosing] = React.useState(false);
+    const questionTextareaRefs = React.useRef<Array<HTMLTextAreaElement | null>>([]);
+    const otherNotesTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const endOfDayAttendanceRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const endOfDayCoachingRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const endOfDayOtherRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const smartEodQuestionRefs = React.useRef<Record<string, HTMLTextAreaElement | null>>({});
+
+    const resizeTextarea = React.useCallback((el: HTMLTextAreaElement | null) => {
+        if (!el) return;
+        const maxHeight = Math.floor(window.innerHeight * 0.45);
+        const minHeight = 56;
+        el.style.height = 'auto';
+        const nextHeight = Math.max(minHeight, Math.min(el.scrollHeight, maxHeight));
+        el.style.height = `${nextHeight}px`;
+        el.style.overflowY = el.scrollHeight > nextHeight ? 'auto' : 'hidden';
+    }, []);
+
+    React.useEffect(() => {
+        if (!isOpen) return;
+        requestAnimationFrame(() => {
+            questionTextareaRefs.current.forEach((el) => resizeTextarea(el));
+            resizeTextarea(otherNotesTextareaRef.current);
+            resizeTextarea(endOfDayAttendanceRef.current);
+            resizeTextarea(endOfDayCoachingRef.current);
+            resizeTextarea(endOfDayOtherRef.current);
+            smartEodQuestions.forEach((q) => resizeTextarea(smartEodQuestionRefs.current[q.id] || null));
+        });
+    }, [isOpen, answers, otherNotes, endOfDayDraft, smartEodQuestions, isSmartEodLoading, resizeTextarea]);
+
+    React.useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setIsClosing(true);
+                setTimeout(() => {
+                    setIsClosing(false);
+                    onClose();
+                }, 250);
+            }
+        };
+        if (isOpen) window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose]);
+
+    if (!isOpen) return null;
+
+    return (
+        <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate__animated animate__fadeIn animate__faster"
+            onClick={(e) => {
+                if (e.target !== e.currentTarget) return;
+                setIsClosing(true);
+                setTimeout(() => {
+                    setIsClosing(false);
+                    onClose();
+                }, 250);
+            }}
+        >
+            <div
+                className={`w-full max-w-3xl max-h-[90vh] bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden animate__animated ${isClosing ? 'animate__bounceOut' : 'animate__bounceIn'}`}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
+                    <div>
+                        <h2 className="text-xl font-bold text-primary-600">{title}</h2>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Answer the questions, then click Generate.</p>
+                    </div>
+                    <button
+                        onClick={() => {
+                            setIsClosing(true);
+                            setTimeout(() => {
+                                setIsClosing(false);
+                                onClose();
+                            }, 250);
+                        }}
+                        className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                        aria-label="Close"
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+                    {variant === 'end-of-day' ? (
+                        <>
+                            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-4">
+                                <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">Smart Check-in</div>
+                                <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Only the most important items from today (max 3).</div>
+                                <div className="mt-3 space-y-4">
+                                    {isSmartEodLoading ? (
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">Generating targeted questions…</div>
+                                    ) : (smartEodQuestions.length === 0 ? (
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">No priority items were detected today. Log KPIs and any other updates below.</div>
+                                    ) : (
+                                        smartEodQuestions.map((q) => (
+                                            <div key={q.id}>
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">{q.question}</label>
+                                                <textarea
+                                                    ref={(el) => { smartEodQuestionRefs.current[q.id] = el; }}
+                                                    value={q.answer || ''}
+                                                    onChange={(e) => {
+                                                        onChangeSmartEodAnswer?.(q.id, e.target.value);
+                                                        resizeTextarea(smartEodQuestionRefs.current[q.id] || null);
+                                                    }}
+                                                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                                    placeholder="Answer here (completed / blocked / carry-over)…"
+                                                />
+                                            </div>
+                                        ))
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Were there any staff tardiness or absenteeism issues to log today?</label>
+                                <textarea
+                                    ref={endOfDayAttendanceRef}
+                                    value={endOfDayDraft?.attendance ?? ''}
+                                    onChange={(e) => {
+                                        if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+                                        onChangeEndOfDayDraft({ ...endOfDayDraft, attendance: e.target.value });
+                                        resizeTextarea(endOfDayAttendanceRef.current);
+                                    }}
+                                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                    placeholder="Log any attendance issues (or write 'None')."
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">On a scale of 1-5, how would you rate team morale today?</label>
+                                <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-1">
+                                        {[1, 2, 3, 4, 5].map((value) => {
+                                            const active = (endOfDayDraft?.morale ?? 0) >= value;
+                                            return (
+                                                <button
+                                                    key={value}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+                                                        onChangeEndOfDayDraft({ ...endOfDayDraft, morale: value });
+                                                    }}
+                                                    className={`h-10 w-10 rounded-lg border text-lg ${active ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-gray-900/40 text-gray-500 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}
+                                                    aria-label={`Set morale to ${value} out of 5`}
+                                                >
+                                                    ★
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="text-sm text-gray-600 dark:text-gray-300">
+                                        {endOfDayDraft?.morale ? `${endOfDayDraft.morale}/5` : 'Select a rating'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Coaching Notes / Performance Logs</label>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">Enter specific feedback here (e.g., "Jumar improved breakage handling").</div>
+                                <textarea
+                                    ref={endOfDayCoachingRef}
+                                    value={endOfDayDraft?.coachingNotes ?? ''}
+                                    onChange={(e) => {
+                                        if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+                                        onChangeEndOfDayDraft({ ...endOfDayDraft, coachingNotes: e.target.value });
+                                        resizeTextarea(endOfDayCoachingRef.current);
+                                    }}
+                                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                    placeholder="Coaching notes / performance logs..."
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Other Updates / Notes</label>
+                                <textarea
+                                    ref={endOfDayOtherRef}
+                                    value={endOfDayDraft?.otherNotes ?? ''}
+                                    onChange={(e) => {
+                                        if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+                                        onChangeEndOfDayDraft({ ...endOfDayDraft, otherNotes: e.target.value });
+                                        resizeTextarea(endOfDayOtherRef.current);
+                                    }}
+                                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                    placeholder="Any other updates..."
+                                />
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            {carryOverItems.length > 0 && (
+                                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10 p-4">
+                                    <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">Unfinished Business</div>
+                                    <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">These were flagged as carry-overs from yesterday. Add them to today’s plan?</div>
+                                    <div className="mt-3 space-y-3">
+                                        {carryOverItems.map((item) => (
+                                            <div key={item.id} className="flex items-start justify-between gap-3 border border-amber-200/60 dark:border-amber-800/60 rounded-lg bg-white/60 dark:bg-gray-900/20 p-3">
+                                                <div className="min-w-0">
+                                                    <div className="text-sm text-gray-800 dark:text-gray-200">{`You said yesterday you would continue "${item.title}". Add this to today’s focus block?`}</div>
+                                                </div>
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onCarryOverDecision?.(item.id, 'yes')}
+                                                        className="px-3 py-1.5 rounded-md bg-primary-600 text-white text-xs font-semibold hover:bg-primary-700"
+                                                    >
+                                                        Yes
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onCarryOverDecision?.(item.id, 'no')}
+                                                        className="px-3 py-1.5 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs font-semibold hover:bg-gray-200 dark:hover:bg-gray-600"
+                                                    >
+                                                        No
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {questions.map((q, idx) => (
+                                <div key={idx}>
+                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">{q}</label>
+                                    <textarea
+                                        ref={(el) => { questionTextareaRefs.current[idx] = el; }}
+                                        value={answers[idx] || ''}
+                                        onChange={(e) => {
+                                            onChangeAnswer?.(idx, e.target.value);
+                                            resizeTextarea(questionTextareaRefs.current[idx]);
+                                        }}
+                                        className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                    />
+                                </div>
+                            ))}
+
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Other Updates / Notes</label>
+                                <textarea
+                                    ref={otherNotesTextareaRef}
+                                    value={otherNotes}
+                                    onChange={(e) => {
+                                        onChangeOtherNotes?.(e.target.value);
+                                        resizeTextarea(otherNotesTextareaRef.current);
+                                    }}
+                                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                />
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
+                    <button
+                        onClick={onClose}
+                        className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        disabled={isGenerating}
+                    >
+                        Close
+                    </button>
+                    <button
+                        onClick={onGenerate}
+                        className="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-semibold hover:bg-primary-700 disabled:opacity-60"
+                        disabled={isGenerating || (variant === 'end-of-day' && !(endOfDayDraft?.morale))}
+                    >
+                        {isGenerating ? 'Saving…' : (primaryActionLabel || (variant === 'end-of-day' ? 'Save' : 'Generate'))}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // Memoized chat message component to prevent re-renders from clearing selection
-const ChatMessage = React.memo<{
+interface ChatMessageProps {
     msg: any;
     index: number;
     userProfile: any;
     formatChatText: (text: string) => string;
     handleMakeChanges: () => void;
-    handleConfirmPlan: () => void;
-    handleSendMessage: (e?: React.FormEvent, prompt?: string) => Promise<void>;
     handleMakeProjectChanges: () => void;
     handleConfirmProjectDraft: () => void;
     draftedProject: any;
@@ -129,12 +442,32 @@ const ChatMessage = React.memo<{
     emailVersion: string;
     setIsWeeklyReportModalOpen: (open: boolean) => void;
     setIsEmailVersionModalOpen: (open: boolean) => void;
-}>(({
-    msg, index, userProfile, formatChatText, handleMakeChanges, handleConfirmPlan, 
-    handleSendMessage, handleMakeProjectChanges, handleConfirmProjectDraft,
+    onShowResetConfirm: () => void;
+    resetMessageId: number | null;
+    draftedSchedule: ScheduleItem[] | null;
+}
+
+const ChatMessage = React.memo<ChatMessageProps>(({
+    msg, index, userProfile, formatChatText, handleMakeChanges,
+    handleMakeProjectChanges, handleConfirmProjectDraft,
     draftedProject, draftedProjectTasks, weeklyReport, lastWeeklyReportIndex,
-    emailVersion, setIsWeeklyReportModalOpen, setIsEmailVersionModalOpen
+    emailVersion, setIsWeeklyReportModalOpen, setIsEmailVersionModalOpen,
+    onShowResetConfirm, resetMessageId, draftedSchedule
 }) => {
+    // Check if draft is cleared - if draftedSchedule is null, hide buttons (persists across refreshes)
+    // Also check resetMessageId for immediate hiding
+    const msgId = typeof msg.id === 'number' ? msg.id : Number(msg.id);
+    const resetId = typeof resetMessageId === 'number' ? resetMessageId : (resetMessageId ? Number(resetMessageId) : null);
+    const isResetById = resetId !== null && resetId === msgId;
+    
+    // Check if draft is cleared by checking if there's no draftedSchedule
+    // This persists across page refreshes
+    const isDraftCleared = !draftedSchedule || draftedSchedule.length === 0;
+    
+    // Hide buttons if either condition is true
+    const isReset = isResetById || (msg.isPlanDraft && isDraftCleared);
+    
+    
     return (
         <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-[88%] sm:max-w-[85%]`}>
@@ -145,7 +478,7 @@ const ChatMessage = React.memo<{
                     </div>
                 )}
                 {msg.role === 'user' ? (
-                    <div className="rounded-lg sm:rounded-2xl px-3 py-2.5 sm:p-4 shadow-none sm:shadow-sm bg-[#DC143C] text-white sm:rounded-tr-none sm:ml-auto">
+                    <div className="rounded-lg sm:rounded-2xl px-3 py-2.5 sm:p-4 shadow-none sm:shadow-sm bg-primary-600 text-white sm:rounded-tr-none sm:ml-auto">
                         <div className="prose prose-sm max-[360px]:prose-xs dark:prose-invert max-w-none whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: formatChatText(msg.text) }}></div>
                         {msg.imageUrl && <img src={msg.imageUrl} alt="Uploaded" className="mt-2 rounded-lg max-w-full h-auto border border-gray-200 dark:border-gray-700" />}
                     </div>
@@ -154,12 +487,39 @@ const ChatMessage = React.memo<{
                         className="sm:rounded-tl-none sm:mr-auto max-w-full"
                         actions={
                             <>
-                                {msg.isPlanDraft && (
+                                {msg.isPlanDraft && !isReset && (
                                     <div className="flex justify-end space-x-2">
-                                        <button onClick={handleMakeChanges} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-semibold active-press">
+                                        <button 
+                                            onClick={() => {
+                                                if (handleMakeChanges) {
+                                                    handleMakeChanges();
+                                                }
+                                            }} 
+                                            className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-semibold active-press"
+                                        >
                                             I'll Make Changes
                                         </button>
-                                        <button onClick={async () => { await handleConfirmPlan(); }} className="px-3 py-1.5 rounded-lg bg-[#DC143C] hover:bg-[#b81030] text-white text-sm font-semibold active-press">
+                                        <button 
+                                            onClick={() => { 
+                                                onShowResetConfirm();
+                                            }} 
+                                            className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold active-press"
+                                        >
+                                            Reset
+                                        </button>
+                                        <button 
+                                            onClick={async () => {
+                                                // Trigger: User clicks [Approved Draft] -> Open "Edit Schedule" Modal.
+                                                // As requested: instead of confirming directly, we open the modal for final review.
+                                                if (handleMakeChanges) {
+                                                    handleMakeChanges();
+                                                }
+                                                // if (handleConfirmPlan) {
+                                                //     await handleConfirmPlan();
+                                                // }
+                                            }} 
+                                            className="px-3 py-1.5 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold active-press"
+                                        >
                                             Approve Draft
                                         </button>
                                     </div>
@@ -193,7 +553,7 @@ const ChatMessage = React.memo<{
                                             <button onClick={handleMakeProjectChanges} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-semibold active-press">
                                                 I'll Make Changes
                                             </button>
-                                            <button onClick={handleConfirmProjectDraft} className="px-3 py-1.5 rounded-lg bg-[#DC143C] hover:bg-[#b81030] text-white text-sm font-semibold active-press">
+                                            <button onClick={handleConfirmProjectDraft} className="px-3 py-1.5 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold active-press">
                                                 Create Project
                                             </button>
                                         </div>
@@ -234,7 +594,8 @@ const areMessagesEqual = (prevProps: any, nextProps: any) => {
            prevProps.index === nextProps.index &&
            prevProps.lastWeeklyReportIndex === nextProps.lastWeeklyReportIndex &&
            prevProps.emailVersion === nextProps.emailVersion &&
-           prevProps.draftedProject?.name === nextProps.draftedProject?.name;
+           prevProps.draftedProject?.name === nextProps.draftedProject?.name &&
+           prevProps.resetMessageId === nextProps.resetMessageId; // Include resetMessageId to trigger re-render when draft is cleared
 };
 
 // Re-create with custom comparison
@@ -286,7 +647,7 @@ const SidebarNav = React.memo<{
                                         }}
                                         onMouseEnter={() => setHoveredItemId(item.id)}
                                         onMouseLeave={() => setHoveredItemId(null)}
-                                        className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'px-3'} h-[48px] w-full text-sm font-medium rounded-lg group focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#DC143C] ${activeDashboard === item.view ? 'bg-red-50 dark:bg-red-900/30 text-[#DC143C]' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                                        className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'px-3'} h-[48px] w-full text-sm font-medium rounded-lg group focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600 ${activeDashboard === item.view ? 'bg-red-50 dark:bg-red-900/30 text-primary-600' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                                         style={{
                                             transition: 'background-color 150ms cubic-bezier(0.4, 0, 0.2, 1)',
                                         }}
@@ -355,7 +716,7 @@ const MobileSidebarItem = ({ item, activeDashboard, handleSendMessage, setIsMobi
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
             onClick={() => { item.action ? item.action() : handleSendMessage(undefined, `Action: ${item.name}`); setIsMobileMenuOpen(false); }}
-            className={`group flex items-center w-full p-2 text-sm font-medium rounded-lg transition-colors duration-200 ease-in-out ${item.view && activeDashboard === item.view ? 'bg-red-50 dark:bg-red-900/30 text-[#DC143C]' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+            className={`group flex items-center w-full p-2 text-sm font-medium rounded-lg transition-colors duration-200 ease-in-out ${item.view && activeDashboard === item.view ? 'bg-red-50 dark:bg-red-900/30 text-primary-600' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
         >
             <span className="shrink-0 w-8 flex justify-center mr-3 transition-transform duration-200 ease-in-out group-hover:scale-110 group-active:scale-95">
                 {React.isValidElement(item.icon) ? React.cloneElement(item.icon, { ref: iconRef, isHovered } as any) : item.icon}
@@ -384,7 +745,7 @@ const DashboardContent: React.FC<{
         quickActionModal, handleModalConfirm, setQuickActionModal, openQuickActionModal,
         notificationModal, setNotificationModal,
         setReminders,
-        briefingScript, isBriefingScriptVisible, setIsBriefingScriptVisible,
+        briefingScript, setBriefingScript, isBriefingScriptVisible, setIsBriefingScriptVisible,
         showResetConfirm, setShowResetConfirm, handleManualReset,
         showKeepResetConfirm, setShowKeepResetConfirm, handleClearKeepNotes,
         showScheduleClearConfirm, setShowScheduleClearConfirm, handleClearSchedule,
@@ -397,6 +758,7 @@ const DashboardContent: React.FC<{
         handleDailyKickoff, handleCreateWeeklyReport, handleClosePatchNotes,
         // Modals props
         handleClearBriefingPointers, isBriefingPointersVisible, setIsBriefingPointersVisible,
+        isBriefingNotesModalOpen, setIsBriefingNotesModalOpen,
         selectedProject, setSelectedProject,
         projectToDelete, setProjectToDelete, handleConfirmDeleteProject,
         handleAddDelegatedTask,
@@ -406,13 +768,39 @@ const DashboardContent: React.FC<{
         handleClearErrors, handleDelegatedTaskToggle, handleOpenAddTaskModal,
         handleReminderBriefingPreferenceChange, handleDelegatedTaskStatusChange, handleDelegatedTaskRemarksChange, handleDelegatedTaskDeadlineChange,
         handleSimpleToggle,
-        handleConfirmPlan, handleMakeChanges, handleConfirmProjectDraft, handleMakeProjectChanges, handleProjectUpdate, handleLinkedToggle,
+        handleMakeChanges, handleConfirmProjectDraft, handleMakeProjectChanges, handleProjectUpdate, handleLinkedToggle,
         handleFinalizeBriefing, setKeepNotes, requestProjectDraft, saveProjectDraft,
         draftedProject, draftedProjectTasks, weeklyReport, isWeeklyReportModalOpen, setIsWeeklyReportModalOpen, emailVersion, isEmailVersionModalOpen, setIsEmailVersionModalOpen, handleGenerateEmailReport,
         currentMode, handleActivateMode, handleDeactivateMode, currentMood,
-        pendingDelegation, cancelPendingDelegation, pendingScheduleClarification, cancelPendingScheduleClarification,
-        pendingSchedule, finalizeSchedule,
+        pendingScheduleClarification, cancelPendingScheduleClarification,
+        pendingSchedule, finalizeSchedule, isSyncing,
+        isScheduleEditorOpen, setIsScheduleEditorOpen, draftedSchedule, setDraftedSchedule, scheduleItems, setScheduleItems,
+        handleProactiveAIMessage, setIsScheduleConfirmed, draftedPriorities, setDraftedPriorities, setTop3Items,
+        isInterviewModalOpen, interviewModalMode, interviewDrafts, smartEodQuestions, isSmartEodLoading, setSmartEodAnswer, endOfDayDraft, setEndOfDayDraft, submitEndOfDayReview, endOfDaySummary, endOfDayCompletedDate, carryOverTasks, carryOverDecision, openInterviewModal, closeInterviewModal, setInterviewAnswer, setInterviewOtherNotes, handleGenerateInterview,
     } = useDashboardContext();
+    
+    // State for tracking which message was reset (must be declared before useCallback that uses it)
+    const [resetMessageId, setResetMessageId] = React.useState<number | null>(null);
+    
+    // Handler to clear draft when reset is confirmed
+    const handleClearDraft = React.useCallback(() => {
+        // Find the message ID of the current plan draft
+        const planDraftMessages = chatMessages.filter((msg: any) => msg.isPlanDraft);
+        const planDraftMessage = planDraftMessages[planDraftMessages.length - 1]; // Get the most recent one
+        
+        if (planDraftMessage) {
+            setResetMessageId(planDraftMessage.id);
+        }
+        
+        // Clear the drafts
+        setDraftedSchedule(null);
+        setDraftedPriorities(null);
+    }, [setDraftedSchedule, setDraftedPriorities, chatMessages]);
+    
+    // Debug: Track isScheduleEditorOpen state
+    React.useEffect(() => {
+        console.log('[MainDashboard] isScheduleEditorOpen state value:', isScheduleEditorOpen);
+    }, [isScheduleEditorOpen]);
 
     // ============================================================================
     // CRITICAL: ALL HOOKS MUST BE DECLARED HERE - BEFORE ANY CONDITIONAL RETURNS
@@ -429,12 +817,29 @@ const DashboardContent: React.FC<{
         } else if (currentMood === 'tired') {
             root.style.setProperty('--primary-color', '#6B7280'); // Gray
         } else {
-            root.style.setProperty('--primary-color', '#DC143C'); // Default Crimson
+            root.style.setProperty('--primary-color', 'var(--primary-600)');
         }
     }, [currentMood]);
 
     // State for tracking focused input to manage resizing
     const [focusedInput, setFocusedInput] = React.useState<'desktop' | 'mobile' | null>(null);
+
+    const briefingScriptTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const resizeBriefingScriptTextarea = React.useCallback(() => {
+        const el = briefingScriptTextareaRef.current;
+        if (!el) return;
+        const maxHeight = Math.floor(window.innerHeight * 0.6);
+        const minHeight = 240;
+        el.style.height = 'auto';
+        const nextHeight = Math.max(minHeight, Math.min(el.scrollHeight, maxHeight));
+        el.style.height = `${nextHeight}px`;
+        el.style.overflowY = el.scrollHeight > nextHeight ? 'auto' : 'hidden';
+    }, []);
+
+    React.useEffect(() => {
+        if (!isBriefingScriptVisible) return;
+        requestAnimationFrame(() => resizeBriefingScriptTextarea());
+    }, [isBriefingScriptVisible, briefingScript, resizeBriefingScriptTextarea]);
 
     // Effect to handle dynamic resizing of chat input
     React.useEffect(() => {
@@ -469,6 +874,7 @@ const DashboardContent: React.FC<{
     // State hooks
     const [showConfetti, setShowConfetti] = React.useState(false);
     const [showScheduleAnimation, setShowScheduleAnimation] = React.useState(false);
+    const [showDraftResetConfirm, setShowDraftResetConfirm] = React.useState(false);
     // Store setters in refs so DashboardProvider can trigger animations
     React.useEffect(() => {
         setShowConfettiRef.current = setShowConfetti;
@@ -531,6 +937,22 @@ const DashboardContent: React.FC<{
     const [isEditingBriefingNotes, setIsEditingBriefingNotes] = React.useState(false);
     const [briefingNotesDraft, setBriefingNotesDraft] = React.useState(keepNotes);
     const [isProjectPlanningOpen, setIsProjectPlanningOpen] = React.useState(false);
+
+    const briefingNotesCardTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const resizeBriefingNotesCardTextarea = React.useCallback(() => {
+        const el = briefingNotesCardTextareaRef.current;
+        if (!el) return;
+        const maxHeight = Math.floor(window.innerHeight * 0.35);
+        const minHeight = 112;
+        el.style.height = 'auto';
+        const nextHeight = Math.max(minHeight, Math.min(el.scrollHeight, maxHeight));
+        el.style.height = `${nextHeight}px`;
+        el.style.overflowY = el.scrollHeight > nextHeight ? 'auto' : 'hidden';
+    }, []);
+
+    React.useEffect(() => {
+        requestAnimationFrame(() => resizeBriefingNotesCardTextarea());
+    }, [keepNotes, briefingNotesDraft, isEditingBriefingNotes, resizeBriefingNotesCardTextarea]);
     
     // Callbacks
     const handleSidebarItemClick = React.useCallback((item: any) => {
@@ -549,10 +971,11 @@ const DashboardContent: React.FC<{
         {
             title: 'Daily Flow',
             items: [
-                { id: 'daily-kickoff', name: 'Daily Kick-off', description: 'Start your daily kickoff flow', icon: <PlayIcon size={20} />, action: handleDailyKickoff },
-                { id: 'morning-briefing', name: 'Morning Briefing', description: 'Collect inputs and draft AM briefing', icon: <BriefingIcon size={20} />, action: () => handleSendMessage(undefined, 'Prepare the morning briefing.') },
-                { id: 'afternoon-briefing', name: 'Afternoon Briefing', description: 'Collect inputs and draft PM briefing', icon: <BriefingIcon size={20} />, action: () => handleSendMessage(undefined, 'Prepare the afternoon briefing.') },
-                { id: 'end-of-day', name: 'End-of-Day Review', description: 'Run your end-of-day review', icon: <MoonIcon size={20} />, action: () => handleSendMessage(undefined, 'Time for my end-of-day review.') },
+                { id: 'daily-kickoff', name: 'Daily Kick-off', description: 'Start your daily kickoff flow', icon: <PlayIcon size={20} />, action: () => openInterviewModal('kickoff') },
+                { id: 'edit-schedule', name: 'Edit Schedule', description: 'Manually adjust time blocks', icon: <FilePenLineIcon size={20} />, action: handleMakeChanges },
+                { id: 'morning-briefing', name: 'Morning Briefing', description: 'Collect inputs and draft AM briefing', icon: <BriefingIcon size={20} />, action: () => openInterviewModal('morning-briefing') },
+                { id: 'afternoon-briefing', name: 'Afternoon Briefing', description: 'Collect inputs and draft PM briefing', icon: <BriefingIcon size={20} />, action: () => openInterviewModal('afternoon-briefing') },
+                { id: 'end-of-day', name: 'End-of-Day Review', description: 'Run your end-of-day review', icon: <MoonIcon size={20} />, action: () => openInterviewModal('end-of-day') },
                 { id: 'reset-daily', name: 'Reset Daily State', description: 'Clear schedule and priorities', icon: <StopIcon size={20} />, action: () => { (window as any).stopGretelTour?.(); setShowResetConfirm(true); } },
             ]
         },
@@ -595,17 +1018,20 @@ const DashboardContent: React.FC<{
     ] as Array<{
         title: string;
         items: Array<{ id: string; name: string; description?: string; icon: React.ReactNode; action: () => void; view?: DashboardView }>;
-    }>, [handleDailyKickoff, handleSendMessage, openQuickActionModal, handleClearErrors, handleCreateWeeklyReport, handleActivateMode, setIsProjectPlanningOpen]);
+    }>, [openInterviewModal, handleMakeChanges, handleSendMessage, openQuickActionModal, handleClearErrors, handleCreateWeeklyReport, handleActivateMode, setIsProjectPlanningOpen]);
     
     // Effects
     React.useEffect(() => {
-        // Only auto-scroll if user doesn't have text selected
-        const selection = window.getSelection();
-        const hasSelection = selection && selection.toString().length > 0;
-        
-        if (!hasSelection && chatEndRef.current) {
-            chatEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        }
+        // Use requestAnimationFrame to avoid forced reflows by allowing the browser to paint first
+        requestAnimationFrame(() => {
+            // Only auto-scroll if user doesn't have text selected
+            const selection = window.getSelection();
+            const hasSelection = selection && selection.toString().length > 0;
+            
+            if (!hasSelection && chatEndRef.current) {
+                chatEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }
+        });
     }, [chatMessages.length, isSending]);
 
     // Confetti trigger is now handled directly in the checkbox click handler
@@ -791,9 +1217,9 @@ const DashboardContent: React.FC<{
     };
 
     const mobileTabs = [
-        { id: 'chat', label: 'Chat', icon: <MessageCircleMoreIcon size={20} className="text-[#DC143C]" /> },
-        { id: 'today', label: 'Today', icon: <CalendarDaysIcon size={20} className="text-[#DC143C]" /> },
-        { id: 'work', label: 'Work', icon: <BriefcaseIcon size={20} className="text-[#DC143C]" /> },
+        { id: 'chat', label: 'Chat', icon: <MessageCircleMoreIcon size={20} className="text-primary-600" /> },
+        { id: 'today', label: 'Today', icon: <CalendarDaysIcon size={20} className="text-primary-600" /> },
+        { id: 'work', label: 'Work', icon: <BriefcaseIcon size={20} className="text-primary-600" /> },
     ];
 
     const commandPaletteCommands: Command[] = sidebarSections.flatMap((section) =>
@@ -828,6 +1254,8 @@ const DashboardContent: React.FC<{
     // State for image upload
     const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
+    const [isLogoutIconHovered, setIsLogoutIconHovered] = React.useState(false);
+    const [isMobileLogoutIconHovered, setIsMobileLogoutIconHovered] = React.useState(false);
 
     const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -858,10 +1286,10 @@ const DashboardContent: React.FC<{
                     className="p-2 rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none z-10"
                     aria-label="Toggle menu"
                 >
-                    {isMobileMenuOpen ? <XIcon size={24} /> : <GripHorizontalIcon size={24} className="text-[#DC143C]" />}
+                    {isMobileMenuOpen ? <XIcon size={24} /> : <GripHorizontalIcon size={24} className="text-primary-600" />}
                 </button>
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className="font-black text-[#DC143C] tracking-wider pointer-events-auto">
+                    <span className="font-black text-primary-600 tracking-wider pointer-events-auto">
                         {userProfile.assistantName || 'G.R.E.T.E.L'}
                     </span>
                     {currentMode && (
@@ -875,11 +1303,19 @@ const DashboardContent: React.FC<{
                                     : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
                             }`}
                         >
-                            {currentMode === 'crisis' ? '🚨 CRISIS' : currentMode === 'strategic' ? '🧠 STRATEGIC' : '⚠️ RED DAY'} • TAP TO EXIT
+                            {currentMode === 'crisis' ? 'CRISIS' : currentMode === 'strategic' ? 'STRATEGIC' : 'RED DAY'} • TAP TO EXIT
                         </button>
                     )}
                 </div>
                 <div className="flex items-center space-x-2 z-10">
+                    <button
+                        onClick={() => setIsCommandPaletteOpen(true)}
+                        className="h-9 w-9 rounded-full flex items-center justify-center text-[color:var(--primary-600)] hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800"
+                        aria-label="Suggestions"
+                        title="Suggestions"
+                    >
+                        <LucideCommandIcon size={20} />
+                    </button>
                     <div className="hidden md:block">
                         <button 
                           onClick={() => {
@@ -927,7 +1363,7 @@ const DashboardContent: React.FC<{
                 <div className="flex flex-col h-full">
                     <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-700">
                         <span className="font-bold text-lg text-gray-800 dark:text-gray-200">Menu</span>
-                        <button onClick={() => setIsMobileMenuOpen(false)} className="p-1 rounded-full bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30 transition-colors flex items-center justify-center h-8 w-8"><AnimatedXIcon size={20} className="text-[#DC143C]" /></button>
+                        <button onClick={() => setIsMobileMenuOpen(false)} className="p-1 rounded-full bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30 transition-colors flex items-center justify-center h-8 w-8"><AnimatedXIcon size={20} className="text-primary-600" /></button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 space-y-4">
                         <div className="flex items-center mb-6">
@@ -967,9 +1403,13 @@ const DashboardContent: React.FC<{
                             </div>
                             <button
                               onClick={onLogout}
-                              className="group flex items-center w-full p-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg mt-1 transition-colors duration-200 ease-in-out"
+                              onMouseEnter={() => setIsMobileLogoutIconHovered(true)}
+                              onMouseLeave={() => setIsMobileLogoutIconHovered(false)}
+                              onFocus={() => setIsMobileLogoutIconHovered(true)}
+                              onBlur={() => setIsMobileLogoutIconHovered(false)}
+                              className="group flex items-center w-full p-2 text-sm font-medium text-primary-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg mt-1 transition-colors duration-200 ease-in-out"
                             >
-                                 <span className="shrink-0 w-8 flex justify-center mr-3 transition-transform duration-200 ease-in-out group-hover:scale-110 group-active:scale-95"><LogoutIcon size={20} /></span> Log Out
+                                 <span className="shrink-0 w-8 flex justify-center mr-3 transition-transform duration-200 ease-in-out group-hover:scale-110 group-active:scale-95"><LogoutIcon size={20} isHovered={isMobileLogoutIconHovered} /></span> Log Out
                             </button>
                         </div>
                     </div>
@@ -1044,27 +1484,11 @@ const DashboardContent: React.FC<{
                     </div>
                 )}
                 
-                {pendingDelegation && (
-                    <div className="mb-2 p-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-900 dark:text-amber-100 flex items-start justify-between gap-3" style={{ pointerEvents: 'auto' }}>
-                        <div className="min-w-0">
-                            <div className="font-semibold">Awaiting deadline</div>
-                            <div className="truncate">Task: {pendingDelegation.task}</div>
-                            <div className="truncate">Assignee: {pendingDelegation.personName}</div>
-                            <div className="text-amber-800/90 dark:text-amber-200/90">Reply with “tomorrow”, “2026-02-15”, or “2026-02-15 15:00”.</div>
-                        </div>
-                        <button
-                            onClick={cancelPendingDelegation}
-                            className="shrink-0 px-3 py-1.5 rounded-lg bg-white/80 dark:bg-gray-800/60 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100 hover:bg-white dark:hover:bg-gray-800 transition-colors"
-                        >
-                            Cancel
-                        </button>
-                    </div>
-                )}
             <div 
-                className="flex items-end space-x-2 bg-gray-100 dark:bg-gray-700 rounded-xl p-2 border border-transparent focus-within:border-gray-300 dark:focus-within:border-gray-600 focus-within:ring-0 transition-all w-full" 
+                className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-700 rounded-xl p-2 border border-transparent focus-within:border-gray-300 dark:focus-within:border-gray-600 focus-within:ring-0 transition-all w-full" 
                 style={{ pointerEvents: 'auto', maxWidth: '100%', boxSizing: 'border-box' }}
             >
-                     <button onClick={() => (inputType === 'desktop' ? desktopFileInputRef : mobileFileInputRef).current?.click()} className="p-2 text-gray-500 hover:text-[#DC143C] transition-colors rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600" title="Attach File"><LucidePaperclipIcon size={20} /></button>
+                     <button onClick={() => (inputType === 'desktop' ? desktopFileInputRef : mobileFileInputRef).current?.click()} className="h-10 w-10 flex items-center justify-center text-gray-500 hover:text-primary-600 transition-colors rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600" title="Attach File"><LucidePaperclipIcon size={20} /></button>
                      <input type="file" ref={inputType === 'desktop' ? desktopFileInputRef : mobileFileInputRef} className="hidden" onChange={handleFileChange} />
                      
                      <textarea
@@ -1088,7 +1512,7 @@ const DashboardContent: React.FC<{
                         }}
                         placeholder={`Message ${userProfile.assistantName}...`}
                         rows={1}
-                        className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 resize-none overflow-y-hidden p-[10px] m-[5px] max-h-[200px] text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400 transition-[height] duration-200 ease-in-out"
+                        className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 resize-none overflow-y-hidden px-3 py-2 max-h-[200px] text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400 transition-[height] duration-200 ease-in-out"
                         style={{ minHeight: '40px', height: '40px' }}
                      />
                      
@@ -1102,38 +1526,36 @@ const DashboardContent: React.FC<{
                     />
                      <button 
                         onClick={() => fileInputRef.current?.click()}
-                        className={`p-2 transition-colors rounded-lg ${selectedImage ? 'text-[color:var(--primary-600)] bg-[color:var(--primary-50)]' : 'text-gray-500 hover:text-[color:var(--primary-600)] hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                        className={`h-10 w-10 flex items-center justify-center transition-colors rounded-lg ${selectedImage ? 'text-[color:var(--primary-600)] bg-[color:var(--primary-50)]' : 'text-[color:var(--primary-600)] hover:text-[color:var(--primary-700)] hover:bg-gray-200 dark:hover:bg-gray-600'}`}
                         title="Upload Image"
                      >
                         <ImageIcon size={20} />
                      </button>
 
                      {isSending ? (
-                         <button onClick={handleStopGeneration} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg animate-pulse" title="Stop"><StopIcon size={20} /></button>
+                         <button onClick={handleStopGeneration} className="h-10 w-10 flex items-center justify-center text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg animate-pulse" title="Stop"><StopIcon size={20} /></button>
                      ) : (
                          <>
-                            <button onClick={handleToggleRecording} className={`p-2 transition-colors rounded-lg ${isRecording ? 'text-red-600 bg-red-100 animate-pulse' : 'text-gray-500 hover:text-[#DC143C] hover:bg-gray-200 dark:hover:bg-gray-600'}`} title="Voice Input"><LucideMicIcon size={20} isRecording={isRecording} /></button>
-                        <button 
+                            <button onClick={handleToggleRecording} className={`h-10 w-10 flex items-center justify-center transition-colors rounded-lg ${isRecording ? 'text-red-600 bg-red-100 animate-pulse' : 'text-gray-500 hover:text-primary-600 hover:bg-gray-200 dark:hover:bg-gray-600'}`} title="Voice Input"><LucideMicIcon size={20} isRecording={isRecording} /></button>
+                        <button
                             onClick={() => {
                                 handleSendMessage(undefined, undefined, selectedImage || undefined);
                                 clearSelectedImage();
-                            }} 
-                            disabled={!chatInput.trim() && !attachedFile && !selectedImage} 
-                            className="disabled:opacity-50 disabled:cursor-not-allowed p-2 text-gray-500 hover:text-[color:var(--primary-600)] hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors flex items-center justify-center" 
+                            }}
+                            disabled={!chatInput.trim() && !attachedFile && !selectedImage}
+                            className="chat-send-btn"
                             title="Send"
                         >
-                            <LottieSendIcon size={24} hoverBackground={false} />
+                            <span className="chat-send-svg-wrapper" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M22 2L11 13" />
+                                    <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+                                </svg>
+                            </span>
+                            <span className="chat-send-text">Send</span>
                         </button>
                          </>
                      )}
-                     
-                     <button
-                        onClick={() => setIsCommandPaletteOpen(true)}
-                        className="md:hidden p-2 ml-1 text-gray-500 hover:text-[color:var(--primary-600)] hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
-                        title="Suggestions"
-                     >
-                        <LucideCommandIcon size={20} />
-                     </button>
                 </div>
             </div>
     );
@@ -1163,8 +1585,6 @@ const DashboardContent: React.FC<{
                         userProfile={userProfile}
                         formatChatText={formatChatText}
                         handleMakeChanges={handleMakeChanges}
-                        handleConfirmPlan={handleConfirmPlan}
-                        handleSendMessage={handleSendMessage}
                         handleMakeProjectChanges={handleMakeProjectChanges}
                         handleConfirmProjectDraft={handleConfirmProjectDraft}
                         draftedProject={draftedProject}
@@ -1174,6 +1594,9 @@ const DashboardContent: React.FC<{
                         emailVersion={emailVersion}
                         setIsWeeklyReportModalOpen={setIsWeeklyReportModalOpen}
                         setIsEmailVersionModalOpen={setIsEmailVersionModalOpen}
+                        onShowResetConfirm={() => setShowDraftResetConfirm(true)}
+                        resetMessageId={resetMessageId}
+                        draftedSchedule={draftedSchedule}
                     />
                 ))}
                 
@@ -1230,7 +1653,7 @@ const DashboardContent: React.FC<{
                     <div className="max-w-md text-center">
                         <h2 className="text-lg font-bold">Settings failed to load</h2>
                         <p className="mt-2 text-sm text-gray-600">Error creating component: {error?.message || 'Unknown error'}</p>
-                        <button onClick={() => setCurrentView('dashboard')} className="mt-4 px-4 py-2 bg-[#DC143C] text-white rounded-lg">Back to Dashboard</button>
+                        <button onClick={() => setCurrentView('dashboard')} className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg">Back to Dashboard</button>
                     </div>
                 </div>
         );
@@ -1280,7 +1703,7 @@ const DashboardContent: React.FC<{
                             transition: 'opacity 150ms cubic-bezier(0.25, 0.1, 0.25, 1), transform 150ms cubic-bezier(0.25, 0.1, 0.25, 1)',
                         }}
                     >
-                        <span className="flex items-center justify-center h-10 w-10 bg-[#DC143C] rounded-lg text-white font-black text-2xl leading-none shadow-md">G</span>
+                        <span className="flex items-center justify-center h-10 w-10 bg-primary-600 rounded-lg text-white font-black text-2xl leading-none shadow-md">G</span>
                     </div>
                     <div 
                         className={`absolute inset-0 flex items-center justify-center transform-gpu ${isSidebarCollapsed ? 'opacity-0 scale-75 pointer-events-none' : 'opacity-100 scale-100'}`}
@@ -1289,7 +1712,7 @@ const DashboardContent: React.FC<{
                         }}
                     >
                         <div className="text-center whitespace-nowrap">
-                            <h1 className="text-xl font-black text-[#DC143C] tracking-wider uppercase">G.R.E.T.E.L</h1>
+                            <h1 className="text-xl font-black text-primary-600 tracking-wider uppercase">G.R.E.T.E.L</h1>
                             <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 tracking-widest uppercase">BY HANZEL</p>
                         </div>
                     </div>
@@ -1330,7 +1753,7 @@ const DashboardContent: React.FC<{
                         )}
                     </div>
                     <div className="flex flex-col justify-center">
-                        <h2 className="text-lg font-bold text-[#DC143C] leading-tight m-0 p-0" style={{ color: 'var(--primary-color, #DC143C)' }}>Welcome back, {welcomeName}</h2>
+                        <h2 className="text-lg font-bold text-primary-600 leading-tight m-0 p-0" style={{ color: 'var(--primary-color, var(--primary-600))' }}>Welcome back, {welcomeName}</h2>
                         <p className="text-xs text-gray-500 dark:text-gray-400 leading-tight mt-0.5 m-0 p-0">
                            {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} - {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                         </p>
@@ -1348,14 +1771,14 @@ const DashboardContent: React.FC<{
                         }`}
                         title={
                             currentMode === 'crisis' 
-                                ? '🚨 Crisis Mode: For urgent issues requiring immediate action (equipment failures, staff emergencies, critical incidents)' 
+                                ? 'Crisis Mode: For urgent issues requiring immediate action (equipment failures, staff emergencies, critical incidents)' 
                                 : currentMode === 'strategic'
-                                ? '🧠 Strategic Mode: For long-term planning, process analysis, and important decision-making'
-                                : '⚠️ Red Day Mode: When overwhelmed - helps prioritize and lighten your workload'
+                                ? 'Strategic Mode: For long-term planning, process analysis, and important decision-making'
+                                : 'Red Day Mode: When overwhelmed - helps prioritize and lighten your workload'
                         }
                     >
                         <span className="text-xl">
-                            {currentMode === 'crisis' ? '🚨' : currentMode === 'strategic' ? '🧠' : '⚠️'}
+                            {currentMode === 'crisis' ? <AlertIcon size={18} /> : currentMode === 'strategic' ? <LucideTargetIcon size={18} /> : <WarningIcon size={18} />}
                         </span>
                         <div className="flex flex-col">
                             <span className="text-xs font-bold uppercase leading-tight">
@@ -1406,20 +1829,24 @@ const DashboardContent: React.FC<{
                           (window as any).startGretelTour?.();
                         }
                       }} 
-                      className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#DC143C] dark:focus-visible:ring-offset-gray-800" 
+                      className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800" 
                       title="App Tour"
                     >
                       <CircleHelpIcon size={20} />
                     </button>
-                    <button onClick={() => setIsPatchNotesVisible(true)} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#DC143C] dark:focus-visible:ring-offset-gray-800" title="What's New"><GiftIcon size={20} /></button>
-                    <button onClick={() => setIsFeedbackVisible(true)} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#DC143C] dark:focus-visible:ring-offset-gray-800" title="Submit Feedback"><FeedbackIcon size={20} /></button>
-                    <button id="settings-button" onClick={() => { setCurrentView('settings'); setInitialSettingsTab('profile'); }} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#DC143C] dark:focus-visible:ring-offset-gray-800" title="Settings"><SettingsIcon size={20} /></button>
+                    <button onClick={() => setIsPatchNotesVisible(true)} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800" title="What's New"><GiftIcon size={20} /></button>
+                    <button onClick={() => setIsFeedbackVisible(true)} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800" title="Submit Feedback"><FeedbackIcon size={20} /></button>
+                    <button id="settings-button" onClick={() => { setCurrentView('settings'); setInitialSettingsTab('profile'); }} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800" title="Settings"><SettingsIcon size={20} /></button>
                     <button 
                       onClick={onLogout} 
-                      className="h-9 w-9 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-500/10 active:bg-red-200 dark:active:bg-red-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-500 dark:focus-visible:ring-offset-gray-800" 
+                      onMouseEnter={() => setIsLogoutIconHovered(true)}
+                      onMouseLeave={() => setIsLogoutIconHovered(false)}
+                      onFocus={() => setIsLogoutIconHovered(true)}
+                      onBlur={() => setIsLogoutIconHovered(false)}
+                      className="h-9 w-9 rounded-full flex items-center justify-center text-primary-600 transition-colors hover:bg-red-100 dark:hover:bg-red-500/10 active:bg-red-200 dark:active:bg-red-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800" 
                       title="Log Out"
                     >
-                      <LogoutIcon size={20} />
+                      <LogoutIcon size={20} isHovered={isLogoutIconHovered} />
                     </button>
                     <ThemeToggleButton position="static" />
                 </div>
@@ -1480,7 +1907,7 @@ const DashboardContent: React.FC<{
                                     }}
                                 >
                                     <div className={`${pullDistance > 60 ? 'refresh-spinner' : ''}`}>
-                                        <svg className="w-6 h-6 text-[#DC143C]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                         </svg>
                                     </div>
@@ -1488,13 +1915,13 @@ const DashboardContent: React.FC<{
                             )}
                        <div id="todays-schedule" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-hover-animation">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-sm font-bold text-[#DC143C] flex items-center"><CalendarIcon size={16} /><span className="ml-2">Today's Schedule</span></h2>
+                                <h2 className="text-sm font-bold text-primary-600 flex items-center"><CalendarIcon size={16} /><span className="ml-2">Today's Schedule</span></h2>
                                 <div className="flex items-center gap-2">
                                     {pendingSchedule && (
                                         <button 
                                             onClick={finalizeSchedule}
                                             disabled={isSyncing}
-                                            className="px-3 py-1 text-xs font-bold bg-[#DC143C] text-white rounded-full hover:bg-[#B01030] disabled:opacity-50 flex items-center gap-1 active-press"
+                                            className="px-3 py-1 text-xs font-bold bg-primary-600 text-white rounded-full hover:bg-primary-700 disabled:opacity-50 flex items-center gap-1 active-press"
                                         >
                                             {isSyncing ? 'Syncing...' : 'Finalize'}
                                         </button>
@@ -1506,9 +1933,9 @@ const DashboardContent: React.FC<{
                             </div>
                             <div className="mt-3 text-sm text-gray-600 dark:text-gray-400 space-y-2">
                                 {pendingSchedule && (
-                                    <div className="mb-4 p-3 rounded-xl border border-dashed border-[#DC143C]/40 bg-[#DC143C]/5 dark:bg-[#DC143C]/10 animate-pulse">
-                                        <div className="text-xs font-bold text-[#DC143C] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-[#DC143C]"></span>
+                                    <div className="mb-4 p-3 rounded-xl border border-dashed border-primary-600/40 bg-primary-600/5 dark:bg-primary-600/10 animate-pulse">
+                                        <div className="text-xs font-bold text-primary-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-primary-600"></span>
                                             Pending Schedule
                                         </div>
                                         <div className="text-xs text-gray-700 dark:text-gray-200 opacity-90">
@@ -1555,7 +1982,7 @@ const DashboardContent: React.FC<{
 
                        <div id="top-priorities" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-hover-animation">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-sm font-bold text-[#DC143C] flex items-center"><CircleCheckIcon size={16} /><span className="ml-2">Top Priorities</span></h2>
+                                <h2 className="text-sm font-bold text-primary-600 flex items-center"><CircleCheckIcon size={16} /><span className="ml-2">Top Priorities</span></h2>
                                 <button onClick={() => { (window as any).stopGretelTour?.(); setShowPrioritiesClearConfirm(true); }} className="h-7 w-7 rounded-full inline-flex items-center justify-center text-gray-500 hover:text-red-500 dark:hover:text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-500/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500" title="Clear Priorities">
                                     <TrashIcon size={16} />
                                 </button>
@@ -1575,14 +2002,19 @@ const DashboardContent: React.FC<{
 
                        <div id="reminders" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-lift card-hover-animation">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-sm font-bold text-[#DC143C] flex items-center"><ReminderIcon size={16} /><span className="ml-2">Reminders</span></h2>
+                                <div className="flex-1">
+                                    <h2 className="text-sm font-bold text-primary-600 flex items-center"><ReminderIcon size={16} /><span className="ml-2">Reminders</span></h2>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                        <span className="inline-block animate-lightbulb text-primary-600 font-bold">Tip:</span> Type "create a reminder" in chat instead of clicking the button
+                                    </p>
+                                </div>
                                 <div className="flex items-center gap-2">
                                     <button onClick={() => { (window as any).stopGretelTour?.(); setShowRemindersClearConfirm(true); }} className="h-7 w-7 rounded-full inline-flex items-center justify-center text-gray-500 hover:text-red-500 dark:hover:text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-500/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500" title="Clear Reminders">
                                         <TrashIcon size={16} />
                                     </button>
                                     <PlusIcon 
                                         onClick={() => openQuickActionModal('Create New Reminder')} 
-                                        className="h-7 w-7 rounded-full inline-flex items-center justify-center text-[#DC143C] hover:bg-red-50 dark:hover:bg-red-900/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#DC143C]" 
+                                        className="h-7 w-7 rounded-full inline-flex items-center justify-center text-primary-600 hover:bg-red-50 dark:hover:bg-red-900/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600" 
                                         title="Add Reminder"
                                         size={16}
                                         tabIndex={0}
@@ -1646,10 +2078,10 @@ const DashboardContent: React.FC<{
                         <div className={`flex min-h-0 flex-col p-0 sm:p-4 pb-0 md:pb-32 min-w-0 overflow-y-auto space-y-5 md:space-y-4 ${mobileView === 'work' ? 'flex' : 'hidden md:flex'} md:w-[24%]`} style={{ userSelect: 'none', position: 'relative', zIndex: 5 }}>
                         <div id="daily-progress" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-lift card-hover-animation">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-sm font-bold text-[#DC143C] flex items-center gap-2">
+                                <h2 className="text-sm font-bold text-primary-600 flex items-center gap-2">
                                     Daily Progress 
                                 </h2>
-                                <span className="text-sm font-semibold text-[#DC143C]">{dailyProgress}%</span>
+                                <span className="text-sm font-semibold text-primary-600">{dailyProgress}%</span>
                             </div>
                             <div className="mt-3 w-full">
                                 <div className="crimson-loader-bar">
@@ -1660,7 +2092,7 @@ const DashboardContent: React.FC<{
 
                         <div id="ongoing-projects" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-lift card-hover-animation">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-sm font-bold text-[#DC143C] flex items-center"><BriefcaseIcon size={16} /><span className="ml-2">Ongoing Projects</span></h2>
+                                <h2 className="text-sm font-bold text-primary-600 flex items-center"><BriefcaseIcon size={16} /><span className="ml-2">Ongoing Projects</span></h2>
                                 <div className="flex items-center gap-2">
                                     <button
                                         onClick={() => { (window as any).stopGretelTour?.(); setShowProjectsClearConfirm(true); }}
@@ -1696,7 +2128,7 @@ const DashboardContent: React.FC<{
                                                             Deadline: {item.deadline || 'TBD'} · {item.milestones.length} milestones
                                                         </div>
                                                     </div>
-                                                    <div className="text-xs font-semibold text-[#DC143C]">
+                                                    <div className="text-xs font-semibold text-primary-600">
                                                         {item.milestones.length
                                                             ? Math.round(item.milestones.reduce((sum, m) => sum + (Number(m.progress) || 0), 0) / item.milestones.length)
                                                             : 0}%
@@ -1719,8 +2151,8 @@ const DashboardContent: React.FC<{
                                             {/* TEMPORARILY DISABLED - Hover Preview Card was causing display issues */}
                                             {/* 
                                             <div className="project-hover-preview">
-                                                <div className="bg-white dark:bg-gray-800 rounded-lg border-2 border-[#DC143C] shadow-2xl p-4 hover-card-preview">
-                                                    <h4 className="font-bold text-[#DC143C] mb-2 text-sm">{item.name}</h4>
+                                                <div className="bg-white dark:bg-gray-800 rounded-lg border-2 border-primary-600 shadow-2xl p-4 hover-card-preview">
+                                                    <h4 className="font-bold text-primary-600 mb-2 text-sm">{item.name}</h4>
                                                     <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1 mb-3">
                                                         <div><strong>Deadline:</strong> {item.deadline || 'TBD'}</div>
                                                         <div><strong>Progress:</strong> {item.milestones.length ? Math.round(item.milestones.reduce((sum, m) => sum + (Number(m.progress) || 0), 0) / item.milestones.length) : 0}%</div>
@@ -1732,7 +2164,7 @@ const DashboardContent: React.FC<{
                                                                 {item.milestones.slice(0, 3).map(milestone => (
                                                                     <div key={milestone.id} className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-1">
                                                                         <span className={milestone.progress === 100 ? 'line-through' : ''}>{milestone.text}</span>
-                                                                        <span className="text-[#DC143C] font-semibold ml-auto">{milestone.progress}%</span>
+                                                                        <span className="text-primary-600 font-semibold ml-auto">{milestone.progress}%</span>
                                                                     </div>
                                                                 ))}
                                                                 {item.milestones.length > 3 && (
@@ -1752,7 +2184,12 @@ const DashboardContent: React.FC<{
 
                         <div id="delegated-tasks" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-hover-animation">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-sm font-bold text-[#DC143C] flex items-center"><DelegatedIcon size={16} /><span className="ml-2">Delegated Tasks</span></h2>
+                                <div className="flex-1">
+                                    <h2 className="text-sm font-bold text-primary-600 flex items-center"><DelegatedIcon size={16} /><span className="ml-2">Delegated Tasks</span></h2>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                        <span className="inline-block animate-lightbulb text-primary-600 font-bold">Tip:</span> Type "create a task" in chat instead of clicking the button
+                                    </p>
+                                </div>
                                 <div className="flex items-center gap-2">
                                     <button onClick={() => { (window as any).stopGretelTour?.(); setShowDelegatedClearConfirm(true); }} className="h-7 w-7 rounded-full inline-flex items-center justify-center text-gray-500 hover:text-red-500 dark:hover:text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-500/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500" title="Clear Tasks">
                                         <TrashIcon size={16} />
@@ -1902,7 +2339,7 @@ const DashboardContent: React.FC<{
                                           // Run cleanup one more time after modal opens
                                           setTimeout(cleanup, 200);
                                         }, 200);
-                                    }} className="h-7 w-7 rounded-full inline-flex items-center justify-center text-[#DC143C] hover:bg-red-50 dark:hover:bg-red-900/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#DC143C]" title="Add Task" size={16} tabIndex={0} role="button" />
+                                    }} className="h-7 w-7 rounded-full inline-flex items-center justify-center text-primary-600 hover:bg-red-50 dark:hover:bg-red-900/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600" title="Add Task" size={16} tabIndex={0} role="button" />
                                 </div>
                             </div>
                             <div className="mt-3 text-sm text-gray-600 dark:text-gray-400 space-y-2">
@@ -1938,15 +2375,27 @@ const DashboardContent: React.FC<{
                                             <div className="flex items-center gap-2">
                                                 <input
                                                     type="date"
-                                                    value={item.deadline && item.deadline !== 'TBD' ? (item.deadline.match(/^(\d{4}-\d{2}-\d{2})(?:\s+\d{2}:\d{2})?$/) ? item.deadline.split(' ')[0] : item.deadline.match(/^\d{4}-\d{2}-\d{2}$/) ? item.deadline : '') : ''}
+                                                    value={(() => {
+                                                        if (!item.deadline || item.deadline === 'TBD') return '';
+                                                        // If already in YYYY-MM-DD format (with or without time)
+                                                        if (item.deadline.match(/^(\d{4}-\d{2}-\d{2})(?:\s+\d{2}:\d{2})?$/)) {
+                                                            return item.deadline.split(' ')[0];
+                                                        }
+                                                        // Try to parse as date and convert to YYYY-MM-DD
+                                                        const parsed = new Date(item.deadline);
+                                                        if (!isNaN(parsed.getTime())) {
+                                                            const year = parsed.getFullYear();
+                                                            const month = String(parsed.getMonth() + 1).padStart(2, '0');
+                                                            const day = String(parsed.getDate()).padStart(2, '0');
+                                                            return `${year}-${month}-${day}`;
+                                                        }
+                                                        return '';
+                                                    })()}
                                                     onChange={(e) => handleDelegatedTaskDeadlineChange(item.id, e.target.value)}
                                                     placeholder="Set deadline"
                                                     className="text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-2 py-1 text-gray-600 dark:text-gray-300"
                                                     title="Task deadline"
                                                 />
-                                                {item.deadline && item.deadline !== 'TBD' && !item.deadline.match(/^\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?$/) && (
-                                                    <span className="text-xs text-gray-500">{item.deadline}</span>
-                                                )}
                                                 <select
                                                     value={item.status ?? 'not_started'}
                                                     onChange={(e) => handleDelegatedTaskStatusChange(item.id, e.target.value as any)}
@@ -1973,7 +2422,7 @@ const DashboardContent: React.FC<{
 
                         <div id="briefing-notes" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-hover-animation">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-sm font-bold text-[#DC143C] flex items-center"><BriefingIcon size={16} /><span className="ml-2">Briefing Notes</span></h2>
+                                <h2 className="text-sm font-bold text-primary-600 flex items-center"><BriefingIcon size={16} /><span className="ml-2">Briefing Notes</span></h2>
                                 <div className="flex items-center gap-2">
                                     {isEditingBriefingNotes ? (
                                         <>
@@ -1982,7 +2431,7 @@ const DashboardContent: React.FC<{
                                                     setKeepNotes(briefingNotesDraft);
                                                     setIsEditingBriefingNotes(false);
                                                 }}
-                                                className="text-xs font-semibold text-white bg-[#DC143C] hover:bg-[#b81030] px-2.5 py-1 rounded-md"
+                                                className="text-xs font-semibold text-white bg-primary-600 hover:bg-primary-700 px-2.5 py-1 rounded-md"
                                                 title="Save Notes"
                                             >
                                                 Save
@@ -2018,19 +2467,20 @@ const DashboardContent: React.FC<{
                                     </button>
                                     <button
                                         onClick={() => {
+                                            const notesToFinalize = isEditingBriefingNotes ? briefingNotesDraft : keepNotes;
                                             if (isEditingBriefingNotes) {
-                                                setKeepNotes(briefingNotesDraft);
+                                                setKeepNotes(notesToFinalize);
                                                 setIsEditingBriefingNotes(false);
                                             }
-                                            handleFinalizeBriefing();
+                                            handleFinalizeBriefing(notesToFinalize);
                                         }}
-                                        disabled={isSending || !keepNotes.trim()}
-                                        className="text-xs font-semibold text-white bg-[#DC143C] hover:bg-[#b81030] px-2.5 py-1 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                                        disabled={isSending || !(isEditingBriefingNotes ? briefingNotesDraft.trim() : keepNotes.trim())}
+                                        className="text-xs font-semibold text-white bg-primary-600 hover:bg-primary-700 px-2.5 py-1 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                                         title="Finalize Briefing Notes"
                                     >
                                         Finalize
                                     </button>
-                                    <button onClick={() => { (window as any).stopGretelTour?.(); setShowKeepResetConfirm(true); }} className="h-7 w-7 rounded-full inline-flex items-center justify-center text-gray-500 hover:text-[#DC143C] hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#DC143C]" title="Clear Briefing Notes">
+                                    <button onClick={() => { (window as any).stopGretelTour?.(); setShowKeepResetConfirm(true); }} className="h-7 w-7 rounded-full inline-flex items-center justify-center text-gray-500 hover:text-primary-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600" title="Clear Briefing Notes">
                                         <TrashIcon size={16} />
                                     </button>
                                 </div>
@@ -2039,12 +2489,42 @@ const DashboardContent: React.FC<{
                                 View Pointers ({briefingInputs.length})
                             </button>
                             <textarea
-                                className="mt-3 w-full h-28 p-2 text-sm bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-300"
+                                className="mt-3 w-full p-2 text-sm bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-300 resize-none"
                                 value={isEditingBriefingNotes ? briefingNotesDraft : keepNotes}
-                                onChange={(e) => setBriefingNotesDraft(e.target.value)}
+                                ref={briefingNotesCardTextareaRef}
+                                onChange={(e) => {
+                                  setBriefingNotesDraft(e.target.value);
+                                  resizeBriefingNotesCardTextarea();
+                                }}
                                 placeholder="Your compiled briefing notes will appear here after preparation..."
                                 readOnly={!isEditingBriefingNotes}
                             />
+
+                            <div id="end-of-day-review" className="mt-4 bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-hover-animation">
+                                <div className="flex items-center justify-between">
+                                    <h2 className="text-sm font-bold text-primary-600 flex items-center"><MoonIcon size={16} /><span className="ml-2">End-of-Day Review</span></h2>
+                                    <button
+                                        onClick={() => openInterviewModal('end-of-day')}
+                                        className="text-xs font-semibold text-white bg-primary-600 hover:bg-primary-700 px-2.5 py-1 rounded-md"
+                                        title="Open End-of-Day Review"
+                                    >
+                                        Open
+                                    </button>
+                                </div>
+                                <div className="mt-3 text-sm text-gray-600 dark:text-gray-300 space-y-2">
+                                    {endOfDaySummary ? (
+                                        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3">
+                                            <div className="text-xs text-gray-500 dark:text-gray-400">{endOfDayCompletedDate ? `Saved: ${endOfDayCompletedDate}` : 'Saved'}</div>
+                                            <div className="mt-1">{endOfDaySummary}</div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-gray-500">No end-of-day review saved yet.</div>
+                                    )}
+                                    {endOfDayCompletedDate === new Date().toISOString().split('T')[0] && (
+                                        <div className="text-xs font-semibold text-green-600 dark:text-green-400">Completed today</div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                         </div>
                     </div>
@@ -2064,21 +2544,34 @@ const DashboardContent: React.FC<{
                         className="flex items-center h-16 border-t border-gray-200 dark:border-gray-700 w-full" 
                         style={{ pointerEvents: 'auto', maxWidth: '100vw' }}
                     >
-                        {mobileTabs.map((tab) => {
-                            const isActive = mobileView === tab.id;
-                            return (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setMobileView(tab.id as any)}
-                                    className={`flex-1 h-full flex flex-col items-center justify-center gap-1 text-xs font-semibold transition-colors ${isActive ? 'text-[#DC143C]' : 'text-gray-500 dark:text-gray-400'}`}
-                                >
-                                    <div className={`${isActive ? 'opacity-100' : 'opacity-70'}`}>
-                                        {React.cloneElement(tab.icon as React.ReactElement, { isHovered: isActive })}
-                                    </div>
-                                    <span>{tab.label}</span>
-                                </button>
-                            );
-                        })}
+                        <div className="w-full flex justify-center px-3">
+                            <div className="mobile-bottom-menu" role="tablist" aria-label="Mobile navigation">
+                                {mobileTabs.map((tab) => {
+                                    const isActive = mobileView === tab.id;
+                                    const icon = React.cloneElement(tab.icon as React.ReactElement, {
+                                        isHovered: isActive,
+                                        color: 'var(--primary-600)',
+                                        className: 'text-[color:var(--primary-600)]',
+                                    });
+                                    return (
+                                        <button
+                                            key={tab.id}
+                                            type="button"
+                                            role="tab"
+                                            aria-selected={isActive}
+                                            onClick={() => setMobileView(tab.id as any)}
+                                            className="mobile-bottom-link"
+                                            data-active={isActive ? 'true' : 'false'}
+                                        >
+                                            <span className="mobile-bottom-link-icon" aria-hidden="true">
+                                                {icon}
+                                            </span>
+                                            <span className="mobile-bottom-link-title">{tab.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
                 </footer>
                 </>
@@ -2090,6 +2583,85 @@ const DashboardContent: React.FC<{
           {/* Modals */}
           <Suspense fallback={null}>
           <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} commands={commandPaletteCommands} onExecuteQuery={(q) => handleSendMessage(undefined, q)} assistantName={userProfile.assistantName} />
+          <InterviewModal
+            isOpen={isInterviewModalOpen}
+            title={
+              interviewModalMode === 'kickoff'
+                ? 'Daily Kick-off Interview'
+                : interviewModalMode === 'morning-briefing'
+                  ? 'Morning Briefing Interview'
+                  : interviewModalMode === 'afternoon-briefing'
+                    ? 'Afternoon Briefing Interview'
+                    : 'End-of-Day Review'
+            }
+            variant={interviewModalMode === 'end-of-day' ? 'end-of-day' : 'standard'}
+            carryOverItems={
+              interviewModalMode === 'kickoff'
+                ? carryOverTasks
+                    .filter(t => t.status === 'open')
+                    .filter(t => t.dateFlagged < new Date().toISOString().split('T')[0])
+                    .map(t => ({ id: t.id, title: t.title, dateFlagged: t.dateFlagged }))
+                : []
+            }
+            onCarryOverDecision={(taskId, decision) => carryOverDecision(taskId, decision)}
+            smartEodQuestions={interviewModalMode === 'end-of-day' ? smartEodQuestions : []}
+            isSmartEodLoading={interviewModalMode === 'end-of-day' ? isSmartEodLoading : false}
+            onChangeSmartEodAnswer={(questionId, value) => {
+              if (interviewModalMode !== 'end-of-day') return;
+              setSmartEodAnswer(questionId, value);
+            }}
+            questions={
+              interviewModalMode === 'kickoff'
+                ? [
+                    'What are your top 3 priorities for today?',
+                    'What are the 1–2 highest-risk issues that could derail your day?',
+                    'What must be done before lunch?',
+                    'What can be delegated today (and to whom)?',
+                    'What is your single deep-focus block today and what outcome defines success?',
+                  ]
+                : interviewModalMode === 'morning-briefing'
+                  ? [
+                      'What is the single most important operational focus for this morning?',
+                      'Any staffing or coverage changes the team must know?',
+                      'Any incidents, risks, or guest-impacting issues to highlight?',
+                      'What coaching point or standard do you want emphasized today?',
+                    ]
+                  : [
+                      'What progress was made against today’s plan?',
+                      'Any incidents, constraints, or blockers the next shift must know?',
+                      'What handoff items must be completed before end of shift?',
+                      'What should be prioritized first tomorrow morning?',
+                    ]
+            }
+            answers={
+              interviewModalMode ? (interviewDrafts[interviewModalMode]?.answers || []) : []
+            }
+            otherNotes={
+              interviewModalMode ? (interviewDrafts[interviewModalMode]?.otherNotes || '') : ''
+            }
+            endOfDayDraft={endOfDayDraft}
+            onChangeEndOfDayDraft={(next) => setEndOfDayDraft(next)}
+            primaryActionLabel={interviewModalMode === 'end-of-day' ? 'Save' : 'Generate'}
+            isGenerating={isSending}
+            onChangeAnswer={(index, value) => {
+              if (!interviewModalMode) return;
+              if (interviewModalMode === 'end-of-day') return;
+              setInterviewAnswer(interviewModalMode, index, value);
+            }}
+            onChangeOtherNotes={(value) => {
+              if (!interviewModalMode) return;
+              if (interviewModalMode === 'end-of-day') return;
+              setInterviewOtherNotes(interviewModalMode, value);
+            }}
+            onClose={closeInterviewModal}
+            onGenerate={() => {
+              if (interviewModalMode === 'end-of-day') {
+                submitEndOfDayReview();
+                return;
+              }
+              handleGenerateInterview();
+            }}
+          />
           {isPatchNotesVisible ? (
             <PatchNotesModal version={appVersion} onClose={handleClosePatchNotes} />
           ) : null}
@@ -2102,7 +2674,52 @@ const DashboardContent: React.FC<{
             onGenerateDraft={requestProjectDraft}
             onSaveDraft={saveProjectDraft}
           />
+          <BriefingNotesModal
+            isOpen={isBriefingNotesModalOpen}
+            onClose={() => setIsBriefingNotesModalOpen(false)}
+            value={keepNotes}
+            onChange={(value) => setKeepNotes(value)}
+          />
           <BriefingPointersModal isOpen={isBriefingPointersVisible} onClose={() => setIsBriefingPointersVisible(false)} pointers={briefingInputs} onClear={handleClearBriefingPointers} />
+          <ScheduleEditorModal
+            isOpen={isScheduleEditorOpen}
+            onClose={() => {
+              console.log('[MainDashboard] Closing modal');
+              setIsScheduleEditorOpen(false);
+            }}
+            schedule={(draftedSchedule && draftedSchedule.length > 0) ? draftedSchedule : (scheduleItems || [])}
+            onDraftChange={(updatedSchedule) => {
+              setDraftedSchedule(updatedSchedule);
+            }}
+            onSave={async (updatedSchedule) => {
+              console.log('[MainDashboard] Saving schedule with', updatedSchedule.length, 'items');
+              
+              // Close the modal first
+              setIsScheduleEditorOpen(false);
+              
+              // Finalize the schedule: move it to Today's Schedule
+              if (updatedSchedule.length > 0) {
+                // Move to Today's Schedule
+                setScheduleItems(updatedSchedule);
+                
+                // Also finalize priorities if they exist in draft
+                if (draftedPriorities && draftedPriorities.length > 0) {
+                  setTop3Items(draftedPriorities);
+                  setDraftedPriorities(null);
+                }
+                
+                setIsScheduleConfirmed(false);
+                
+                // Clear draft state
+                setDraftedSchedule(null);
+                
+                // Notify the assistant that the schedule has been approved
+                const approvalMessage = "I've reviewed and approved the schedule. It's now in Today's Schedule as pending. Please acknowledge this.";
+                await handleProactiveAIMessage(approvalMessage);
+              }
+            }}
+            title="Edit Schedule"
+          />
           {quickActionModal.isOpen && (
             <QuickActionModal
               isOpen={quickActionModal.isOpen}
@@ -2158,6 +2775,20 @@ const DashboardContent: React.FC<{
           {showRemindersClearConfirm && <ConfirmationModal title="Clear Reminders?" message="Are you sure you want to clear all reminders?" onConfirm={handleClearReminders} onCancel={() => setShowRemindersClearConfirm(false)} isDestructive />}
           {showProjectsClearConfirm && <ConfirmationModal title="Clear Projects?" message="This will remove all ongoing and completed projects. Are you sure?" onConfirm={handleClearProjects} onCancel={() => setShowProjectsClearConfirm(false)} isDestructive />}
           {showBriefingClearConfirm && <ConfirmationModal title="Clear Pointers?" message="Are you sure you want to delete all briefing pointers?" onConfirm={confirmClearBriefingPointers} onCancel={() => setShowBriefingClearConfirm(false)} isDestructive />}
+          {showDraftResetConfirm && <ConfirmationModal 
+            title="Clear Draft?" 
+            message="This will clear the current draft schedule and priorities. Are you sure?" 
+            onConfirm={() => {
+              setShowDraftResetConfirm(false);
+              
+              // Clear the draft only - do not trigger daily kick-off
+              handleClearDraft();
+            }} 
+            onCancel={() => {
+              setShowDraftResetConfirm(false);
+            }}
+            isDestructive 
+          />}
           {projectToDelete && <ConfirmationModal title={`Delete Project?`} message={`Are you sure you want to delete "${projectToDelete.name}"?`} onConfirm={handleConfirmDeleteProject} onCancel={() => setProjectToDelete(null)} isDestructive />}
           {showDelegatedClearConfirm && <ConfirmationModal title="Clear Tasks?" message="This will remove all delegated tasks. Completed tasks will also be archived." onConfirm={handleClearDelegatedTasks} onCancel={() => setShowDelegatedClearConfirm(false)} isDestructive />}
           
@@ -2168,14 +2799,27 @@ const DashboardContent: React.FC<{
             <div className="fixed inset-0 bg-gray-900/80 z-50 flex items-center justify-center p-4" onClick={() => setIsBriefingScriptVisible(false)}>
               <div className="bg-white dark:bg-gray-800 w-full max-w-2xl rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-[#DC143C]">Briefing Script</h3>
+                  <h3 className="text-lg font-bold text-primary-600">Briefing Script</h3>
                   <button onClick={() => setIsBriefingScriptVisible(false)} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
                     <XIcon size={20} />
                   </button>
                 </div>
-                <div className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4 max-h-[60vh] overflow-y-auto">
-                  {briefingScript || 'No script generated yet.'}
-                </div>
+                {briefingScript === 'Generating briefing script...' && (
+                  <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 mb-3">
+                    <div className="h-4 w-4 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-primary-600 animate-spin" />
+                    <span>Generating script...</span>
+                  </div>
+                )}
+                <textarea
+                  className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4 max-h-[60vh] overflow-y-auto w-full min-h-[240px]"
+                  value={briefingScript || ''}
+                  ref={briefingScriptTextareaRef}
+                  onChange={(e) => {
+                    setBriefingScript(e.target.value);
+                    resizeBriefingScriptTextarea();
+                  }}
+                  placeholder="No script generated yet."
+                />
               </div>
             </div>
           )}

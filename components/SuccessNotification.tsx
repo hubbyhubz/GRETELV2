@@ -44,7 +44,7 @@ const SuccessNotification: React.FC<SuccessNotificationProps> = ({ title, messag
         <div className="mb-4">
           <AppIcon name="check" className="h-16 w-16 mx-auto" />
         </div>
-        <h2 id="success-title" className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">
+        <h2 id="success-title" className="text-xl font-bold text-primary-600 mb-2">
           {title}
         </h2>
         <p id="success-message" className="text-gray-600 dark:text-gray-400 mb-6">
@@ -52,7 +52,7 @@ const SuccessNotification: React.FC<SuccessNotificationProps> = ({ title, messag
         </p>
         <button
           onClick={handleClose}
-          className="w-full bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-[#DC143C]"
+          className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-primary-600"
         >
           OK
         </button>

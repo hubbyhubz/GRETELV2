@@ -21,7 +21,7 @@ const LucideFeedbackIcon = forwardRef<HTMLDivElement, LucideFeedbackIconProps>(
         }}
         {...props}
       >
-        <MessageSquare size={size} color="#DC143C" strokeWidth={2} />
+        <MessageSquare size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

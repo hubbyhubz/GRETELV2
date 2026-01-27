@@ -82,7 +82,7 @@ const TestPage: React.FC<TestPageProps> = ({ onExit }) => {
         <ThemeToggleButton />
         <div className="w-full max-w-4xl">
             <div className="text-center mb-12">
-                <h1 className="text-4xl font-black text-[#DC143C] tracking-wider uppercase mb-2">Developer Preview</h1>
+                <h1 className="text-4xl font-black text-primary-600 tracking-wider uppercase mb-2">Developer Preview</h1>
                 <p className="text-gray-600 dark:text-gray-400">Select a component to test in isolation with mock data.</p>
             </div>
             
@@ -90,9 +90,9 @@ const TestPage: React.FC<TestPageProps> = ({ onExit }) => {
                 {/* Login Preview Card */}
                 <button 
                     onClick={() => setCurrentView('login')}
-                    className="group relative bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 hover:border-[#DC143C] dark:hover:border-[#DC143C] transition-all duration-300 text-left"
+                    className="group relative bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 hover:border-primary-600 dark:hover:border-primary-600 transition-all duration-300 text-left"
                 >
-                    <div className="absolute top-4 right-4 text-gray-300 dark:text-gray-600 group-hover:text-[#DC143C] transition-colors">
+                    <div className="absolute top-4 right-4 text-gray-300 dark:text-gray-600 group-hover:text-primary-600 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                     </div>
                     <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">Login Page</h3>
@@ -102,9 +102,9 @@ const TestPage: React.FC<TestPageProps> = ({ onExit }) => {
                 {/* Setup Preview Card */}
                 <button 
                     onClick={() => setCurrentView('setup')}
-                    className="group relative bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 hover:border-[#DC143C] dark:hover:border-[#DC143C] transition-all duration-300 text-left"
+                    className="group relative bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 hover:border-primary-600 dark:hover:border-primary-600 transition-all duration-300 text-left"
                 >
-                    <div className="absolute top-4 right-4 text-gray-300 dark:text-gray-600 group-hover:text-[#DC143C] transition-colors">
+                    <div className="absolute top-4 right-4 text-gray-300 dark:text-gray-600 group-hover:text-primary-600 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                     </div>
                     <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">Setup Wizard</h3>
@@ -114,9 +114,9 @@ const TestPage: React.FC<TestPageProps> = ({ onExit }) => {
                 {/* Dashboard Preview Card */}
                 <button 
                     onClick={() => setCurrentView('dashboard')}
-                    className="group relative bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 hover:border-[#DC143C] dark:hover:border-[#DC143C] transition-all duration-300 text-left"
+                    className="group relative bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 hover:border-primary-600 dark:hover:border-primary-600 transition-all duration-300 text-left"
                 >
-                    <div className="absolute top-4 right-4 text-gray-300 dark:text-gray-600 group-hover:text-[#DC143C] transition-colors">
+                    <div className="absolute top-4 right-4 text-gray-300 dark:text-gray-600 group-hover:text-primary-600 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                     </div>
                     <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">Main Dashboard</h3>

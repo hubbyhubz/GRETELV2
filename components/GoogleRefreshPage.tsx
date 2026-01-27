@@ -24,7 +24,7 @@ const GoogleRefreshPage: React.FC = () => {
     <div className="w-full max-w-md text-center animate__animated animate__bounceIn">
       <div className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-lg sm:shadow-2xl p-4 max-[360px]:p-3 min-[414px]:p-5 sm:p-6 border border-gray-200 dark:border-gray-700">
         <div className="mb-6">
-            <h1 className="text-2xl sm:text-3xl font-black text-[#DC143C] tracking-wider uppercase">
+            <h1 className="text-2xl sm:text-3xl font-black text-primary-600 tracking-wider uppercase">
                 G.R.E.T.E.L
             </h1>
         </div>
@@ -37,7 +37,7 @@ const GoogleRefreshPage: React.FC = () => {
         <button
           onClick={handleConnect}
           disabled={isRedirecting}
-          className="w-full flex justify-center items-center bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-[#DC143C] disabled:bg-gray-400 disabled:transform-none disabled:cursor-not-allowed"
+          className="w-full flex justify-center items-center bg-primary-600 hover:bg-primary-700 text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-primary-600 disabled:bg-gray-400 disabled:transform-none disabled:cursor-not-allowed"
         >
           {isRedirecting ? (
             <>

@@ -150,7 +150,6 @@ const LoginPage: React.FC<LoginPageProps> = ({
         } else {
           localStorage.removeItem('gretelRememberedEmail');
         }
-        sessionStorage.setItem('needsGoogleRefresh', 'true');
         perfMark('login:auth-success');
         perfMeasure('login auth', 'login:submit', 'login:auth-success');
         onLoginSuccess(data.session);

@@ -34,9 +34,24 @@ export function AIMessage({ children, className, actions }: AIMessageProps) {
             />
           ),
           // Relaxed typography for paragraphs
-          p: ({ node, ...props }) => (
-            <p className="mb-4 last:mb-0 leading-relaxed" {...props} />
-          ),
+          // If paragraph contains a code block (pre), render as div to avoid hydration error
+          p: ({ node, children, ...props }: any) => {
+            // Check the AST node structure - if paragraph contains only a non-inline code block, render as div
+            const hasNonInlineCode = node?.children?.some((child: any) => 
+              child.type === 'code' && !child.data?.meta && !child.properties?.inline
+            );
+            
+            // Also check rendered children for pre elements
+            const hasPreElement = React.Children.toArray(children).some(
+              (child: any) => React.isValidElement(child) && child.type === 'pre'
+            );
+            
+            if (hasNonInlineCode || hasPreElement) {
+              return <div className="mb-4 last:mb-0 leading-relaxed" {...props}>{children}</div>;
+            }
+            
+            return <p className="mb-4 last:mb-0 leading-relaxed" {...props}>{children}</p>;
+          },
           // Proper list spacing
           ul: ({ node, ...props }) => (
             <ul className="list-disc pl-5 space-y-2 mb-4" {...props} />
@@ -55,7 +70,14 @@ export function AIMessage({ children, className, actions }: AIMessageProps) {
           h3: ({ node, ...props }) => (
             <h3 className="text-base font-bold mb-2 mt-4 first:mt-0" {...props} />
           ),
-          // Code blocks
+          // Code blocks - use pre component directly to avoid p wrapping
+          pre: ({ node, children, ...props }: any) => {
+            return (
+              <pre className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg overflow-x-auto mb-4" {...props}>
+                {children}
+              </pre>
+            );
+          },
           code: ({ node, inline, className, children, ...props }: any) => {
             return inline ? (
               <code
@@ -65,11 +87,9 @@ export function AIMessage({ children, className, actions }: AIMessageProps) {
                 {children}
               </code>
             ) : (
-              <pre className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg overflow-x-auto mb-4">
-                <code className="text-xs font-mono block" {...props}>
-                  {children}
-                </code>
-              </pre>
+              <code className="text-xs font-mono block" {...props}>
+                {children}
+              </code>
             );
           },
         }}

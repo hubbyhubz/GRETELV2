@@ -49,7 +49,7 @@ const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({ isOpen, report, o
     setEditedReport({ ...editedReport, [field]: value });
   };
 
-  const updateArrayItem = (field: 'accomplishments' | 'challenges' | 'nextSteps' | 'projects', index: number, value: string) => {
+  const updateArrayItem = (field: 'accomplishments' | 'challenges' | 'nextSteps' | 'projects' | 'attendanceIssues', index: number, value: string) => {
     if (!editedReport) return;
     const arr = [...(editedReport[field] || [])];
     if (field === 'projects') {
@@ -60,13 +60,13 @@ const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({ isOpen, report, o
     setEditedReport({ ...editedReport, [field]: arr });
   };
 
-  const addArrayItem = (field: 'accomplishments' | 'challenges' | 'nextSteps') => {
+  const addArrayItem = (field: 'accomplishments' | 'challenges' | 'nextSteps' | 'attendanceIssues') => {
     if (!editedReport) return;
     const arr = [...(editedReport[field] || []), ''];
     setEditedReport({ ...editedReport, [field]: arr });
   };
 
-  const removeArrayItem = (field: 'accomplishments' | 'challenges' | 'nextSteps', index: number) => {
+  const removeArrayItem = (field: 'accomplishments' | 'challenges' | 'nextSteps' | 'attendanceIssues', index: number) => {
     if (!editedReport) return;
     const arr = [...(editedReport[field] || [])];
     arr.splice(index, 1);
@@ -84,7 +84,7 @@ const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({ isOpen, report, o
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
           <div>
-            <h2 className="text-xl font-bold text-[#DC143C]">Weekly Report</h2>
+            <h2 className="text-xl font-bold text-primary-600">Weekly Report</h2>
             {editedReport.weekRange && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{editedReport.weekRange}</p>}
           </div>
           <div className="flex items-center gap-2">
@@ -103,6 +103,57 @@ const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({ isOpen, report, o
 
         {/* Content - Scrollable */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          {/* Weekly Metrics */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Average Weekly Morale (1–5)</label>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                step={0.1}
+                value={editedReport.averageWeeklyMorale ?? ''}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') {
+                    updateField('averageWeeklyMorale', null);
+                    return;
+                  }
+                  const parsed = Number(raw);
+                  if (Number.isNaN(parsed)) return;
+                  const clamped = Math.min(5, Math.max(1, parsed));
+                  updateField('averageWeeklyMorale', clamped);
+                }}
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200"
+                placeholder="e.g., 4.2"
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">Attendance Issues</label>
+                <button onClick={() => addArrayItem('attendanceIssues')} className="text-xs text-primary-600 hover:underline">+ Add</button>
+              </div>
+              <div className="space-y-2">
+                {(editedReport.attendanceIssues || []).length === 0 ? (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">None</div>
+                ) : (
+                  (editedReport.attendanceIssues || []).map((issue, idx) => (
+                    <div key={idx} className="flex items-start gap-2">
+                      <span className="text-sm text-gray-500 dark:text-gray-400 mt-2">{idx + 1}.</span>
+                      <textarea
+                        value={issue}
+                        onChange={(e) => updateArrayItem('attendanceIssues', idx, e.target.value)}
+                        rows={2}
+                        className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-2 text-sm text-gray-800 dark:text-gray-200"
+                        placeholder="YYYY-MM-DD: details..."
+                      />
+                      <button onClick={() => removeArrayItem('attendanceIssues', idx)} className="text-red-500 hover:text-red-700 mt-2" title="Remove">✕</button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
           {/* Executive Summary */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Executive Summary</label>
@@ -145,7 +196,7 @@ const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({ isOpen, report, o
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">Accomplishments</label>
               <button
                 onClick={() => addArrayItem('accomplishments')}
-                className="text-xs text-[#DC143C] hover:underline"
+                className="text-xs text-primary-600 hover:underline"
               >
                 + Add
               </button>
@@ -179,7 +230,7 @@ const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({ isOpen, report, o
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">Challenges</label>
               <button
                 onClick={() => addArrayItem('challenges')}
-                className="text-xs text-[#DC143C] hover:underline"
+                className="text-xs text-primary-600 hover:underline"
               >
                 + Add
               </button>
@@ -233,7 +284,7 @@ const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({ isOpen, report, o
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">Next Steps</label>
               <button
                 onClick={() => addArrayItem('nextSteps')}
-                className="text-xs text-[#DC143C] hover:underline"
+                className="text-xs text-primary-600 hover:underline"
               >
                 + Add
               </button>
@@ -283,7 +334,7 @@ const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({ isOpen, report, o
                 }
               }}
               disabled={!editedReport || isGenerating}
-              className="px-4 py-2 rounded-lg bg-[#DC143C] hover:bg-[#b81030] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold"
+              className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold"
             >
               {isGenerating ? 'Generating...' : 'Generate Email Version'}
             </button>
@@ -303,7 +354,7 @@ const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({ isOpen, report, o
                     handleClose();
                   }
                 }}
-                className="px-4 py-2 rounded-lg bg-[#DC143C] hover:bg-[#b81030] text-white text-sm font-semibold"
+                className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold"
               >
                 Save Changes
               </button>

@@ -41,7 +41,7 @@ const BriefingIcon = forwardRef<HTMLDivElement, BriefingIconProps>(
         <motion.svg
           animate={isHovered ? "animate" : "normal"}
           fill="none"
-          stroke="#DC143C"
+          stroke="var(--primary-600)"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"

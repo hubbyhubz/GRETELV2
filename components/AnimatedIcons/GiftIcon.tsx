@@ -57,7 +57,7 @@ const GiftIcon = forwardRef<HTMLDivElement, GiftIconProps>(
           width={size}
           xmlns="http://www.w3.org/2000/svg"
           fill="none"
-          stroke="#DC143C"
+          stroke="var(--primary-600)"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -79,7 +79,7 @@ const GiftIcon = forwardRef<HTMLDivElement, GiftIconProps>(
                     transition: { duration: 1, repeat: Infinity } 
                 }
             }}
-            fill="#DC143C"
+            fill="var(--primary-600)"
             stroke="none"
           />
         </motion.svg>

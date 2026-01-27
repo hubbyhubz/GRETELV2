@@ -29,7 +29,7 @@ const EyeIcon = forwardRef<HTMLDivElement, EyeIconProps>(
           viewBox="0 0 24 24"
           width={size}
           xmlns="http://www.w3.org/2000/svg"
-          style={{ color: '#DC143C' }}
+          style={{ color: 'var(--primary-600)' }}
         >
           <motion.path
             animate={isHovered ? "animate" : "normal"}

@@ -57,7 +57,7 @@ export interface CreateAccountFormData {
 export type ScheduleItem = { id: string; time: string; title: string; completed: boolean; isGoogleEvent?: boolean; };
 export type Top3Item = { id:string; text: string; completed: boolean; };
 export type ReminderBriefingPreference = 'none' | 'morning' | 'afternoon' | 'both';
-export type ReminderItem = { id: string; text: string; completed: boolean; loggedAt?: number; includeInBriefing?: ReminderBriefingPreference; };
+export type ReminderItem = { id: string; text: string; completed: boolean; loggedAt?: number; includeInBriefing?: ReminderBriefingPreference; linkedTaskId?: string; };
 
 export type EventOpsKind = 'event' | 'meeting';
 
@@ -94,6 +94,28 @@ export type BriefingState = 'idle' | 'draft' | 'finalized';
 export type WeeklyLogItem = { id: string; date: string; type: 'accomplishment' | 'challenge'; text: string; };
 export type AssistantMode = 'crisis' | 'strategic' | 'red-day' | null;
 export type ModeHistoryEntry = { mode: 'crisis' | 'strategic' | 'red-day'; activatedAt: number; deactivatedAt?: number; };
+export type DailyOpsMetricEntry = {
+  id: string;
+  date: string;
+  moraleScore: number | null;
+  attendanceIssues: string;
+  createdAt: number;
+};
+export type StaffPerformanceLogEntry = {
+  id: string;
+  date: string;
+  text: string;
+  createdAt: number;
+};
+export type CarryOverTaskEntry = {
+  id: string;
+  dateFlagged: string;
+  title: string;
+  time?: string;
+  sourceScheduleItemId?: string;
+  status: 'open' | 'added' | 'archived';
+  resolvedAt?: number;
+};
 export interface WeeklyReport {
   summary: string;
   accomplishments: string[];
@@ -102,6 +124,8 @@ export interface WeeklyReport {
   nextSteps: string[];
   weekRange?: string;
   modeActivity?: string;
+  averageWeeklyMorale?: number | null;
+  attendanceIssues?: string[];
 }
 
 export interface DashboardState {
@@ -110,6 +134,7 @@ export interface DashboardState {
     scheduleItems: ScheduleItem[];
     top3Items: Top3Item[];
     reminders: ReminderItem[];
+    dismissedDelegatedReminderTaskIds?: string[];
     projects: Project[];
     completedProjects: Project[];
     keepNotes: string;
@@ -123,6 +148,11 @@ export interface DashboardState {
     team: TeamMember[];
     weeklyLog: WeeklyLogItem[];
     priorityForTomorrow: string;
+    dailyOpsMetrics?: DailyOpsMetricEntry[];
+    staffPerformanceLog?: StaffPerformanceLogEntry[];
+    carryOverTasks?: CarryOverTaskEntry[];
+    endOfDaySummary?: string;
+    endOfDayCompletedDate?: string;
     stateVersion?: string;
     completedGCalEventIds?: string[];
     currentMode?: AssistantMode;

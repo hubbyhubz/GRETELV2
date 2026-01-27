@@ -21,7 +21,7 @@ const LucideLogoutIcon = forwardRef<HTMLDivElement, LucideLogoutIconProps>(
         transition={{ type: "spring", stiffness: 150, damping: 12 }}
         {...props}
       >
-        <LogOut size={size} color="#DC143C" strokeWidth={2} />
+        <LogOut size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

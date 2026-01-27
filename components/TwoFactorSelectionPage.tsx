@@ -17,10 +17,10 @@ const TwoFactorSelectionPage: React.FC<TwoFactorSelectionPageProps> = ({ onSelec
         <div className="space-y-4">
             <button
                 onClick={() => onSelection('totp')}
-                className="w-full text-left p-4 sm:p-6 border-2 border-gray-300 dark:border-gray-600 rounded-lg hover:border-[#DC143C] hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                className="w-full text-left p-4 sm:p-6 border-2 border-gray-300 dark:border-gray-600 rounded-lg hover:border-primary-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-primary-600"
             >
                 <div className="flex items-center">
-                    <AppIcon name="authenticator" className="h-8 w-8 sm:h-10 sm:w-10 mb-4 text-[#DC143C]" />
+                    <AppIcon name="authenticator" className="h-8 w-8 sm:h-10 sm:w-10 mb-4 text-primary-600" />
                     <div className="ml-3 sm:ml-4">
                         <h4 className="font-bold text-gray-800 dark:text-gray-200">Authenticator App</h4>
                         <p className="text-sm text-gray-500 dark:text-gray-400">Use an app like Google Authenticator or Authy. (Recommended)</p>

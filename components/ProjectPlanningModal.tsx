@@ -198,7 +198,7 @@ const ProjectPlanningModal: React.FC<ProjectPlanningModalProps> = ({ isOpen, tea
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
           <div>
-            <h2 className="text-xl font-bold text-[#DC143C]">Create a New Project</h2>
+            <h2 className="text-xl font-bold text-primary-600">Create a New Project</h2>
             <p className="text-xs text-gray-500 dark:text-gray-400">Answer a few questions, then generate your draft.</p>
           </div>
           <button onClick={handleClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" aria-label="Close">
@@ -252,7 +252,7 @@ const ProjectPlanningModal: React.FC<ProjectPlanningModalProps> = ({ isOpen, tea
                       onClick={() => handleOwnerToggle(member.name)}
                       className={`px-2 py-1 rounded-md text-xs border ${
                         owners.includes(member.name)
-                          ? 'bg-[#DC143C] text-white border-[#DC143C]'
+                          ? 'bg-primary-600 text-white border-primary-600'
                           : 'bg-white dark:bg-gray-900/40 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600'
                       }`}
                     >
@@ -429,7 +429,7 @@ const ProjectPlanningModal: React.FC<ProjectPlanningModalProps> = ({ isOpen, tea
             <button
               type="button"
               onClick={handleGenerate}
-              className="px-4 py-2 rounded-lg bg-[#DC143C] hover:bg-[#b81030] text-white text-sm font-semibold disabled:opacity-60"
+              className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold disabled:opacity-60"
               disabled={!canGenerate || isLoading}
             >
               {isLoading ? 'Generating…' : 'Generate Draft'}
@@ -438,7 +438,7 @@ const ProjectPlanningModal: React.FC<ProjectPlanningModalProps> = ({ isOpen, tea
             <button
               type="button"
               onClick={handleSave}
-              className="px-4 py-2 rounded-lg bg-[#DC143C] hover:bg-[#b81030] text-white text-sm font-semibold disabled:opacity-60"
+              className="px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold disabled:opacity-60"
               disabled={isLoading}
             >
               {isLoading ? 'Saving…' : 'Create Project'}

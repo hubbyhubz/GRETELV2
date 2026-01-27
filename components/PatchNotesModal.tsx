@@ -200,9 +200,9 @@ const PatchNotesModal: React.FC<PatchNotesModalProps> = ({ version, onClose }) =
         style={{ pointerEvents: 'auto' }}
       >
         <div className="text-center mb-4 flex-shrink-0">
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">{currentNote.title}</h2>
+            <h2 className="text-2xl font-bold text-primary-600">{currentNote.title}</h2>
             <div className="flex items-center justify-center space-x-2 mt-1">
-                <span className="text-sm font-semibold text-[#DC143C]">v{currentNote.version}</span>
+                <span className="text-sm font-semibold text-primary-600">v{currentNote.version}</span>
                 <span className="text-gray-400">•</span>
                 <span className="text-sm text-gray-500">{currentNote.date}</span>
             </div>
@@ -245,7 +245,7 @@ const PatchNotesModal: React.FC<PatchNotesModalProps> = ({ version, onClose }) =
                             <div className="flex items-baseline justify-between mb-2">
                                 <h5 className="font-bold text-gray-800 dark:text-gray-300 text-lg">{note.title}</h5>
                                 <div className="flex flex-col items-end">
-                                    <span className="text-sm font-semibold text-[#DC143C]">v{note.version}</span>
+                                    <span className="text-sm font-semibold text-primary-600">v{note.version}</span>
                                     <span className="text-xs text-gray-500">{note.date}</span>
                                 </div>
                             </div>
@@ -295,7 +295,7 @@ const PatchNotesModal: React.FC<PatchNotesModalProps> = ({ version, onClose }) =
                 console.error('handleClose is not defined!');
               }
             }}
-            className="bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100"
+            className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100"
             style={{ pointerEvents: 'auto', zIndex: 100, position: 'relative' as const }}
             type="button"
           >

@@ -1,11 +1,14 @@
 import { motion } from "framer-motion";
 import { Sun } from "lucide-react";
-import type { HTMLAttributes } from "react";
+import type { ComponentPropsWithoutRef } from "react";
 import { forwardRef } from "react";
 
-interface LucideSunIconProps extends HTMLAttributes<HTMLDivElement> {
+type LucideSunIconProps = Omit<
+  ComponentPropsWithoutRef<typeof motion.div>,
+  "children"
+> & {
   size?: number;
-}
+};
 
 const LucideSunIcon = forwardRef<HTMLDivElement, LucideSunIconProps>(
   ({ className, size = 24, ...props }, ref) => {
@@ -29,7 +32,7 @@ const LucideSunIcon = forwardRef<HTMLDivElement, LucideSunIconProps>(
         }}
         {...props}
       >
-        <Sun size={size} color="#DC143C" strokeWidth={2} />
+        <Sun size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

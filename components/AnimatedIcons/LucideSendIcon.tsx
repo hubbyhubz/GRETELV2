@@ -1,15 +1,18 @@
 import { motion } from "framer-motion";
 import { Send } from "lucide-react";
-import type { HTMLAttributes } from "react";
+import type { ComponentPropsWithoutRef } from "react";
 import { forwardRef } from "react";
 
-interface LucideSendIconProps extends HTMLAttributes<HTMLDivElement> {
+type LucideSendIconProps = Omit<
+  ComponentPropsWithoutRef<typeof motion.div>,
+  "children"
+> & {
   size?: number;
   color?: string;
-}
+};
 
 const LucideSendIcon = forwardRef<HTMLDivElement, LucideSendIconProps>(
-  ({ className, size = 24, color = "#DC143C", ...props }, ref) => {
+  ({ className, size = 24, color = "var(--primary-600)", ...props }, ref) => {
     return (
       <motion.div
         ref={ref}

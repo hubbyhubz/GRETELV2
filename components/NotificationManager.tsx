@@ -85,7 +85,7 @@ export const NotificationManager: React.FC = () => {
           <div className="flex gap-2">
             <button
               onClick={requestPermission}
-              className="px-3 py-1.5 bg-[#DC143C] text-white text-xs font-bold rounded-md hover:bg-[#b81030]"
+              className="px-3 py-1.5 bg-primary-600 text-white text-xs font-bold rounded-md hover:bg-primary-700"
             >
               Enable
             </button>

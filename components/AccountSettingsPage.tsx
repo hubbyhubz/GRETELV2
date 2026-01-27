@@ -5,15 +5,15 @@ import SuccessNotification from './SuccessNotification';
 import ConfirmationModal from './ConfirmationModal';
 import { supabase } from './supabaseClient';
 import AppIcon from './AppIcon';
+import { ArrowLeftIcon } from './AnimatedIcons/ArrowLeftIcon';
 import { UserIcon } from './AnimatedIcons/UserIcon';
 import { UsersIcon } from './AnimatedIcons/UsersIcon';
 import { SecurityIcon } from './AnimatedIcons/SecurityIcon';
+import { XIcon } from './AnimatedIcons/XIcon';
 
 // Icons
-const ArrowLeftIcon = () => ( <AppIcon name="play" className="h-5 w-5 mr-2 rotate-180" /> );
 import { EyeIcon } from './AnimatedIcons/EyeIcon';
 import { EyeOffIcon } from './AnimatedIcons/EyeOffIcon';
-const XIcon = () => ( <AppIcon name="close" className="h-4 w-4" /> );
 
 const NavItem = ({ icon: Icon, label, isActive, onClick }: { icon: any, label: string, isActive: boolean, onClick: (e: React.MouseEvent) => void }) => {
   const [isHovered, setIsHovered] = useState(false);
@@ -23,7 +23,7 @@ const NavItem = ({ icon: Icon, label, isActive, onClick }: { icon: any, label: s
       onClick={onClick} 
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className={`group flex items-center px-3 py-2 text-sm font-medium rounded-md ${isActive ? 'bg-red-50 dark:bg-red-900/30 text-[#DC143C]' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'}`}
+      className={`group flex items-center px-3 py-2 text-sm font-medium rounded-md ${isActive ? 'bg-red-50 dark:bg-red-900/30 text-primary-600' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'}`}
     >
       <Icon size={20} className="mr-2" isHovered={isHovered} /> 
       <span>{label}</span>
@@ -89,8 +89,8 @@ const AssistantMemoryEditor: React.FC<{ memory: string; onMemoryChange: (newMemo
                 {facts.map((fact, index) => (
                     <div key={index} className="flex items-center justify-between bg-gray-100 dark:bg-gray-700 p-2 rounded-md">
                         <p className="text-sm text-gray-800 dark:text-gray-200">{fact}</p>
-                        <button type="button" onClick={() => handleRemoveFact(index)} className="p-1 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 text-red-500">
-                            <XIcon />
+                        <button type="button" onClick={() => handleRemoveFact(index)} className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 text-red-500 shrink-0">
+                            <XIcon size={18} />
                         </button>
                     </div>
                 ))}
@@ -104,7 +104,7 @@ const AssistantMemoryEditor: React.FC<{ memory: string; onMemoryChange: (newMemo
                     placeholder="Add a new fact..."
                     className="w-full p-2 bg-gray-100 dark:bg-gray-700 border rounded-md"
                 />
-                <button type="button" onClick={handleAddFact} className="w-full sm:w-auto bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg text-sm shrink-0">Add</button>
+                <button type="button" onClick={handleAddFact} className="w-full sm:w-auto bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg text-sm shrink-0">Add</button>
             </div>
         </div>
     );
@@ -159,22 +159,22 @@ const AvatarSelectionModal: React.FC<{
                     <h2 className="text-lg font-bold">Choose Avatar</h2>
                     <div className="mt-2 border-b border-gray-200 dark:border-gray-700">
                         <nav className="-mb-px flex space-x-6">
-                            <button onClick={() => setActiveTab('user')} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'user' ? 'border-[#DC143C] text-[#DC143C]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:hover:text-gray-200 dark:hover:border-gray-600'}`}>Your Avatar</button>
-                            <button onClick={() => setActiveTab('assistant')} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'assistant' ? 'border-[#DC143C] text-[#DC143C]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:hover:text-gray-200 dark:hover:border-gray-600'}`}>Assistant's Avatar</button>
+                            <button onClick={() => setActiveTab('user')} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'user' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:hover:text-gray-200 dark:hover:border-gray-600'}`}>Your Avatar</button>
+                            <button onClick={() => setActiveTab('assistant')} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'assistant' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:hover:text-gray-200 dark:hover:border-gray-600'}`}>Assistant's Avatar</button>
                         </nav>
                     </div>
                 </div>
                 <div className="p-6 overflow-y-auto max-h-[70vh]">
                     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-4">
                         {avatarOptions.map(url => (
-                            <button key={url} onClick={() => activeTab === 'user' ? onUserAvatarSelect(url) : onAssistantAvatarSelect(url)} className={`relative h-20 w-20 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#DC143C] dark:focus-visible:ring-offset-gray-800 transition-transform transform hover:scale-110 ${currentAvatar === url ? 'ring-2 ring-offset-2 ring-[#DC143C] dark:ring-offset-gray-800' : ''}`}>
+                            <button key={url} onClick={() => activeTab === 'user' ? onUserAvatarSelect(url) : onAssistantAvatarSelect(url)} className={`relative h-20 w-20 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800 transition-transform transform hover:scale-110 ${currentAvatar === url ? 'ring-2 ring-offset-2 ring-primary-600 dark:ring-offset-gray-800' : ''}`}>
                                 <img src={url} alt="Avatar" className="h-full w-full rounded-full object-cover"/>
                             </button>
                         ))}
                     </div>
                 </div>
                 <div className="px-6 py-3 bg-gray-50 dark:bg-gray-700/50 text-right rounded-b-xl border-t border-gray-200 dark:border-gray-700">
-                    <button onClick={onClose} className="bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg">Done</button>
+                    <button onClick={onClose} className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg">Done</button>
                 </div>
             </div>
         </div>
@@ -285,7 +285,7 @@ const PasswordChangeForm: React.FC<{ userProfile: UserProfile; onSuccess: () => 
           <div><label htmlFor="confirm-new-password">Confirm New Password</label><div className="relative"><input id="confirm-new-password" type={isConfirmNewPasswordVisible ? 'text' : 'password'} value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)} className="w-full p-2 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md" required/><button type="button" onClick={() => setIsConfirmNewPasswordVisible(!isConfirmNewPasswordVisible)} className="absolute inset-y-0 right-0 px-3 text-gray-500 dark:text-gray-400">{isConfirmNewPasswordVisible ? <EyeOffIcon size={20} /> : <EyeIcon size={20} />}</button></div></div>
           {!passwordsMatch && confirmNewPassword && <p className="text-sm text-red-600">Passwords do not match.</p>} {newPasswordIsSameAsCurrent && <p className="text-sm text-red-600">New password cannot be the same as the current password.</p>} {passwordUpdateError && <p className="text-sm text-red-600">{passwordUpdateError}</p>}
       </div></div>
-      <div className="px-4 sm:px-6 py-3 bg-gray-50 dark:bg-gray-700/50 text-right rounded-b-lg sm:rounded-b-xl"><button type="submit" disabled={!isPasswordFormValid || isUpdatingPassword} className="bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 active:scale-95">{isUpdatingPassword ? 'Changing Password...' : 'Change Password'}</button></div>
+      <div className="px-4 sm:px-6 py-3 bg-gray-50 dark:bg-gray-700/50 text-right rounded-b-lg sm:rounded-b-xl"><button type="submit" disabled={!isPasswordFormValid || isUpdatingPassword} className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 active:scale-95">{isUpdatingPassword ? 'Changing Password...' : 'Change Password'}</button></div>
     </form>
   );
 };
@@ -365,6 +365,7 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
   const [isCheckingAssistantName, setIsCheckingAssistantName] = useState(false);
   const [assistantNameError, setAssistantNameError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [isBackToDashboardHovered, setIsBackToDashboardHovered] = useState(false);
   
   // Now we can check if userProfile is missing and return early (after all hooks)
   if (!userProfile) {
@@ -520,8 +521,18 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
     <div className="flex min-h-[100dvh] md:h-screen bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-sans" style={{background: '#f3f4f6'}}>
         <div className="flex-1 flex flex-col overflow-hidden">
             <header className="flex justify-between items-center p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shrink-0">
-                <button onClick={onBackToDashboard} className="flex items-center text-sm font-semibold text-gray-600 dark:text-gray-400 hover:text-[#DC143C] transition-colors rounded-md p-1 -ml-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#DC143C]"><ArrowLeftIcon /> Back to Dashboard</button>
-                <h1 className="text-xl font-bold text-[#DC143C] hidden sm:block">Account Settings</h1><div className="w-32"></div>
+                <button
+                  onClick={onBackToDashboard}
+                  onMouseEnter={() => setIsBackToDashboardHovered(true)}
+                  onMouseLeave={() => setIsBackToDashboardHovered(false)}
+                  onFocus={() => setIsBackToDashboardHovered(true)}
+                  onBlur={() => setIsBackToDashboardHovered(false)}
+                  className="flex items-center text-sm font-semibold text-gray-600 dark:text-gray-400 hover:text-primary-600 transition-colors rounded-md p-1 -ml-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+                >
+                  <ArrowLeftIcon size={20} className="mr-2 text-primary-600" isHovered={isBackToDashboardHovered} />
+                  Back to Dashboard
+                </button>
+                <h1 className="text-xl font-bold text-primary-600 hidden sm:block">Account Settings</h1><div className="w-32"></div>
             </header>
             <main className="flex-1 overflow-hidden">
               <div className="h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -538,19 +549,19 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
                       <div className="flex gap-2">
                         <button
                           onClick={() => setActiveTab('profile')}
-                          className={`flex-1 py-2 max-[360px]:py-1.5 text-xs sm:text-sm max-[360px]:text-[10px] font-semibold uppercase tracking-wider border-b-2 ${activeTab === 'profile' ? 'border-[#DC143C] text-[#DC143C]' : 'border-transparent text-gray-500 dark:text-gray-400'}`}
+                          className={`flex-1 py-2 max-[360px]:py-1.5 text-xs sm:text-sm max-[360px]:text-[10px] font-semibold uppercase tracking-wider border-b-2 ${activeTab === 'profile' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 dark:text-gray-400'}`}
                         >
                           Profile
                         </button>
                         <button
                           onClick={() => setActiveTab('security')}
-                          className={`flex-1 py-2 max-[360px]:py-1.5 text-xs sm:text-sm max-[360px]:text-[10px] font-semibold uppercase tracking-wider border-b-2 ${activeTab === 'security' ? 'border-[#DC143C] text-[#DC143C]' : 'border-transparent text-gray-500 dark:text-gray-400'}`}
+                          className={`flex-1 py-2 max-[360px]:py-1.5 text-xs sm:text-sm max-[360px]:text-[10px] font-semibold uppercase tracking-wider border-b-2 ${activeTab === 'security' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 dark:text-gray-400'}`}
                         >
                           Security
                         </button>
                         <button
                           onClick={() => setActiveTab('team')}
-                          className={`flex-1 py-2 max-[360px]:py-1.5 text-xs sm:text-sm max-[360px]:text-[10px] font-semibold uppercase tracking-wider border-b-2 ${activeTab === 'team' ? 'border-[#DC143C] text-[#DC143C]' : 'border-transparent text-gray-500 dark:text-gray-400'}`}
+                          className={`flex-1 py-2 max-[360px]:py-1.5 text-xs sm:text-sm max-[360px]:text-[10px] font-semibold uppercase tracking-wider border-b-2 ${activeTab === 'team' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 dark:text-gray-400'}`}
                         >
                           Team
                         </button>
@@ -606,7 +617,7 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
                             </div>
                             <div className="px-4 sm:px-6 py-3 bg-gray-50 dark:bg-gray-700/50 text-right rounded-b-lg sm:rounded-b-xl space-y-2">
                                 {profileError && <p className="text-sm text-red-600 dark:text-red-400 text-center">{profileError}</p>}
-                                <button type="submit" className="bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-400" disabled={isSaveDisabled}>Save Changes</button>
+                                <button type="submit" className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-400" disabled={isSaveDisabled}>Save Changes</button>
                             </div>
                         </form>
                     )}
@@ -647,7 +658,7 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
                                 {isUnlinking ? 'Unlinking...' : 'Unlink'}
                               </button>
                             ) : (
-                              <button onClick={handleGoogleConnect} className="bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg text-sm">
+                              <button onClick={handleGoogleConnect} className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg text-sm">
                                 Connect
                               </button>
                             )}
@@ -656,7 +667,7 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
                         </div>
                       </div>
                     )}
-                    {activeTab === 'team' && ( <div className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-sm sm:shadow p-4 sm:p-6 border border-gray-200 dark:border-gray-700"><div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold">Manage Your Team</h3>{!isAddingMember && <button onClick={() => setIsAddingMember(true)} className="bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg text-sm">Add Member</button>}</div>{isAddingMember && (<div className="p-4 border rounded-lg bg-gray-50 dark:bg-gray-700/50 space-y-3 mb-4"><h4 className="font-semibold">New Team Member</h4><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><input type="text" placeholder="Full Name" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" /><input type="text" placeholder="Role / Position" value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" /><input type="email" placeholder="Email Address" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" /></div>{teamError && <p className="text-sm text-red-600">{teamError}</p>}<div className="flex justify-end space-x-2"><button onClick={handleCancelAddMember} className="bg-gray-200 hover:bg-gray-300 font-bold py-2 px-4 rounded-lg text-sm">Cancel</button><button onClick={handleAddTeamMember} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Add Member</button></div></div>)}<div className="space-y-3">{profileData.team.length > 0 ? profileData.team.map(member => (<div key={member.id} className="flex justify-between items-center p-3 border rounded-lg"><div><p className="font-semibold">{member.name} <span className="text-sm font-normal text-gray-500">- {member.role}</span></p><p className="text-sm text-gray-500">{member.email}</p></div><button onClick={() => setShowRemoveConfirm(member)} className="text-red-500 hover:text-red-700 text-sm font-semibold">Remove</button></div>)) : <p className="text-center text-gray-500 py-4">No team members added yet.</p>}</div></div> )}
+                    {activeTab === 'team' && ( <div className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-sm sm:shadow p-4 sm:p-6 border border-gray-200 dark:border-gray-700"><div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold">Manage Your Team</h3>{!isAddingMember && <button onClick={() => setIsAddingMember(true)} className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Add Member</button>}</div>{isAddingMember && (<div className="p-4 border rounded-lg bg-gray-50 dark:bg-gray-700/50 space-y-3 mb-4"><h4 className="font-semibold">New Team Member</h4><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><input type="text" placeholder="Full Name" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" /><input type="text" placeholder="Role / Position" value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" /><input type="email" placeholder="Email Address" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" /></div>{teamError && <p className="text-sm text-red-600">{teamError}</p>}<div className="flex justify-end space-x-2"><button onClick={handleCancelAddMember} className="bg-gray-200 hover:bg-gray-300 font-bold py-2 px-4 rounded-lg text-sm">Cancel</button><button onClick={handleAddTeamMember} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Add Member</button></div></div>)}<div className="space-y-3">{profileData.team.length > 0 ? profileData.team.map(member => (<div key={member.id} className="flex justify-between items-center p-3 border rounded-lg"><div><p className="font-semibold">{member.name} <span className="text-sm font-normal text-gray-500">- {member.role}</span></p><p className="text-sm text-gray-500">{member.email}</p></div><button onClick={() => setShowRemoveConfirm(member)} className="text-red-500 hover:text-red-700 text-sm font-semibold">Remove</button></div>)) : <p className="text-center text-gray-500 py-4">No team members added yet.</p>}</div></div> )}
                 </div>
             </div></div></main>
             {showSuccessModal && <SuccessNotification title={successModalInfo.title} message={successModalInfo.message} onConfirm={() => setShowSuccessModal(false)} />}

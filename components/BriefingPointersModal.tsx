@@ -75,7 +75,7 @@ const BriefingPointersModal: React.FC<BriefingPointersModalProps> = ({ isOpen, o
                 }}
             >
                 <div className="flex justify-between items-center pb-4 border-b border-gray-200 dark:border-gray-700">
-                    <h2 id="briefing-pointers-title" className="text-xl font-bold text-[#DC143C]">Briefing Pointers</h2>
+                    <h2 id="briefing-pointers-title" className="text-xl font-bold text-primary-600">Briefing Pointers</h2>
                     <button onClick={handleClose} className="p-2 rounded-full text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"><XIcon /></button>
                 </div>
 

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 // FIX: Update import path from '../App' to './types' to resolve module export errors.
 import type { UserProfile } from './types';
-import { supabase } from './supabaseClient';
+import { createClient } from '@supabase/supabase-js';
+import { supabaseAnonKey, supabaseUrl } from './supabaseClient';
 
 interface LockScreenPageProps {
   userProfile: UserProfile;
@@ -29,7 +30,22 @@ const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, onUnlock, 
     setIsLoading(true);
     setError('');
 
-    const { error } = await supabase.auth.signInWithPassword({
+    if (!supabaseUrl || !supabaseAnonKey) {
+      setError('Auth is not configured. Please contact an admin.');
+      setIsLoading(false);
+      setPassword('');
+      return;
+    }
+
+    const lockAuthClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+
+    const { error } = await lockAuthClient.auth.signInWithPassword({
       email: userProfile.email,
       password,
     });
@@ -45,6 +61,7 @@ const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, onUnlock, 
       // Clear the password field on a failed attempt for security
       setPassword('');
     } else {
+      await lockAuthClient.auth.signOut();
       // Successful password verification
       onUnlock();
     }
@@ -77,7 +94,7 @@ const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, onUnlock, 
               id="lock-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full p-2.5 sm:p-3 text-center bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+              className="w-full p-2.5 sm:p-3 text-center bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-600"
               placeholder="Enter your password"
               required
             />
@@ -90,7 +107,7 @@ const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, onUnlock, 
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full flex justify-center items-center bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-[#DC143C] disabled:bg-gray-400 disabled:transform-none disabled:cursor-not-allowed"
+            className="w-full flex justify-center items-center bg-primary-600 hover:bg-primary-700 text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-primary-600 disabled:bg-gray-400 disabled:transform-none disabled:cursor-not-allowed"
           >
             {isLoading && (
               <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -104,7 +121,7 @@ const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, onUnlock, 
         <div className="mt-6">
           <button
             onClick={onLogout}
-            className="text-sm text-gray-600 dark:text-gray-400 hover:text-[#DC143C] hover:underline transition duration-300"
+            className="text-sm text-gray-600 dark:text-gray-400 hover:text-primary-600 hover:underline transition duration-300"
           >
             Not you? Log Out
           </button>

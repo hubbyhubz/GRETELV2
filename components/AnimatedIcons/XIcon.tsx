@@ -1,7 +1,7 @@
 import type { Variants } from "framer-motion";
-import { motion } from "framer-motion";
+import { motion, useAnimation } from "framer-motion";
 import type { HTMLAttributes } from "react";
-import { forwardRef } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
 import { cn } from "../../lib/utils";
 
 interface XIconProps extends HTMLAttributes<HTMLDivElement> {
@@ -25,22 +25,69 @@ export interface XIconHandle {
   stopAnimation: () => void;
 }
 
-const XIcon = forwardRef<HTMLDivElement, XIconProps>(
-  ({ onMouseEnter, onMouseLeave, className, size = 24, isHovered, ...props }, ref) => {
+const XIcon = forwardRef<XIconHandle, XIconProps>(
+  ({ onMouseEnter, onMouseLeave, className, size = 28, isHovered, ...props }, ref) => {
+    const controls = useAnimation();
+    const isControlledRef = useRef(false);
+
+    useImperativeHandle(ref, () => {
+      isControlledRef.current = true;
+      return {
+        startAnimation: () => controls.start("animate"),
+        stopAnimation: () => controls.start("normal"),
+      };
+    });
+
+    useEffect(() => {
+      controls.set("normal");
+    }, [controls]);
+
+    useEffect(() => {
+      if (typeof isHovered !== "boolean") return;
+      controls.start(isHovered ? "animate" : "normal");
+    }, [controls, isHovered]);
+
+    const handleMouseEnter = useCallback(
+      (e: React.MouseEvent<HTMLDivElement>) => {
+        if (typeof isHovered === "boolean") {
+          onMouseEnter?.(e);
+          return;
+        }
+        if (isControlledRef.current) {
+          onMouseEnter?.(e);
+          return;
+        }
+        controls.start("animate");
+      },
+      [controls, isHovered, onMouseEnter]
+    );
+
+    const handleMouseLeave = useCallback(
+      (e: React.MouseEvent<HTMLDivElement>) => {
+        if (typeof isHovered === "boolean") {
+          onMouseLeave?.(e);
+          return;
+        }
+        if (isControlledRef.current) {
+          onMouseLeave?.(e);
+          return;
+        }
+        controls.start("normal");
+      },
+      [controls, isHovered, onMouseLeave]
+    );
+
     return (
       <div
-        ref={ref}
         className={cn(className)}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
-        style={{ 
-          display: 'inline-flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          cursor: 'pointer',
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
           width: `${size}px`,
           height: `${size}px`,
-          pointerEvents: 'none'
         }}
         {...props}
       >
@@ -50,25 +97,25 @@ const XIcon = forwardRef<HTMLDivElement, XIconProps>(
           stroke="currentColor"
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth="2.5"
+          strokeWidth="2"
           viewBox="0 0 24 24"
           width={size}
           xmlns="http://www.w3.org/2000/svg"
           style={{
-            display: 'block',
-            margin: 'auto'
+            display: "block",
+            margin: "auto",
+            pointerEvents: "none",
           }}
         >
           <motion.path
-            animate={isHovered ? "animate" : "normal"}
-            d="M5 5L19 19"
+            animate={controls}
+            d="M18 6 6 18"
             variants={PATH_VARIANTS}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
           />
           <motion.path
-            animate={isHovered ? "animate" : "normal"}
-            d="M19 5L5 19"
-            transition={{ delay: 0.15, duration: 0.3, ease: "easeInOut" }}
+            animate={controls}
+            d="m6 6 12 12"
+            transition={{ delay: 0.2 }}
             variants={PATH_VARIANTS}
           />
         </svg>

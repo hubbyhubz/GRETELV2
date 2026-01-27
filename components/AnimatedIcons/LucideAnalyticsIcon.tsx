@@ -22,7 +22,7 @@ const LucideAnalyticsIcon = forwardRef<HTMLDivElement, LucideAnalyticsIconProps>
         transition={{ type: "spring", stiffness: 200, damping: 15 }}
         {...props}
       >
-        <TrendingUp size={size} color="#DC143C" strokeWidth={2} />
+        <TrendingUp size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

@@ -3,7 +3,7 @@
 ## Prerequisites
 - A Vercel account and a Git repo connected to Vercel (GitHub/GitLab/Bitbucket).
 - A Supabase project with Auth enabled and your required tables applied.
-- OpenAI API access if you want `/api/chat` to work (this app uses a serverless endpoint to call OpenAI).
+- A Gemini API key if you want `/api/chat` to work (this app uses a serverless endpoint to call Gemini).
 
 ## Required Environment Variables (Vercel)
 Set these in **Vercel → Project → Settings → Environment Variables**:
@@ -13,8 +13,8 @@ Set these in **Vercel → Project → Settings → Environment Variables**:
 - `VITE_SUPABASE_ANON_KEY`
 
 **Serverless API (`/api/chat`)**
-- `OPENAI_API_KEY`
-- Optional: `OPENAI_MODEL` (defaults to `gpt-4o`)
+- `GEMINI_API_KEY` (or `GOOGLE_API_KEY`)
+- Optional: `GEMINI_MODEL` (defaults to `gemini-2.0-flash`)
 
 ## Supabase Auth Redirect URLs
 In Supabase **Auth → URL Configuration**, add:
@@ -46,4 +46,3 @@ If you’re bootstrapping a fresh Supabase project, run the SQL scripts in the S
 - `supabase_schema_update.sql` (profile columns, event ops table + RLS)
 - `supabase_assistant_brain.sql` (centralized assistant brain table + RLS)
 - Notification/push scripts as needed for your setup.
-

@@ -1,11 +1,14 @@
 import { motion } from "framer-motion";
 import { FolderOpen } from "lucide-react";
-import type { HTMLAttributes } from "react";
+import type { ComponentPropsWithoutRef } from "react";
 import { forwardRef } from "react";
 
-interface LucideProjectIconProps extends HTMLAttributes<HTMLDivElement> {
+type LucideProjectIconProps = Omit<
+  ComponentPropsWithoutRef<typeof motion.div>,
+  "children"
+> & {
   size?: number;
-}
+};
 
 const LucideProjectIcon = forwardRef<HTMLDivElement, LucideProjectIconProps>(
   ({ className, size = 24, ...props }, ref) => {
@@ -21,7 +24,7 @@ const LucideProjectIcon = forwardRef<HTMLDivElement, LucideProjectIconProps>(
         transition={{ type: "spring", stiffness: 180, damping: 15 }}
         {...props}
       >
-        <FolderOpen size={size} color="#DC143C" strokeWidth={2} />
+        <FolderOpen size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

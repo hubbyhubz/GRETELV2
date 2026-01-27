@@ -309,7 +309,7 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
       onPopoverRender: (popover, { state }) => {
         // Add custom styling
         const popoverElement = popover.wrapper;
-        popoverElement.style.setProperty("--driver-popover-accent", "#DC143C");
+        popoverElement.style.setProperty("--driver-popover-accent", "var(--primary-600)");
         
         // Fix progress text to show correct numbers based on original steps, not sliced steps
         // Calculate actual current step (1-indexed): fromStep + activeIndex + 1

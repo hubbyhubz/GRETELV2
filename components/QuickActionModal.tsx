@@ -52,12 +52,12 @@ const QuickActionModal: React.FC<QuickActionModalProps> = ({
         className={`w-full max-w-lg bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 border border-gray-200 dark:border-gray-700 animate__animated ${isClosing ? 'animate__bounceOut' : 'animate__bounceIn'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-4">{title}</h3>
+        <h3 className="text-xl font-bold text-primary-600 mb-4">{title}</h3>
         <textarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
           rows={5}
-          className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+          className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-600"
           placeholder="Type here..."
         />
         <div className="flex justify-end space-x-3 mt-4">
@@ -72,7 +72,7 @@ const QuickActionModal: React.FC<QuickActionModalProps> = ({
             type="button"
             onClick={() => handleClose(() => onConfirm(value.trim()))}
             disabled={!value.trim()}
-            className="bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-400 transition-all duration-200 active:scale-95"
+            className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-400 transition-all duration-200 active:scale-95"
           >
             Submit
           </button>

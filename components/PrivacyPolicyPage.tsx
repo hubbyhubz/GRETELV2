@@ -22,7 +22,7 @@ const PrivacyPolicyPage: React.FC<PrivacyPolicyPageProps> = ({ onBack, source })
     <div className="w-full max-w-3xl bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-lg sm:shadow-2xl p-4 max-[360px]:p-3 min-[414px]:p-5 sm:p-6 border border-gray-200 dark:border-gray-700 transition-colors duration-300 animate-fade-in">
       <div className="space-y-6">
         <div className="text-center">
-          <h1 className="text-2xl sm:text-3xl font-black text-[#DC143C] tracking-wider uppercase">
+          <h1 className="text-2xl sm:text-3xl font-black text-primary-600 tracking-wider uppercase">
             G.R.E.T.E.L
           </h1>
           <h2 className="mt-4 text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-200">Privacy Policy</h2>
@@ -53,7 +53,7 @@ const PrivacyPolicyPage: React.FC<PrivacyPolicyPageProps> = ({ onBack, source })
           <p>We implement industry-standard security measures to protect your information. However, please be aware that no method of transmission over the Internet or method of electronic storage is 100% secure.</p>
           
           <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200">4. Third-Party Services</h3>
-          <p>To provide its conversational AI capabilities, G.R.E.T.E.L uses the OpenAI API. Your prompts and conversation history are sent to OpenAI to generate responses. Your use of this application is also subject to OpenAI's Privacy Policy, which you can review <a href="https://openai.com/privacy" target="_blank" rel="noopener noreferrer" className="text-[#DC143C] hover:underline">here</a>. We do not send any personally identifiable information (like your name or email) to the OpenAI API beyond the content of your chat messages.</p>
+          <p>To provide its conversational AI capabilities, G.R.E.T.E.L uses the OpenAI API. Your prompts and conversation history are sent to OpenAI to generate responses. Your use of this application is also subject to OpenAI's Privacy Policy, which you can review <a href="https://openai.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline">here</a>. We do not send any personally identifiable information (like your name or email) to the OpenAI API beyond the content of your chat messages.</p>
 
           <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200">5. Changes to This Policy</h3>
           <p>We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page.</p>
@@ -63,7 +63,7 @@ const PrivacyPolicyPage: React.FC<PrivacyPolicyPageProps> = ({ onBack, source })
         <div className="text-center pt-6">
           <button
             onClick={onBack}
-            className="w-full sm:w-auto bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105"
+            className="w-full sm:w-auto bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105"
           >
             {getButtonText(source)}
           </button>

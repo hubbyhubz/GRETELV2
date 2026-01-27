@@ -58,7 +58,7 @@ const TwoFactorAuthPage: React.FC<TwoFactorAuthPageProps> = ({ onBackToLogin }) 
     <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-lg sm:shadow-2xl p-4 max-[360px]:p-3 min-[414px]:p-5 sm:p-6 border border-gray-200 dark:border-gray-700 transition-colors duration-300">
       <div className="space-y-4 sm:space-y-5">
         <div className="text-center">
-          <h1 className="text-2xl sm:text-3xl font-black text-[#DC143C] tracking-wider uppercase">G.R.E.T.E.L</h1>
+          <h1 className="text-2xl sm:text-3xl font-black text-primary-600 tracking-wider uppercase">G.R.E.T.E.L</h1>
           <p className="mt-2 text-sm sm:text-base text-gray-600 dark:text-gray-400">Two-Factor Authentication</p>
         </div>
         
@@ -74,7 +74,7 @@ const TwoFactorAuthPage: React.FC<TwoFactorAuthPageProps> = ({ onBackToLogin }) 
               name="code"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              className="w-full p-2.5 sm:p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#DC143C] focus:border-transparent transition duration-300 text-center text-xl sm:text-2xl tracking-[.35em] sm:tracking-[.5em]"
+              className="w-full p-2.5 sm:p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition duration-300 text-center text-xl sm:text-2xl tracking-[.35em] sm:tracking-[.5em]"
               placeholder="123456"
               required
               maxLength={6}
@@ -90,7 +90,7 @@ const TwoFactorAuthPage: React.FC<TwoFactorAuthPageProps> = ({ onBackToLogin }) 
             <button
               type="submit"
               disabled={isLoading || !factor || code.length !== 6}
-              className="w-full flex justify-center items-center bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-[#DC143C] disabled:bg-gray-400 disabled:transform-none disabled:cursor-not-allowed"
+              className="w-full flex justify-center items-center bg-primary-600 hover:bg-primary-700 text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-primary-600 disabled:bg-gray-400 disabled:transform-none disabled:cursor-not-allowed"
             >
               {isLoading && <div className="custom-loader-sm"></div>}
               {isLoading ? 'Verifying...' : 'Verify'}
@@ -101,7 +101,7 @@ const TwoFactorAuthPage: React.FC<TwoFactorAuthPageProps> = ({ onBackToLogin }) 
           <a
             href="#"
             onClick={(e) => { e.preventDefault(); onBackToLogin(); }}
-            className="text-sm text-gray-600 dark:text-gray-400 hover:text-[#DC143C] hover:underline transition duration-300"
+            className="text-sm text-gray-600 dark:text-gray-400 hover:text-primary-600 hover:underline transition duration-300"
           >
             Back to Login
           </a>

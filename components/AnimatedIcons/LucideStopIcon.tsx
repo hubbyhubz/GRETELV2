@@ -1,11 +1,14 @@
 import { motion } from "framer-motion";
 import { Square } from "lucide-react";
-import type { HTMLAttributes } from "react";
+import type { ComponentPropsWithoutRef } from "react";
 import { forwardRef } from "react";
 
-interface LucideStopIconProps extends HTMLAttributes<HTMLDivElement> {
+type LucideStopIconProps = Omit<
+  ComponentPropsWithoutRef<typeof motion.div>,
+  "children"
+> & {
   size?: number;
-}
+};
 
 const LucideStopIcon = forwardRef<HTMLDivElement, LucideStopIconProps>(
   ({ className, size = 24, ...props }, ref) => {
@@ -21,7 +24,7 @@ const LucideStopIcon = forwardRef<HTMLDivElement, LucideStopIconProps>(
         }}
         {...props}
       >
-        <Square size={size} color="#DC143C" strokeWidth={2} fill="#DC143C" />
+        <Square size={size} color="var(--primary-600)" strokeWidth={2} fill="var(--primary-600)" />
       </motion.div>
     );
   }

@@ -413,7 +413,7 @@ const SetupWizardPage: React.FC<SetupWizardPageProps> = ({ onSetupComplete }) =>
                   type="button"
                   onClick={handleNext}
                   disabled={isNextDisabled()}
-                  className="w-full sm:w-auto bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2.5 sm:py-3 px-6 rounded-lg transition-all duration-200 ease-in-out transform hover:scale-105 active:scale-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#DC143C] disabled:bg-gray-400 disabled:hover:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
+                  className="w-full sm:w-auto bg-primary-600 hover:bg-primary-700 text-white font-bold py-2.5 sm:py-3 px-6 rounded-lg transition-all duration-200 ease-in-out transform hover:scale-105 active:scale-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-600 disabled:bg-gray-400 disabled:hover:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
                 >
                   {currentStep === 10 ? 'Finish Setup' : 'Next'}
                 </button>

@@ -96,7 +96,7 @@ export const CustomTimePicker: React.FC<CustomTimePickerProps> = ({ value, onCha
                     onClick={() => updateTime(h, minute, ampm)}
                     className={`w-10 h-10 rounded-lg flex items-center justify-center text-base font-semibold transition-all duration-200 ${
                       hour === h 
-                        ? 'bg-[#DC143C] text-white shadow-lg shadow-red-500/30 scale-100' 
+                        ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/30 scale-100' 
                         : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                     }`}
                   >
@@ -120,7 +120,7 @@ export const CustomTimePicker: React.FC<CustomTimePickerProps> = ({ value, onCha
                     onClick={() => updateTime(hour, m, ampm)}
                     className={`w-10 h-10 rounded-lg flex items-center justify-center text-base font-semibold transition-all duration-200 ${
                       minute === m 
-                        ? 'bg-[#DC143C] text-white shadow-lg shadow-red-500/30 scale-100' 
+                        ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/30 scale-100' 
                         : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                     }`}
                   >
@@ -144,7 +144,7 @@ export const CustomTimePicker: React.FC<CustomTimePickerProps> = ({ value, onCha
                     onClick={() => updateTime(hour, minute, p)}
                     className={`w-12 h-10 rounded-lg flex items-center justify-center text-sm font-bold transition-all duration-200 ${
                       ampm === p 
-                        ? 'bg-[#DC143C] text-white shadow-lg shadow-red-500/30 scale-100' 
+                        ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/30 scale-100' 
                         : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                     }`}
                   >

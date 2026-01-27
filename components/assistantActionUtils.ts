@@ -109,7 +109,18 @@ export const applyScheduleOps = (current: ScheduleItem[], ops: any[]) => {
     return next
       .map((item, index) => ({ item, index }))
       .filter(({ item }) => (id ? item.id === id : true))
-      .filter(({ item }) => (titleContains ? item.title.toLowerCase().includes(titleContains) : true))
+      .filter(({ item }) => {
+        if (!titleContains) return true;
+        const itemTitle = normalizeNeedle(item.title);
+        // Fuzzy match: check if either string contains the other (handles partial matches)
+        // Also check for key words in common (e.g., "Pre-Event Walkthrough" matches "Pre-Event Walkthrough at Saffron")
+        const itemWords = itemTitle.split(/\s+/).filter(w => w.length > 2);
+        const searchWords = titleContains.split(/\s+/).filter(w => w.length > 2);
+        const hasCommonWords = searchWords.length > 0 && searchWords.some(sw => 
+          itemWords.some(iw => iw.includes(sw) || sw.includes(iw))
+        );
+        return itemTitle.includes(titleContains) || titleContains.includes(itemTitle) || hasCommonWords;
+      })
       .map(({ index }) => index);
   };
 
@@ -119,14 +130,31 @@ export const applyScheduleOps = (current: ScheduleItem[], ops: any[]) => {
       const time = String(op?.item?.time || 'All Day').trim();
       const title = String(op?.item?.title || '').trim();
       if (!title) return;
-      next = [...next, { id: `sched-${nowTs}-${index}`, time, title, completed: false }];
+      
+      const newItem = { id: `sched-${nowTs}-${index}`, time, title, completed: false };
+      
+      // Apply cascading reschedule: push down conflicting items
+      next = cascadeReschedule(next, { time, title });
+      
+      // Add the new item
+      next = [...next, newItem];
+      
+      // Sort by time
+      next.sort((a, b) => {
+        const aRange = parseScheduleRangeToMinutes(a.time);
+        const bRange = parseScheduleRangeToMinutes(b.time);
+        if (!aRange) return 1;
+        if (!bRange) return -1;
+        return aRange.start - bRange.start;
+      });
+      
       return;
     }
 
     const indexes = matchIndexes(op?.match);
     if (indexes.length !== 1) {
       const targetLabel = op?.match?.id ? `id=${String(op.match.id)}` : op?.match?.titleContains ? `title contains \"${String(op.match.titleContains)}\"` : 'unspecified target';
-      messages.push(indexes.length === 0 ? `I couldn’t find a schedule item to ${operation} (${targetLabel}).` : `Multiple schedule items match (${targetLabel}). Please be more specific.`);
+      messages.push(indexes.length === 0 ? `I couldn't find a schedule item to ${operation} (${targetLabel}).` : `Multiple schedule items match (${targetLabel}). Please be more specific.`);
       return;
     }
     const i = indexes[0];
@@ -137,7 +165,36 @@ export const applyScheduleOps = (current: ScheduleItem[], ops: any[]) => {
     if (operation === 'update') {
       const time = op?.item?.time != null ? String(op.item.time).trim() : next[i].time;
       const title = op?.item?.title != null ? String(op.item.title).trim() : next[i].title;
+      
+      // If time is being updated, apply cascading reschedule
+      if (op?.item?.time != null && time !== next[i].time) {
+        // Get the item to update
+        const itemToUpdate = next[i];
+        const oldTime = itemToUpdate.time;
+        
+        // Remove the item from schedule temporarily
+        const tempSchedule = next.filter((_, idx) => idx !== i);
+        
+        // Apply cascade with the NEW time - this will push down conflicting items
+        // The cascade function checks for conflicts with the new time range
+        const cascaded = cascadeReschedule(tempSchedule, { time, title });
+        
+        // Add the updated item back with new time
+        const updatedItem = { ...itemToUpdate, time, title };
+        next = [...cascaded, updatedItem];
+        
+        // Sort by time
+        next.sort((a, b) => {
+          const aRange = parseScheduleRangeToMinutes(a.time);
+          const bRange = parseScheduleRangeToMinutes(b.time);
+          if (!aRange) return 1;
+          if (!bRange) return -1;
+          return aRange.start - bRange.start;
+        });
+      } else {
+        // Just update title, no time change
       next = next.map((item, idx) => (idx === i ? { ...item, time, title } : item));
+      }
     }
   });
 
@@ -330,6 +387,224 @@ export const parseScheduleRangeToMinutes = (range: string) => {
   const end = parseAmPmToMinutes(endRaw);
   if (start == null || end == null) return null;
   return { start, end };
+};
+
+/**
+ * Checks if two time ranges overlap
+ */
+const doRangesOverlap = (range1: { start: number; end: number }, range2: { start: number; end: number }): boolean => {
+  return Math.max(0, Math.min(range1.end, range2.end) - Math.max(range1.start, range2.start)) > 0;
+};
+
+/**
+ * Formats minutes since midnight to "HH:MM AM/PM" format
+ */
+const minutesToTimeString = (minutes: number): string => {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  const h = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+  const m = String(mins).padStart(2, '0');
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  return `${h}:${m} ${ampm}`;
+};
+
+/**
+ * Finds all schedule items that conflict with a given time range
+ */
+const findConflictingItems = (schedule: ScheduleItem[], newRange: { start: number; end: number }): ScheduleItem[] => {
+  return schedule.filter(item => {
+    if (item.time.toLowerCase().trim() === 'all day') return true; // All day items always conflict
+    const itemRange = parseScheduleRangeToMinutes(item.time);
+    if (!itemRange) return false;
+    return doRangesOverlap(itemRange, newRange);
+  });
+};
+
+/**
+ * Gets hard constraint blocks from schedule (Lunch, Briefing, etc.)
+ * These are items that should not be scheduled over
+ */
+const getHardConstraintBlocks = (schedule: ScheduleItem[]): Array<{ start: number; end: number; title: string }> => {
+  const constraints: Array<{ start: number; end: number; title: string }> = [];
+  const constraintKeywords = ['lunch', 'briefing', 'meeting', 'standup', 'sync'];
+  
+  schedule.forEach(item => {
+    const titleLower = item.title.toLowerCase();
+    const isConstraint = constraintKeywords.some(keyword => titleLower.includes(keyword));
+    if (isConstraint) {
+      const range = parseScheduleRangeToMinutes(item.time);
+      if (range) {
+        constraints.push({ ...range, title: item.title });
+      }
+    }
+  });
+  
+  return constraints.sort((a, b) => a.start - b.start);
+};
+
+/**
+ * Finds the next available time slot after a given time, respecting hard constraints and existing schedule items
+ */
+const findNextAvailableSlot = (
+  startAfter: number,
+  duration: number,
+  hardConstraints: Array<{ start: number; end: number; title: string }>,
+  existingSchedule: ScheduleItem[],
+  excludeItemIds: Set<string> = new Set(), // Items to exclude from conflict check (e.g., items being moved)
+  maxTime: number = 24 * 60 // End of day
+): number | null => {
+  let candidateStart = startAfter;
+  const maxIterations = 100; // Prevent infinite loops
+  let iterations = 0;
+  
+  while (iterations < maxIterations) {
+    iterations++;
+    let hasConflict = false;
+    const candidateRange = { start: candidateStart, end: candidateStart + duration };
+    
+    // Check hard constraints
+    for (const constraint of hardConstraints) {
+      if (doRangesOverlap(candidateRange, constraint)) {
+        candidateStart = constraint.end;
+        hasConflict = true;
+        break;
+      }
+    }
+    
+    if (hasConflict) continue;
+    
+    // Check existing schedule items (excluding items being moved)
+    for (const item of existingSchedule) {
+      if (excludeItemIds.has(item.id)) continue; // Skip items being moved
+      if (item.time.toLowerCase().trim() === 'all day') continue; // Skip all-day items
+      
+      const itemRange = parseScheduleRangeToMinutes(item.time);
+      if (!itemRange) continue;
+      
+      if (doRangesOverlap(candidateRange, itemRange)) {
+        candidateStart = itemRange.end;
+        hasConflict = true;
+        break;
+      }
+    }
+    
+    if (!hasConflict) {
+      // Found a slot that doesn't conflict
+      if (candidateStart + duration <= maxTime) {
+        return candidateStart;
+      }
+      return null; // Would go past end of day
+    }
+    
+    // If we've gone past end of day, stop
+    if (candidateStart + duration > maxTime) {
+      return null;
+    }
+  }
+  
+  // Max iterations reached (shouldn't happen, but safety check)
+  return null;
+};
+
+/**
+ * Cascading reschedule: Pushes down conflicting items when a new item is added/updated
+ */
+export const cascadeReschedule = (
+  schedule: ScheduleItem[],
+  newItem: { time: string; title: string },
+  hardConstraintKeywords: string[] = ['lunch', 'briefing', 'meeting', 'standup', 'sync']
+): ScheduleItem[] => {
+  const newRange = parseScheduleRangeToMinutes(newItem.time);
+  if (!newRange) {
+    // Can't parse new item time, just add it
+    return schedule;
+  }
+  
+  // Get hard constraints (immutable blocks)
+  const hardConstraints = getHardConstraintBlocks(schedule);
+  
+  // Find all items that conflict with the new item
+  const conflictingItems = findConflictingItems(schedule, newRange);
+  
+  if (conflictingItems.length === 0) {
+    // No conflicts, just add the new item
+    return schedule;
+  }
+  
+  // Calculate the end time of the new item (this is where we'll start pushing)
+  let pushStartTime = newRange.end;
+  
+  // Sort conflicting items by their original start time to maintain order
+  const sortedConflicting = [...conflictingItems].sort((a, b) => {
+    const aRange = parseScheduleRangeToMinutes(a.time);
+    const bRange = parseScheduleRangeToMinutes(b.time);
+    if (!aRange) return 1;
+    if (!bRange) return -1;
+    return aRange.start - bRange.start;
+  });
+  
+  // Track where each item should be moved to (cascading effect)
+  const movedItems = new Map<string, { newStart: number; newEnd: number; newTime: string }>();
+  const conflictingItemIds = new Set(conflictingItems.map(item => item.id));
+  
+  // Get non-conflicting items for conflict checking
+  const nonConflictingSchedule = schedule.filter(item => !conflictingItemIds.has(item.id));
+  
+  // Process each conflicting item in order, cascading them down
+  sortedConflicting.forEach(item => {
+    const itemRange = parseScheduleRangeToMinutes(item.time);
+    if (!itemRange) return;
+    
+    const duration = itemRange.end - itemRange.start;
+    
+    // Build list of already-moved items to exclude from conflict check
+    const excludeIds = new Set(Array.from(movedItems.keys()));
+    
+    // Find next available slot after the current push position
+    // Exclude items being moved and check against non-conflicting items + hard constraints
+    const newStart = findNextAvailableSlot(
+      pushStartTime,
+      duration,
+      hardConstraints,
+      nonConflictingSchedule,
+      excludeIds
+    );
+    
+    if (newStart === null) {
+      // No available slot found, keep original time
+      console.warn(`Could not find available slot for "${item.title}" after ${minutesToTimeString(pushStartTime)}`);
+      return;
+    }
+    
+    const newEnd = newStart + duration;
+    const newTime = `${minutesToTimeString(newStart)} - ${minutesToTimeString(newEnd)}`;
+    
+    movedItems.set(item.id, { newStart, newEnd, newTime });
+    
+    // Update push position to after this item ends (cascading effect)
+    pushStartTime = newEnd;
+  });
+  
+  // Apply the moves to the schedule
+  const updatedSchedule = schedule.map(item => {
+    const isConflicting = conflictingItems.some(conflict => conflict.id === item.id);
+    if (!isConflicting) {
+      return item; // Keep non-conflicting items as-is
+    }
+    
+    const move = movedItems.get(item.id);
+    if (!move) {
+      // Couldn't find a slot, keep original
+      return item;
+    }
+    
+    return {
+      ...item,
+      time: move.newTime,
+    };
+  });
+  
+  return updatedSchedule;
 };
 
 export const buildEventOpsBlocksForToday = (

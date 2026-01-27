@@ -11,7 +11,7 @@
 
 [type="range"].kawaii {
   /* Crimson Red Palette Adaptation */
-  --base: #dc143c; /* --primary-600 */
+  --base: var(--primary-600);
   
   /* Using color-mix to maintain the original gradient relationships */
   --light: color-mix(in sRGB, var(--base) 60%, #fff);

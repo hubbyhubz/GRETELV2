@@ -69,7 +69,17 @@ export const createTask = async (accessToken: string, taskListId: string, title:
   if (due) {
     // Google Tasks API expects the 'due' time to be an RFC 3339 timestamp.
     // e.g., '2025-10-27T10:00:00.000Z'
-    task.due = due;
+    // Validate the format before sending
+    try {
+      const date = new Date(due);
+      if (isNaN(date.getTime())) {
+        throw new Error(`Invalid date format: ${due}. Expected RFC 3339 format (e.g., 2025-10-27T10:00:00.000Z)`);
+      }
+      // Ensure it's in proper ISO format
+      task.due = date.toISOString();
+    } catch (error: any) {
+      throw new Error(`Invalid deadline format: ${error.message}`);
+    }
   }
 
   const response = await fetch(`${TASKS_API_BASE_URL}/lists/${taskListId}/tasks`, {

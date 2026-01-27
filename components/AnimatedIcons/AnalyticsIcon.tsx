@@ -31,7 +31,7 @@ const AnalyticsIcon = forwardRef<HTMLDivElement, AnalyticsIconProps>(
       >
         <motion.svg
           animate={isHovered ? "animate" : "normal"}
-          fill="#DC143C"
+          fill="var(--primary-600)"
           height={size}
           transition={{ type: "spring", stiffness: 200, damping: 15 }}
           variants={{

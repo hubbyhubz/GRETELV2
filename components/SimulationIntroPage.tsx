@@ -9,7 +9,7 @@ const SimulationIntroPage: React.FC<SimulationIntroPageProps> = ({ onStartSimula
     <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-lg sm:shadow-2xl p-4 max-[360px]:p-3 min-[414px]:p-5 sm:p-6 border border-gray-200 dark:border-gray-700 transition-colors duration-300 text-center animate-fade-in">
       <div className="space-y-4 sm:space-y-5">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-[#DC143C] tracking-wider uppercase">
+          <h1 className="text-2xl sm:text-3xl font-black text-primary-600 tracking-wider uppercase">
             G.R.E.T.E.L
           </h1>
           <p className="mt-2 text-sm sm:text-base text-gray-600 dark:text-gray-400">Executive Assistant AI</p>
@@ -25,7 +25,7 @@ const SimulationIntroPage: React.FC<SimulationIntroPageProps> = ({ onStartSimula
         <div>
           <button
             onClick={onStartSimulation}
-            className="w-full bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#DC143C]"
+            className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-600"
           >
             Start Live Preview
           </button>

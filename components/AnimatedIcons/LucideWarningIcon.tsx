@@ -1,11 +1,14 @@
 import { motion } from "framer-motion";
 import { AlertTriangle } from "lucide-react";
-import type { HTMLAttributes } from "react";
+import type { ComponentPropsWithoutRef } from "react";
 import { forwardRef } from "react";
 
-interface LucideWarningIconProps extends HTMLAttributes<HTMLDivElement> {
+type LucideWarningIconProps = Omit<
+  ComponentPropsWithoutRef<typeof motion.div>,
+  "children"
+> & {
   size?: number;
-}
+};
 
 const LucideWarningIcon = forwardRef<HTMLDivElement, LucideWarningIconProps>(
   ({ className, size = 24, ...props }, ref) => {
@@ -24,7 +27,7 @@ const LucideWarningIcon = forwardRef<HTMLDivElement, LucideWarningIconProps>(
         }}
         {...props}
       >
-        <AlertTriangle size={size} color="#DC143C" strokeWidth={2} />
+        <AlertTriangle size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }

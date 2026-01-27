@@ -117,7 +117,7 @@ const AddDelegatedTaskModal: React.FC<AddDelegatedTaskModalProps> = ({ isOpen, o
         }}
       >
         <form onSubmit={handleSubmit} noValidate>
-          <h2 id="add-task-title" className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-6">
+          <h2 id="add-task-title" className="text-xl font-bold text-primary-600 mb-6">
             Delegate New Task
           </h2>
 
@@ -132,7 +132,7 @@ const AddDelegatedTaskModal: React.FC<AddDelegatedTaskModalProps> = ({ isOpen, o
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 rows={4}
-                className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
                 placeholder="Describe the task to be delegated..."
                 required
               />
@@ -147,7 +147,7 @@ const AddDelegatedTaskModal: React.FC<AddDelegatedTaskModalProps> = ({ isOpen, o
                   id="task-assignee"
                   value={assigneeId}
                   onChange={(e) => setAssigneeId(e.target.value)}
-                  className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                  className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
                   required
                 >
                   {teamMembers.length > 0 ? (
@@ -170,7 +170,7 @@ const AddDelegatedTaskModal: React.FC<AddDelegatedTaskModalProps> = ({ isOpen, o
                   id="task-deadline-date"
                   value={deadlineDate}
                   onChange={(e) => setDeadlineDate(e.target.value)}
-                  className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C]"
+                  className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-600"
                   required
                 />
               </div>
@@ -182,7 +182,7 @@ const AddDelegatedTaskModal: React.FC<AddDelegatedTaskModalProps> = ({ isOpen, o
                   id="task-deadline-time"
                   value={deadlineTime}
                   onChange={setDeadlineTime}
-                  className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus-within:ring-2 focus-within:ring-[#DC143C]"
+                  className="w-full p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus-within:ring-2 focus-within:ring-primary-600"
                 />
               </div>
             </div>
@@ -205,7 +205,7 @@ const AddDelegatedTaskModal: React.FC<AddDelegatedTaskModalProps> = ({ isOpen, o
             <button
               type="submit"
               disabled={isSubmitting || teamMembers.length === 0}
-              className="bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2 px-4 rounded-lg flex items-center disabled:bg-gray-400 transition-all duration-200 active:scale-95"
+              className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg flex items-center disabled:bg-gray-400 transition-all duration-200 active:scale-95"
             >
               {isSubmitting && (
                 <svg

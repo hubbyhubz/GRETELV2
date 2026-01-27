@@ -3,7 +3,7 @@
   width: 120px;
   height: 22px;
   border-radius: 20px;
-  color: #DC143C; /* Crimson Red */
+  color: var(--primary-600);
   border: 2px solid;
   position: relative;
 }
@@ -14,7 +14,7 @@
   margin: 2px;
   inset: 0 100% 0 0;
   border-radius: inherit;
-  background: #DC143C; /* Crimson Red */
+  background: var(--primary-600);
   animation: p6 2s infinite;
 }
 
@@ -51,7 +51,7 @@
   width: 160px;
   height: 28px;
   border-radius: 24px;
-  color: #DC143C;
+  color: var(--primary-600);
   border: 3px solid;
   position: relative;
 }
@@ -62,6 +62,6 @@
   margin: 3px;
   inset: 0 100% 0 0;
   border-radius: inherit;
-  background: #DC143C;
+  background: var(--primary-600);
   animation: p6 2s infinite;
 }

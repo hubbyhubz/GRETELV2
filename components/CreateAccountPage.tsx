@@ -135,7 +135,7 @@ const CreateAccountPage: React.FC<CreateAccountPageProps> = ({ onBackToLogin, on
       <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-lg sm:shadow-2xl p-4 max-[360px]:p-3 min-[414px]:p-5 sm:p-6 border border-gray-200 dark:border-gray-700 transition-colors duration-300 animate__animated animate__bounceIn">
         <div className="space-y-4 sm:space-y-5">
           <div className="text-center">
-            <h1 className="text-2xl sm:text-3xl font-black text-[#DC143C] tracking-wider uppercase">
+            <h1 className="text-2xl sm:text-3xl font-black text-primary-600 tracking-wider uppercase">
               G.R.E.T.E.L
             </h1>
             <p className="mt-2 text-sm sm:text-base text-gray-600 dark:text-gray-400">Create Your Account</p>
@@ -148,7 +148,7 @@ const CreateAccountPage: React.FC<CreateAccountPageProps> = ({ onBackToLogin, on
                 id="name"
                 value={name}
                 onChange={(e) => onFormChange({ name: e.target.value })}
-                className="w-full p-2.5 sm:p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C] focus:border-transparent transition-colors duration-300"
+                className="w-full p-2.5 sm:p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition-colors duration-300"
                 placeholder="Enter your full name"
                 required
               />
@@ -160,7 +160,7 @@ const CreateAccountPage: React.FC<CreateAccountPageProps> = ({ onBackToLogin, on
                 id="email"
                 value={email}
                 onChange={(e) => onFormChange({ email: e.target.value })}
-                className="w-full p-2.5 sm:p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C] focus:border-transparent transition-colors duration-300"
+                className="w-full p-2.5 sm:p-3 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition-colors duration-300"
                 placeholder="Enter your email"
                 required
               />
@@ -173,14 +173,14 @@ const CreateAccountPage: React.FC<CreateAccountPageProps> = ({ onBackToLogin, on
                   id="new-password"
                   value={password}
                   onChange={(e) => onFormChange({ password: e.target.value })}
-                  className="w-full p-2.5 sm:p-3 pr-10 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#DC143C] focus:border-transparent transition-colors duration-300"
+                  className="w-full p-2.5 sm:p-3 pr-10 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition-colors duration-300"
                   placeholder="••••••••"
                   required
                   aria-describedby="password-requirements"
                 />
                 <button
                     type="button"
-                    className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 dark:text-gray-400 hover:text-[#DC143C] dark:hover:text-[#DC143C] rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[#DC143C] dark:focus-visible:ring-offset-gray-700"
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-600 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-700"
                     onClick={() => setIsPasswordVisible(!isPasswordVisible)}
                     aria-label={isPasswordVisible ? "Hide password" : "Show password"}
                 >
@@ -224,7 +224,7 @@ const CreateAccountPage: React.FC<CreateAccountPageProps> = ({ onBackToLogin, on
                   id="confirm-password"
                   value={confirmPassword}
                   onChange={(e) => onFormChange({ confirmPassword: e.target.value })}
-                  className={`w-full p-2.5 sm:p-3 pr-10 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-colors duration-300 ${!passwordsMatch && confirmPassword ? 'border-red-500 ring-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-[#DC143C]'}`}
+                  className={`w-full p-2.5 sm:p-3 pr-10 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-colors duration-300 ${!passwordsMatch && confirmPassword ? 'border-red-500 ring-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-primary-600'}`}
                   placeholder="••••••••"
                   required
                   aria-invalid={!passwordsMatch}
@@ -232,7 +232,7 @@ const CreateAccountPage: React.FC<CreateAccountPageProps> = ({ onBackToLogin, on
                 />
                  <button
                     type="button"
-                    className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 dark:text-gray-400 hover:text-[#DC143C] dark:hover:text-[#DC143C] rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[#DC143C] dark:focus-visible:ring-offset-gray-700"
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-600 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-700"
                     onClick={() => setIsConfirmPasswordVisible(!isConfirmPasswordVisible)}
                     aria-label={isConfirmPasswordVisible ? "Hide password" : "Show password"}
                 >
@@ -266,7 +266,7 @@ const CreateAccountPage: React.FC<CreateAccountPageProps> = ({ onBackToLogin, on
                   <a
                     href="#"
                     onClick={(e) => { e.preventDefault(); onNavigateToTerms(); }}
-                    className="font-medium text-[#DC143C] hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[#DC143C]"
+                    className="font-medium text-primary-600 hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
                   >
                     Terms of Service
                   </a>{' '}
@@ -274,7 +274,7 @@ const CreateAccountPage: React.FC<CreateAccountPageProps> = ({ onBackToLogin, on
                   <a
                     href="#"
                     onClick={(e) => { e.preventDefault(); onNavigateToPrivacy(); }}
-                    className="font-medium text-[#DC143C] hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[#DC143C]"
+                    className="font-medium text-primary-600 hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
                   >
                     Privacy Policy
                   </a>.
@@ -290,7 +290,7 @@ const CreateAccountPage: React.FC<CreateAccountPageProps> = ({ onBackToLogin, on
               <button
                 type="submit"
                 disabled={!isFormValid || isLoading}
-                className="w-full flex justify-center items-center bg-[#DC143C] hover:bg-[#b81030] text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#DC143C] disabled:bg-gray-400 disabled:hover:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
+                className="w-full flex justify-center items-center bg-primary-600 hover:bg-primary-700 text-white font-bold py-2.5 sm:py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-600 disabled:bg-gray-400 disabled:hover:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
               >
                 {isLoading && <div className="custom-loader-sm"></div>}
                 {isLoading ? 'Creating Account...' : 'Create Account'}
@@ -304,7 +304,7 @@ const CreateAccountPage: React.FC<CreateAccountPageProps> = ({ onBackToLogin, on
                 e.preventDefault();
                 onBackToLogin();
               }}
-              className="text-sm text-gray-600 dark:text-gray-400 hover:text-[#DC143C] hover:underline transition duration-300 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[#DC143C]"
+              className="text-sm text-gray-600 dark:text-gray-400 hover:text-primary-600 hover:underline transition duration-300 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
             >
               Back to Login
             </a>
@@ -315,8 +315,8 @@ const CreateAccountPage: React.FC<CreateAccountPageProps> = ({ onBackToLogin, on
             Copyright © 2025 | G.R.E.T.E.L by Hanzel
           </p>
           <div className="mt-2 flex flex-wrap justify-center gap-2 sm:gap-4 text-xs text-gray-500 dark:text-gray-400">
-              <a href="#" onClick={(e) => { e.preventDefault(); onNavigateToPrivacy(); }} className="hover:text-[#DC143C] hover:underline transition-colors duration-300 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[#DC143C]">Privacy Policy</a>
-              <a href="#" onClick={(e) => { e.preventDefault(); onNavigateToTerms(); }} className="hover:text-[#DC143C] hover:underline transition-colors duration-300 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[#DC143C]">Terms of Service</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); onNavigateToPrivacy(); }} className="hover:text-primary-600 hover:underline transition-colors duration-300 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600">Privacy Policy</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); onNavigateToTerms(); }} className="hover:text-primary-600 hover:underline transition-colors duration-300 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600">Terms of Service</a>
           </div>
         </div>
       </div>

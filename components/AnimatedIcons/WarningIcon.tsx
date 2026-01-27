@@ -31,7 +31,7 @@ const WarningIcon = forwardRef<HTMLDivElement, WarningIconProps>(
       >
         <motion.svg
           animate={isHovered ? "animate" : "normal"}
-          fill="#DC143C"
+          fill="var(--primary-600)"
           height={size}
           variants={{
             normal: { scale: 1 },

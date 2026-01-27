@@ -20,7 +20,7 @@ const ProjectIcon = forwardRef<HTMLDivElement, ProjectIconProps>(
       >
         <motion.svg
           animate={isHovered ? "animate" : "normal"}
-          fill="#DC143C"
+          fill="var(--primary-600)"
           height={size}
           transition={{ type: "spring", stiffness: 180, damping: 15 }}
           variants={{

@@ -24,7 +24,7 @@ const LucideAlertIcon = forwardRef<HTMLDivElement, LucideAlertIconProps>(
         }}
         {...props}
       >
-        <AlertCircle size={size} color="#DC143C" strokeWidth={2} />
+        <AlertCircle size={size} color="var(--primary-600)" strokeWidth={2} />
       </motion.div>
     );
   }
