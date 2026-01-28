@@ -571,6 +571,18 @@ const isGoogleAuthError = (error: any): boolean => {
   return !isTasksApiDisabled(error);
 };
 
+const stripMarkdownForModal = (input: string): string => {
+  const raw = String(input ?? '');
+  if (!raw) return '';
+  return raw
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+};
+
 // Type for the AI response for weekly log updates
 type WeeklyLogUpdatePayload = {
     type: 'accomplishment' | 'challenge';
@@ -654,6 +666,7 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     carryOverTasks: CarryOverTaskEntry[];
     endOfDaySummary: string;
     endOfDayCompletedDate: string;
+    endOfDayIntro: string;
     smartEodQuestions: Array<{ id: string; sourceType: 'delegated' | 'reminder' | 'focus' | 'briefing' | 'project'; sourceId: string; title: string; question: string; answer: string }>;
     isSmartEodLoading: boolean;
     weeklyReport: WeeklyReport | null;
@@ -806,8 +819,8 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     isInterviewModalOpen: boolean;
     interviewModalMode: 'kickoff' | 'morning-briefing' | 'afternoon-briefing' | 'end-of-day' | null;
     interviewDrafts: Record<string, { answers: string[]; otherNotes: string }>;
-    endOfDayDraft: { attendance: string; morale: number | null; coachingNotes: string; otherNotes: string };
-    setEndOfDayDraft: React.Dispatch<React.SetStateAction<{ attendance: string; morale: number | null; coachingNotes: string; otherNotes: string }>>;
+    endOfDayDraft: { attendance: string; morale: number | null; moraleFactors: { energy: number | null; teamwork: number | null; load: number | null; stability: number | null }; coachingNotes: string; otherNotes: string; accomplishments: string; challenges: string; goalTomorrow: string; leadershipJournal: string; delegatedFollowUp: string };
+    setEndOfDayDraft: React.Dispatch<React.SetStateAction<{ attendance: string; morale: number | null; moraleFactors: { energy: number | null; teamwork: number | null; load: number | null; stability: number | null }; coachingNotes: string; otherNotes: string; accomplishments: string; challenges: string; goalTomorrow: string; leadershipJournal: string; delegatedFollowUp: string }>>;
     carryOverDecision: (taskId: string, decision: 'yes' | 'no') => void;
     openInterviewModal: (mode: 'kickoff' | 'morning-briefing' | 'afternoon-briefing' | 'end-of-day') => void;
     closeInterviewModal: () => void;
@@ -935,6 +948,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [endOfDaySummary, setEndOfDaySummary] = useState<string>('');
     const [endOfDayCompletedDate, setEndOfDayCompletedDate] = useState<string>('');
     const [smartEodQuestions, setSmartEodQuestions] = useState<Array<{ id: string; sourceType: 'delegated' | 'reminder' | 'focus' | 'briefing' | 'project'; sourceId: string; title: string; question: string; answer: string }>>([]);
+    const [smartEodQuestionsDate, setSmartEodQuestionsDate] = useState<string>('');
+    const [endOfDayIntro, setEndOfDayIntro] = useState<string>('');
     const [isSmartEodLoading, setIsSmartEodLoading] = useState(false);
     const [weeklyReport, setWeeklyReport] = useState<WeeklyReport | null>(null);
     const [isWeeklyReportModalOpen, setIsWeeklyReportModalOpen] = useState(false);
@@ -1003,11 +1018,17 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [isInterviewModalOpen, setIsInterviewModalOpen] = useState(false);
     const [interviewModalMode, setInterviewModalMode] = useState<'kickoff' | 'morning-briefing' | 'afternoon-briefing' | 'end-of-day' | null>(null);
     const [interviewDrafts, setInterviewDrafts] = useState<Record<string, { answers: string[]; otherNotes: string }>>({});
-    const [endOfDayDraft, setEndOfDayDraft] = useState<{ attendance: string; morale: number | null; coachingNotes: string; otherNotes: string }>({
+    const [endOfDayDraft, setEndOfDayDraft] = useState<{ attendance: string; morale: number | null; moraleFactors: { energy: number | null; teamwork: number | null; load: number | null; stability: number | null }; coachingNotes: string; otherNotes: string; accomplishments: string; challenges: string; goalTomorrow: string; leadershipJournal: string; delegatedFollowUp: string }>({
       attendance: '',
       morale: null,
+      moraleFactors: { energy: null, teamwork: null, load: null, stability: null },
       coachingNotes: '',
       otherNotes: '',
+      accomplishments: '',
+      challenges: '',
+      goalTomorrow: '',
+      leadershipJournal: '',
+      delegatedFollowUp: '',
     });
     
     // Debug: Log when state changes
@@ -1106,6 +1127,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const desktopFileInputRef = useRef<HTMLInputElement>(null);
     const mobileFileInputRef = useRef<HTMLInputElement>(null);
     const generationRequestRef = useRef<symbol | null>(null);
+    const openScheduleEditorOnNextKickoffDraftRef = useRef<boolean>(false);
+    const autoFinalizeKickoffPlanRef = useRef<boolean>(false);
     const taskListIdRef = useRef<string | null>(null);
     const lastWellnessCheckRef = useRef<number>(0); // Timestamp of last wellness check
     
@@ -1940,17 +1963,55 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       const lowered = raw.toLowerCase();
       const hasTrigger = /\b(delegate|assign|create\s+(a\s+)?task|task\s+for|assign\s+to|delegate\s+to)\b/i.test(raw);
       if (!hasTrigger) return null;
-      const matches = userProfile.team
-        .map(member => ({ member, key: member.name.toLowerCase() }))
-        .filter(item => item.key && lowered.includes(item.key))
-        .sort((a, b) => b.key.length - a.key.length);
-      const picked = matches[0]?.member;
-      if (!picked) return null;
-      const nameIndex = lowered.indexOf(picked.name.toLowerCase());
-      const afterName = raw.slice(nameIndex + picked.name.length).trim();
+      const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const normalizeName = (value: string) =>
+        String(value || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      const candidates = userProfile.team.flatMap(member => {
+        const normalized = normalizeName(member.name);
+        if (!normalized) return [];
+        const tokens = normalized.split(' ').filter(t => t.length >= 3);
+        const aliases = Array.from(new Set([normalized, ...tokens]));
+        return aliases.map(alias => ({ member, alias }));
+      });
+
+      const matched = candidates
+        .map(({ member, alias }) => {
+          const re = new RegExp(`\\b${escapeRegExp(alias)}\\b`, 'i');
+          const m = lowered.match(re);
+          if (!m || m.index == null) return null;
+          return { member, alias, index: m.index };
+        })
+        .filter(Boolean)
+        .sort((a: any, b: any) => b.alias.length - a.alias.length)[0] as { member: any; alias: string; index: number } | undefined;
+
+      const picked = matched?.member;
+      let personName: string | null = picked?.name ?? null;
+      let nameIndex = matched?.index ?? -1;
+      let nameLen = matched?.alias?.length ?? 0;
+
+      if (!personName || nameIndex < 0 || nameLen <= 0) {
+        const fallback = raw.match(/\b(?:task\s+for|for|assign(?:ed)?\s+to|delegate\s+to)\s+([a-z][a-z0-9_-]{1,})\b/i);
+        const fallbackName = fallback?.[1]?.trim() || '';
+        const startFrom = fallback?.index ?? 0;
+        const fallbackIndex = fallbackName ? raw.toLowerCase().indexOf(fallbackName.toLowerCase(), startFrom) : -1;
+        if (fallbackName && fallbackIndex >= 0) {
+          personName = fallbackName;
+          nameIndex = fallbackIndex;
+          nameLen = fallbackName.length;
+        }
+      }
+
+      if (!personName || nameIndex < 0 || nameLen <= 0) return null;
+
+      const afterName = raw.slice(nameIndex + nameLen).trim();
       const beforeName = raw.slice(0, nameIndex).trim();
       const deadlineMatch = afterName.match(/\b(deadline|due|by)\b\s*(is\s*)?(.*)$/i) || raw.match(/\b(deadline|due|by)\b\s*(is\s*)?(.*)$/i);
-      const deadlineText = deadlineMatch?.[3]?.trim() || '';
+      const deadlineText = (deadlineMatch?.[3]?.trim() || '').replace(/[.,;!]+$/g, '').trim();
       let taskText = afterName;
       if (deadlineMatch && deadlineMatch.index != null) {
         taskText = afterName.slice(0, deadlineMatch.index).trim();
@@ -1965,7 +2026,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           .trim();
       }
       if (!taskText) return null;
-      return { personName: picked.name, task: taskText, deadline: deadlineText };
+      return { personName, task: taskText, deadline: deadlineText };
     }, [userProfile.team]);
 
     const finalizeDelegation = useCallback(async (payload: { personName: string; task: string }, deadlineText: string) => {
@@ -1975,17 +2036,16 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       }
 
       const assignee = userProfile.team.find(m => m.name.toLowerCase() === payload.personName.toLowerCase());
-      if (!assignee) {
-        return { ok: false, message: `I couldn't find a team member named "${payload.personName}". Please add them in Settings → Team.` };
-      }
+      const assigneeName = assignee?.name ?? payload.personName;
+      const assigneeId = assignee?.id ?? `ext-${assigneeName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`;
 
       const token = session?.provider_token;
       const localId = `delegated-${Date.now()}`;
       const loggedAt = getBriefingNowOverride() ?? Date.now();
       const newTask: DelegatedTaskItem = {
         id: localId,
-        assigneeId: assignee.id,
-        assigneeName: assignee.name,
+        assigneeId,
+        assigneeName,
         text: payload.task,
         deadline: parsed.deadline,
         completed: false,
@@ -1996,7 +2056,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setDelegatedTasks(prev => dedupeDelegatedTasks([...prev, newTask]));
 
       if (!token) {
-        return { ok: true, message: `Got it — delegated to ${assignee.name} (deadline: ${parsed.deadline}). Google sync is not connected, so I saved it locally.` };
+        return { ok: true, message: `Got it — delegated to ${assigneeName} (deadline: ${parsed.deadline}). Google sync is not connected, so I saved it locally.` };
       }
 
       try {
@@ -2004,21 +2064,21 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           const listId = await findOrCreateTaskList(token, `${userProfile.assistantName} Delegated Tasks`);
           taskListIdRef.current = listId;
         }
-        const notes = `Assigned to: ${assignee.name}\nStatus: In Progress`;
+        const notes = `Assigned to: ${assigneeName}\nStatus: In Progress`;
         const googleTask = await createTask(token, taskListIdRef.current, payload.task, notes, parsed.deadlineISO);
         // Update local task with Google Task ID
         setDelegatedTasks(prev => prev.map(t => (t.id === localId ? { ...t, googleTaskId: googleTask.id } : t)));
-        return { ok: true, message: `Done — delegated to ${assignee.name} with deadline **${parsed.deadline}**.` };
+        return { ok: true, message: `Done — delegated to ${assigneeName} with deadline **${parsed.deadline}**.` };
       } catch (error: any) {
         // Task is already in local state, just log the sync error (don't remove it)
         if (isTasksApiDisabled(error)) {
-          return { ok: true, message: `Done — delegated to ${assignee.name} with deadline **${parsed.deadline}**. Google Tasks sync failed, but task is saved locally.` };
+          return { ok: true, message: `Done — delegated to ${assigneeName} with deadline **${parsed.deadline}**. Google Tasks sync failed, but task is saved locally.` };
         }
         if (isGoogleAuthError(error)) {
           onGoogleAuthError();
-          return { ok: true, message: `Done — delegated to ${assignee.name} with deadline **${parsed.deadline}**. Google connection expired, but task is saved locally. Please reconnect to sync.` };
+          return { ok: true, message: `Done — delegated to ${assigneeName} with deadline **${parsed.deadline}**. Google connection expired, but task is saved locally. Please reconnect to sync.` };
         }
-        return { ok: true, message: `Done — delegated to ${assignee.name} with deadline **${parsed.deadline}**. Google Tasks sync failed: ${error.message}, but task is saved locally.` };
+        return { ok: true, message: `Done — delegated to ${assigneeName} with deadline **${parsed.deadline}**. Google Tasks sync failed: ${error.message}, but task is saved locally.` };
       }
 
     }, [parseDeadlineFromText, userProfile.team, session, userProfile.assistantName, onGoogleAuthError]);
@@ -2034,16 +2094,43 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }), []);
     const applyProjectOps = useCallback((current: Project[], ops: any[]) => applyProjectOpsUtil(current, ops), []);
   
+    const handleCreateReminderFromText = useCallback((text: string) => {
+      const loggedAt = getBriefingNowOverride() ?? Date.now();
+      const newReminder: ReminderItem = {
+        id: `rem-${Date.now()}`,
+        text,
+        completed: false,
+        loggedAt,
+        includeInBriefing: DEFAULT_REMINDER_BRIEFING_PREF,
+      };
+      setReminders(prev => [...prev, newReminder]);
+      if (newReminder.includeInBriefing === 'none') {
+        setNotificationModal({
+          isOpen: true,
+          title: 'Personal Reminder',
+          message: `Reminder saved: ${text}`,
+        });
+        setChatMessages(prev => [
+          ...prev,
+          { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Personal reminder noted: ${text}` }
+        ]);
+      }
+    }, []);
+
     const handleSendMessage = useCallback(async (e?: React.FormEvent, prompt?: string, imageUrl?: string, options?: { hideUserMessage?: boolean; suppressChat?: boolean }): Promise<void> => {
       if (e) e.preventDefault();
       setLastInteraction(Date.now()); // Update interaction timestamp
+      const normalizedOptions =
+        options ?? (((imageUrl as any) && typeof (imageUrl as any) === 'object') ? (imageUrl as any) : undefined);
+      const normalizedImageUrl =
+        options ? imageUrl : (((imageUrl as any) && typeof (imageUrl as any) === 'object') ? undefined : imageUrl);
       const rawText = (prompt || chatInput).trim();
       const projectRequestPrefix = 'PROJECT_DRAFT_REQUEST::';
       const isProjectDraftRequest = rawText.startsWith(projectRequestPrefix);
       const messageText = isProjectDraftRequest ? rawText.replace(projectRequestPrefix, '').trim() : rawText;
-      if (!messageText && !attachedFile && !imageUrl) return;
+      if (!messageText && !attachedFile && !normalizedImageUrl) return;
       if (aiCooldownUntil && Date.now() < aiCooldownUntil) {
-        if (options?.suppressChat) {
+        if (normalizedOptions?.suppressChat) {
           setNotificationModal({ isOpen: true, title: 'Rate Limited', message: "The AI service is rate-limited right now. Please wait about a minute and try again." });
           return;
         }
@@ -2051,7 +2138,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         return;
       }
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        if (options?.suppressChat) {
+        if (normalizedOptions?.suppressChat) {
           setNotificationModal({ isOpen: true, title: 'Offline', message: "You're offline. Please reconnect to the internet and try again." });
           return;
         }
@@ -2062,14 +2149,80 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       if (isCommandPaletteOpen) setIsCommandPaletteOpen(false);
 
       const isSystemPromptPreview = messageText.startsWith('SYSTEM:');
-      if (pendingDelegation && !isProjectDraftRequest && !attachedFile && !imageUrl && !isSystemPromptPreview) {
+      const shouldBypassLocalShortcuts = Boolean(normalizedOptions?.suppressChat) || Boolean(normalizedOptions?.hideUserMessage) || Boolean(isSystemPromptPreview);
+
+      const shouldAutoCancelPendingDelegation = Boolean(
+        pendingDelegation &&
+        (String(pendingDelegation.task || '').length > 180 ||
+          /\bInterview Answers\b/i.test(String(pendingDelegation.task || '')) ||
+          /\bReturn a single valid JSON\b/i.test(String(pendingDelegation.task || '')) ||
+          /\bQ\d+:/i.test(String(pendingDelegation.task || '')))
+      );
+      if (shouldAutoCancelPendingDelegation) {
+        setPendingDelegation(null);
+      }
+
+      if (pendingDelegation && !shouldBypassLocalShortcuts && !isProjectDraftRequest && !attachedFile && !normalizedImageUrl) {
         const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
         setChatMessages(prev => [...prev, { id: userMessageId, role: 'user', text: messageText }]);
         setChatInput('');
         setAttachedFile(null);
 
+        const reminderText = (() => {
+          const raw = String(messageText || '').trim();
+          if (!raw) return null;
+          const createMatch = raw.match(/^create\s+(?:a\s+)?reminder\b(?:\s*[:,-]?\s*(?:to\s+)?)?(.+)$/i);
+          if (createMatch?.[1]?.trim()) return createMatch[1].trim();
+          const remindMatch = raw.match(/^remind\s+me\b(?:\s*[:,-]?\s*(?:to\s+)?)?(.+)$/i);
+          if (remindMatch?.[1]?.trim()) return remindMatch[1].trim();
+          return null;
+        })();
+        if (reminderText) {
+          handleCreateReminderFromText(reminderText);
+          const modelText = `Personal reminder noted: ${reminderText}\nStill need a deadline for "${pendingDelegation.task}" (assigned to ${pendingDelegation.personName}).`;
+          setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
+          const nowTs = Date.now();
+          setChatHistory(prev => [
+            ...prev,
+            { role: 'user', parts: [{ text: messageText }], _ts: nowTs },
+            { role: 'model', parts: [{ text: JSON.stringify({ text: modelText }) }], _ts: nowTs }
+          ]);
+          return;
+        }
+
+        const newDelegation = parseDelegationFromText(messageText);
+        if (newDelegation) {
+          const nowTs = Date.now();
+          if (newDelegation.deadline) {
+            const created = await finalizeDelegation({ personName: newDelegation.personName, task: newDelegation.task }, newDelegation.deadline);
+            if (created.ok) {
+              setNotificationModal({ isOpen: true, title: 'Delegated Task Created', message: stripMarkdownForModal(created.message) });
+            }
+            const modelText = `${created.message}\nStill need a deadline for "${pendingDelegation.task}" (assigned to ${pendingDelegation.personName}).`;
+            setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
+            setChatHistory(prev => [
+              ...prev,
+              { role: 'user', parts: [{ text: messageText }], _ts: nowTs },
+              { role: 'model', parts: [{ text: JSON.stringify({ text: modelText }) }], _ts: nowTs }
+            ]);
+            return;
+          }
+          setPendingDelegation({ personName: newDelegation.personName, task: newDelegation.task, requestedAt: nowTs });
+          const modelText = `What deadline should I set for "${newDelegation.task}" (assigned to ${newDelegation.personName})? Try "tomorrow", "2026-02-15", or "2026-02-15 15:00".`;
+          setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
+          setChatHistory(prev => [
+            ...prev,
+            { role: 'user', parts: [{ text: messageText }], _ts: nowTs },
+            { role: 'model', parts: [{ text: JSON.stringify({ text: modelText }) }], _ts: nowTs }
+          ]);
+          return;
+        }
+
         const result = await finalizeDelegation({ personName: pendingDelegation.personName, task: pendingDelegation.task }, messageText);
-        if (result.ok) setPendingDelegation(null);
+        if (result.ok) {
+          setPendingDelegation(null);
+          setNotificationModal({ isOpen: true, title: 'Delegated Task Created', message: stripMarkdownForModal(result.message) });
+        }
         const modelText = result.message;
         setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
         const nowTs = Date.now();
@@ -2085,7 +2238,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       const isKeyFactsQuery =
         !isProjectDraftRequest &&
         !attachedFile &&
-        !imageUrl &&
+        !normalizedImageUrl &&
         !isSystemPromptPreview &&
         (normalizedMessage.includes('key facts') ||
           normalizedMessage.includes('assistant memory') ||
@@ -2112,7 +2265,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       }
 
       const directDelegation = parseDelegationFromText(messageText);
-      if (directDelegation && !isProjectDraftRequest && !attachedFile && !imageUrl && !isSystemPromptPreview) {
+      if (directDelegation && !shouldBypassLocalShortcuts && !isProjectDraftRequest && !attachedFile && !normalizedImageUrl) {
         const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
         setChatMessages(prev => [...prev, { id: userMessageId, role: 'user', text: messageText }]);
         setChatInput('');
@@ -2132,6 +2285,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         const result = await finalizeDelegation({ personName: directDelegation.personName, task: directDelegation.task }, directDelegation.deadline);
         if (result.ok) {
           setPendingDelegation(null);
+          setNotificationModal({ isOpen: true, title: 'Delegated Task Created', message: stripMarkdownForModal(result.message) });
         } else {
           setPendingDelegation({ personName: directDelegation.personName, task: directDelegation.task, requestedAt: nowTs });
         }
@@ -2142,6 +2296,58 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           { role: 'user', parts: [{ text: messageText }], _ts: nowTs },
           { role: 'model', parts: [{ text: JSON.stringify({ text: modelText }) }], _ts: nowTs }
         ]);
+        return;
+      }
+
+      const directReminderText = (() => {
+        const raw = String(messageText || '').trim();
+        if (!raw) return null;
+        const createMatch = raw.match(/^create\s+(?:a\s+)?reminder\b(?:\s*[:,-]?\s*(?:to\s+)?)?(.+)$/i);
+        if (createMatch?.[1]?.trim()) return createMatch[1].trim();
+        const remindMatch = raw.match(/^remind\s+me\b(?:\s*[:,-]?\s*(?:to\s+)?)?(.+)$/i);
+        if (remindMatch?.[1]?.trim()) return remindMatch[1].trim();
+        return null;
+      })();
+      if (directReminderText && !shouldBypassLocalShortcuts && !isProjectDraftRequest && !attachedFile && !normalizedImageUrl) {
+        const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
+        setChatMessages(prev => [...prev, { id: userMessageId, role: 'user', text: messageText }]);
+        setChatInput('');
+        setAttachedFile(null);
+        handleCreateReminderFromText(directReminderText);
+        const modelText = `Personal reminder noted: ${directReminderText}`;
+        const nowTs = Date.now();
+        setChatHistory(prev => [
+          ...prev,
+          { role: 'user', parts: [{ text: messageText }], _ts: nowTs },
+          { role: 'model', parts: [{ text: JSON.stringify({ text: modelText }) }], _ts: nowTs }
+        ]);
+        return;
+      }
+
+      const directTaskText = (() => {
+        const raw = String(messageText || '').trim();
+        if (!raw) return null;
+        const taskMatch = raw.match(/^create\s+(?:a\s+)?task\b(?:\s*[:,-]?\s*(?:to\s+)?)?(.+)$/i);
+        if (taskMatch?.[1]?.trim()) return taskMatch[1].trim();
+        return null;
+      })();
+      if (directTaskText && !shouldBypassLocalShortcuts && !isProjectDraftRequest && !attachedFile && !normalizedImageUrl) {
+        const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
+        setChatMessages(prev => [...prev, { id: userMessageId, role: 'user', text: messageText }]);
+        setChatInput('');
+        setAttachedFile(null);
+
+        const newPriority: Top3Item = { id: `priority-${Date.now()}`, text: directTaskText, completed: false };
+        setTop3Items(prev => [...(Array.isArray(prev) ? prev : []), newPriority]);
+
+        const modelText = `Added to Top Priorities: ${directTaskText}`;
+        const nowTs = Date.now();
+        setChatHistory(prev => [
+          ...prev,
+          { role: 'user', parts: [{ text: messageText }], _ts: nowTs },
+          { role: 'model', parts: [{ text: JSON.stringify({ text: modelText }) }], _ts: nowTs }
+        ]);
+        setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelText }]);
         return;
       }
 
@@ -2159,13 +2365,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       });
 
       const shouldBypassFreeStyleHeuristics =
-        Boolean(options?.suppressChat) ||
-        Boolean(options?.hideUserMessage) ||
+        Boolean(normalizedOptions?.suppressChat) ||
+        Boolean(normalizedOptions?.hideUserMessage) ||
         Boolean(isSystemPromptPreview);
 
       if (!shouldBypassFreeStyleHeuristics) {
         const freeStyleFinalize = hasDraftPlan && inferFinalizePlan(messageText);
-        if (freeStyleFinalize && !isProjectDraftRequest && !attachedFile && !imageUrl) {
+        if (freeStyleFinalize && !isProjectDraftRequest && !attachedFile && !normalizedImageUrl) {
           const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
           setChatMessages(prev => [...prev, { id: userMessageId, role: 'user', text: messageText }]);
           setChatInput('');
@@ -2187,7 +2393,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           return;
         }
 
-        if (freeStyle.intent === 'cancel_pending' && pendingScheduleClarification && !isProjectDraftRequest && !attachedFile && !imageUrl) {
+        if (freeStyle.intent === 'cancel_pending' && pendingScheduleClarification && !isProjectDraftRequest && !attachedFile && !normalizedImageUrl) {
           const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
           setChatMessages(prev => [...prev, { id: userMessageId, role: 'user', text: messageText }]);
           setChatInput('');
@@ -2202,7 +2408,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           return;
         }
 
-        if ((freeStyle.intent === 'exclude_item' || freeStyle.intent === 'mark_done') && freeStyle.entities[0]?.confidence >= 0.7 && !isProjectDraftRequest && !attachedFile && !imageUrl) {
+        if ((freeStyle.intent === 'exclude_item' || freeStyle.intent === 'mark_done') && freeStyle.entities[0]?.confidence >= 0.7 && !isProjectDraftRequest && !attachedFile && !normalizedImageUrl) {
           const target = freeStyle.entities[0];
           const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
           setChatMessages(prev => [...prev, { id: userMessageId, role: 'user', text: messageText }]);
@@ -2251,7 +2457,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         const isSystemPrompt = messageText.startsWith('SYSTEM:');
         
         // For mode activation SYSTEM prompts, don't show in chat at all
-        const shouldHideMessage = Boolean(options?.hideUserMessage) || Boolean(options?.suppressChat) || (isSystemPrompt && (
+        const shouldHideMessage = Boolean(normalizedOptions?.hideUserMessage) || Boolean(normalizedOptions?.suppressChat) || (isSystemPrompt && (
             messageText.includes('CRISIS MODE') || 
             messageText.includes('STRATEGIC MODE') || 
             messageText.includes('RED DAY MODE')
@@ -2264,8 +2470,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       const userMessageId = Date.now() * 1000 + (messageIdRef.current++ % 1000);
       const newUserMessage: ChatMessage = { id: userMessageId, role: 'user', text: userMessageForUI };
       
-      if (imageUrl) {
-          newUserMessage.imageUrl = imageUrl;
+      if (normalizedImageUrl) {
+          newUserMessage.imageUrl = normalizedImageUrl;
       }
       
       const isFinalization = hasDraftPlan && inferFinalizePlan(messageText);
@@ -2315,7 +2521,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               fullPrompt += `\n\n--- Attached File Content: ${fileToProcess.name} ---\n${await fileToProcess.text()}`;
           } catch (readError) {
               console.error("Error reading file:", readError);
-              if (options?.suppressChat) {
+              if (normalizedOptions?.suppressChat) {
                 setNotificationModal({ isOpen: true, title: 'File Error', message: `Sorry, I was unable to read the file "${fileToProcess.name}".` });
               } else {
                 setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Sorry, I was unable to read the file "${fileToProcess.name}".` }]);
@@ -2327,7 +2533,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           }
       }
 
-      if (pendingScheduleClarification && !isProjectDraftRequest && !fileToProcess && !imageUrl && !isSystemPrompt && !isFinalization) {
+      if (pendingScheduleClarification && !isProjectDraftRequest && !fileToProcess && !normalizedImageUrl && !isSystemPrompt && !isFinalization) {
           const keyFactsForPrompt = (() => {
             const raw = String(userProfile.assistantMemory || '').trim();
             if (!raw) return '';
@@ -2382,8 +2588,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       
       const newMessagePart: Content = { 
           role: 'user', 
-          parts: imageUrl 
-            ? [{ text: fullPrompt }, { inlineData: { mimeType: "image/jpeg", data: imageUrl.split(',')[1] } }] 
+          parts: normalizedImageUrl 
+            ? [{ text: fullPrompt }, { inlineData: { mimeType: "image/jpeg", data: normalizedImageUrl.split(',')[1] } }] 
             : [{ text: fullPrompt }] 
       };
 
@@ -2715,6 +2921,71 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   : typeof response.priorities === 'string' ? response.priorities.split('\n') : [];
               const prioritiesCandidate = buildTopPriorities(prioritiesArray.length > 0 ? prioritiesArray : fallbackPriorities);
 
+              const minutesToAmPm = (minutes: number) => {
+                const h24 = Math.floor(minutes / 60) % 24;
+                const m = minutes % 60;
+                const meridiem = h24 >= 12 ? 'PM' : 'AM';
+                const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+                return `${h12}:${String(m).padStart(2, '0')} ${meridiem}`;
+              };
+
+              if (scheduleCandidate.length === 0 && prioritiesCandidate.length > 0) {
+                const busy: Array<{ start: number; end: number }> = [];
+                (Array.isArray(googleCalendarEvents) ? googleCalendarEvents : []).forEach((event: any) => {
+                  const startIso = event?.start?.dateTime;
+                  const endIso = event?.end?.dateTime;
+                  if (!startIso || !endIso) return;
+                  const start = new Date(startIso);
+                  const end = new Date(endIso);
+                  const startMin = start.getHours() * 60 + start.getMinutes();
+                  const endMin = end.getHours() * 60 + end.getMinutes();
+                  if (Number.isFinite(startMin) && Number.isFinite(endMin) && endMin > startMin) {
+                    busy.push({ start: startMin, end: endMin });
+                  }
+                });
+                busy.sort((a, b) => a.start - b.start);
+
+                const findSlot = (startAfter: number, duration: number, dayEnd: number) => {
+                  let cursor = startAfter;
+                  for (const block of busy) {
+                    if (cursor + duration <= block.start) return cursor;
+                    if (cursor < block.end && cursor + duration > block.start) cursor = block.end;
+                  }
+                  return cursor + duration <= dayEnd ? cursor : null;
+                };
+
+                const dayStart = 9 * 60;
+                const dayEnd = 20 * 60;
+                let cursor = dayStart;
+                const duration = 60;
+                const focusBlocks: ScheduleItem[] = [];
+                prioritiesCandidate.forEach((priority) => {
+                  const start = findSlot(cursor, duration, dayEnd);
+                  if (start == null) return;
+                  const end = start + duration;
+                  focusBlocks.push({
+                    id: `focus-${priority.id}`,
+                    time: `${minutesToAmPm(start)} - ${minutesToAmPm(end)}`,
+                    title: priority.text,
+                    completed: Boolean(priority.completed),
+                  });
+                  busy.push({ start, end });
+                  busy.sort((a, b) => a.start - b.start);
+                  cursor = end;
+                });
+
+                scheduleCandidate = focusBlocks;
+              }
+
+              if (scheduleCandidate.length === 0 && prioritiesCandidate.length > 0) {
+                scheduleCandidate = prioritiesCandidate.map((priority) => ({
+                  id: `allday-${priority.id}`,
+                  time: 'All Day',
+                  title: priority.text,
+                  completed: Boolean(priority.completed),
+                }));
+              }
+
               const todayYmd = toYmdLocal(new Date());
               const eventOpsCompact = freshEventOpsItems.map(item => ({
                 id: item.id,
@@ -2724,14 +2995,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 location: item.location,
                 serving_time: item.serving_time,
               }));
-
-              const minutesToAmPm = (minutes: number) => {
-                const h24 = Math.floor(minutes / 60) % 24;
-                const m = minutes % 60;
-                const meridiem = h24 >= 12 ? 'PM' : 'AM';
-                const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-                return `${h12}:${String(m).padStart(2, '0')} ${meridiem}`;
-              };
 
               const existingTitles = new Set(scheduleCandidate.map(s => normalizeNeedle(s.title)));
               const { blocks: eventOpsBlocks } = buildEventOpsBlocksForToday(eventOpsCompact, todayYmd);
@@ -2764,6 +3027,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 proposedSchedule: scheduleCandidate.map(s => ({ time: s.time, title: s.title })),
               });
 
+              const shouldAutoFinalizeKickoffPlan = Boolean(autoFinalizeKickoffPlanRef.current);
               if ('needsClarification' in validation && validation.needsClarification) {
                   // NOTE: User requested to REMOVE the red banner blocking logic.
                   // Instead of blocking, we will just let the AI's question pass through as text.
@@ -2787,13 +3051,39 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   // But the user says "REMOVE the incorrect UI/behavior".
                   // So we ignore this client-side check and proceed to show the draft.
                   
-                  if (scheduleCandidate.length > 0) setDraftedSchedule(scheduleCandidate);
-                  if (prioritiesCandidate.length > 0) setDraftedPriorities(prioritiesCandidate);
+                  if (shouldAutoFinalizeKickoffPlan) {
+                    if (scheduleCandidate.length > 0) setScheduleItems(scheduleCandidate);
+                    if (prioritiesCandidate.length > 0) setTop3Items(prioritiesCandidate);
+                    setDraftedSchedule(null);
+                    setDraftedPriorities(null);
+                    setIsScheduleConfirmed(false);
+                    forceSaveRef.current = true;
+                  } else {
+                    if (scheduleCandidate.length > 0) setDraftedSchedule(scheduleCandidate);
+                    if (prioritiesCandidate.length > 0) setDraftedPriorities(prioritiesCandidate);
+                  }
                   if (pendingScheduleClarification) shouldClearPendingScheduleClarification = true;
               } else {
-                  if (scheduleCandidate.length > 0) setDraftedSchedule(scheduleCandidate);
-                  if (prioritiesCandidate.length > 0) setDraftedPriorities(prioritiesCandidate);
+                  if (shouldAutoFinalizeKickoffPlan) {
+                    if (scheduleCandidate.length > 0) setScheduleItems(scheduleCandidate);
+                    if (prioritiesCandidate.length > 0) setTop3Items(prioritiesCandidate);
+                    setDraftedSchedule(null);
+                    setDraftedPriorities(null);
+                    setIsScheduleConfirmed(false);
+                    forceSaveRef.current = true;
+                  } else {
+                    if (scheduleCandidate.length > 0) setDraftedSchedule(scheduleCandidate);
+                    if (prioritiesCandidate.length > 0) setDraftedPriorities(prioritiesCandidate);
+                  }
                   if (pendingScheduleClarification) shouldClearPendingScheduleClarification = true;
+              }
+
+              if (openScheduleEditorOnNextKickoffDraftRef.current) {
+                openScheduleEditorOnNextKickoffDraftRef.current = false;
+                autoFinalizeKickoffPlanRef.current = false;
+                setTimeout(() => {
+                  setIsScheduleEditorOpen(true);
+                }, 0);
               }
           } else {
               // Handle normal, non-draft updates
@@ -3120,101 +3410,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   .trim();
           };
 
-          const integrateBriefingInputsIntoDraft = (draft: string, inputs: BriefingInputItem[]) => {
-              if (!draft.trim() || inputs.length === 0) return draft;
-
-              const normalizeForMatch = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim();
-              const draftMatch = normalizeForMatch(draft);
-              const alreadyConsidered = new Set<string>();
-
-              const lines = draft.replace(/\r\n/g, '\n').split('\n');
-              const headings: Array<{ num: number; title: string; line: number }> = [];
-              for (let i = 0; i < lines.length; i++) {
-                  const m = lines[i].match(/^\s*(\d+)\.\s*(.+?)\s*:?\s*$/);
-                  if (m) headings.push({ num: Number(m[1]), title: m[2].trim(), line: i });
-              }
-              if (headings.length === 0) return draft;
-
-              const ranges = headings.map((h, idx) => {
-                  const start = h.line;
-                  const end = idx + 1 < headings.length ? headings[idx + 1].line : lines.length;
-                  return { ...h, start, end };
-              });
-
-              const keyForHeading = (title: string) => {
-                  const t = title.toLowerCase();
-                  if (/(inventory|breakage|towel|laundry|supply|budget|chemical|chemicals)/i.test(t)) return 'inventory';
-                  if (/(clean|cleanliness|standard|uniform|dry storage)/i.test(t)) return 'standards';
-                  if (/(process|safety|improvement|handover|pilot|gretel|grease|trap|training|incident)/i.test(t)) return 'safety';
-                  if (/(operational|events|staffing|coverage)/i.test(t)) return 'operations';
-                  return 'operations';
-              };
-
-              const classifyInput = (item: BriefingInputItem) => {
-                  const type = (item.type || '').toLowerCase();
-                  const text = (item.text || '').toLowerCase();
-                  if (type.includes('coaching')) return 'safety';
-                  if (type.includes('log')) {
-                      if (/(breakage|inventory|towel|laundry|supply|budget|chemical|chemicals)/i.test(text)) return 'inventory';
-                      if (/(clean|standard|uniform|dry storage)/i.test(text)) return 'standards';
-                      if (/(safety|incident|glass|pilot|handover|gretel|grease|trap|training)/i.test(text)) return 'safety';
-                      return 'operations';
-                  }
-                  if (/(breakage|inventory|towel|laundry|supply|budget|chemical|chemicals)/i.test(text)) return 'inventory';
-                  if (/(clean|standard|uniform|dry storage)/i.test(text)) return 'standards';
-                  if (/(safety|incident|glass|pilot|handover|gretel|grease|trap|training)/i.test(text)) return 'safety';
-                  return 'operations';
-              };
-
-              const sectionLineForKey: Record<string, number> = {};
-              ranges.forEach((r) => {
-                  const key = keyForHeading(r.title);
-                  if (sectionLineForKey[key] == null) sectionLineForKey[key] = r.line;
-              });
-
-              const insertBullets: Array<{ sectionLine: number; bullet: string }> = [];
-              inputs.forEach((item) => {
-                  const rawText = String(item.text || '').trim();
-                  if (!rawText) return;
-                  const matchText = normalizeForMatch(rawText);
-                  if (alreadyConsidered.has(matchText)) return;
-                  alreadyConsidered.add(matchText);
-                  if (draftMatch.includes(matchText)) return;
-                  const label = String(item.type || '').trim();
-                  const bulletText =
-                      label && !/briefing pointer/i.test(label) && !rawText.toLowerCase().startsWith(label.toLowerCase())
-                          ? `${label}: ${rawText}`
-                          : rawText;
-                  const key = classifyInput(item);
-                  const sectionLine = sectionLineForKey[key] ?? ranges[0].line;
-                  insertBullets.push({ sectionLine, bullet: `- ${bulletText}` });
-              });
-
-              if (insertBullets.length === 0) return draft;
-
-              const insertsBySection = new Map<number, string[]>();
-              insertBullets.forEach(({ sectionLine, bullet }) => {
-                  const arr = insertsBySection.get(sectionLine) ?? [];
-                  arr.push(bullet);
-                  insertsBySection.set(sectionLine, arr);
-              });
-
-              const sectionStartToRange = new Map<number, { start: number; end: number }>();
-              ranges.forEach((r) => sectionStartToRange.set(r.line, { start: r.start, end: r.end }));
-
-              const sectionStarts = Array.from(insertsBySection.keys()).sort((a, b) => b - a);
-              sectionStarts.forEach((startLine) => {
-                  const range = sectionStartToRange.get(startLine);
-                  if (!range) return;
-                  let insertAt = range.end;
-                  while (insertAt > range.start && lines[insertAt - 1]?.trim() === '') insertAt--;
-                  const bullets = insertsBySection.get(startLine) ?? [];
-                  lines.splice(insertAt, 0, ...bullets);
-              });
-
-              return normalizeBriefingDraftForDisplay(lines.join('\n'));
-          };
-
           const normalizeBriefingScriptForDisplay = (value: string) => {
               const normalized = value
                   .replace(/^\s*[-*]\s+/gm, '• ')
@@ -3367,6 +3562,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
           const effectiveKeepDraft = response.keep_draft ?? derivedKeepDraftFromText;
           const effectiveKeep = response.keep ?? derivedKeepFromText;
+          const effectiveKeepForFinalize = isBriefingFinalizeResponse ? (effectiveKeep ?? effectiveKeepDraft) : effectiveKeep;
 
           const actionDraftText =
               response?.action === 'UPDATE_BRIEFING_MODAL' && typeof response?.draftText === 'string'
@@ -3399,24 +3595,24 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               nextBriefingState = 'draft';
           }
 
-          if (effectiveKeep) {
+          if (effectiveKeepForFinalize) {
               if (isBriefingFinalizeResponse) {
-                  setBriefingScript(cleanBriefingScriptPlainText(String(effectiveKeep)));
+                  setBriefingScript(cleanBriefingScriptPlainText(String(effectiveKeepForFinalize)));
                   if (briefingFinalizeTimeoutRef.current) {
                       clearTimeout(briefingFinalizeTimeoutRef.current);
                   }
                   briefingFinalizeRequestRef.current = null;
                   setBriefingState('finalized');
               } else {
-                  const payload = extractPayloadFromText(effectiveKeep);
+                  const payload = extractPayloadFromText(effectiveKeepForFinalize);
                   const extracted =
                       typeof payload?.keep === 'string'
                           ? payload.keep
                           : typeof payload?.text === 'string'
                               ? payload.text
-                              : extractJsonStringFieldBestEffort(String(effectiveKeep), 'keep') ??
-                                extractJsonStringFieldBestEffort(String(effectiveKeep), 'text') ??
-                                effectiveKeep;
+                              : extractJsonStringFieldBestEffort(String(effectiveKeepForFinalize), 'keep') ??
+                                extractJsonStringFieldBestEffort(String(effectiveKeepForFinalize), 'text') ??
+                                effectiveKeepForFinalize;
                   nextKeepNotes = normalizeBriefingDraftForDisplay(normalizeEscapedNewlinesForDisplay(String(extracted).trim()));
                   nextBriefingState = 'finalized';
               }
@@ -3537,7 +3733,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           const shouldSuppressAssistantChat =
               isBriefingRelatedResponse && (Boolean(briefingDraftText || effectiveKeep) || isBriefingFinalizeResponse);
 
-          if (!options?.suppressChat && !shouldSuppressAssistantChat && (chatTextRaw || response.imageUrl || response.sources)) {
+          if (!normalizedOptions?.suppressChat && !shouldSuppressAssistantChat && (chatTextRaw || response.imageUrl || response.sources)) {
               // Ensure isPlanDraft is always a boolean (handle string "true"/"false" or missing values)
               // Also check if response has schedule and priorities (Step 2 of daily kick-off) as fallback
               const hasSchedule = response.schedule && Array.isArray(response.schedule) && response.schedule.length > 0;
@@ -3571,7 +3767,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   isProjectDraft: Boolean(projectDraftPayload),
                   isWeeklyReport: Boolean(response.weeklyReport),
               }]);
-          } else if (!options?.suppressChat && response.weeklyReport) {
+          } else if (!normalizedOptions?.suppressChat && response.weeklyReport) {
               // If AI didn't provide text but created a weekly report, add a completion message
               setChatMessages(prev => [...prev, { 
                   id: Date.now() * 1000 + (messageIdRef.current++ % 1000), 
@@ -3584,7 +3780,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           }
           if (shouldClearPendingScheduleClarification) setPendingScheduleClarification(null);
           const nowTs = Date.now();
-          if (!options?.suppressChat) {
+          if (!normalizedOptions?.suppressChat) {
             setChatHistory(prev => [
               ...prev,
               { role: 'user', parts: [{ text: fullPrompt }], _ts: nowTs },
@@ -3600,7 +3796,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           if (fallbackMessage.toLowerCase().includes('rate-limited')) {
             setAiCooldownUntil(Date.now() + 60_000);
           }
-          if (options?.suppressChat) {
+          if (normalizedOptions?.suppressChat) {
             setNotificationModal({ isOpen: true, title: 'AI Error', message: fallbackMessage });
           } else {
             setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: fallbackMessage }]);
@@ -3618,7 +3814,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           setIsSending(false);
         }
       }
-    }, [chatInput, attachedFile, isMobileMenuOpen, isCommandPaletteOpen, chatHistory, chatMessages, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, userProfile, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, session, onProfileUpdate, onGoogleAuthError, googleCalendarEvents, draftedSchedule, draftedPriorities, completedGCalEventIds, pendingBriefingWindow, pendingBriefingContextSnapshot, buildProjectDraft, fetchEventOpsItemsForAI, pendingDelegation, finalizeDelegation, applyScheduleOps, applyPriorityOps, applyReminderOps, applyProjectOps, normalizeNeedle]);
+    }, [chatInput, attachedFile, isMobileMenuOpen, isCommandPaletteOpen, chatHistory, chatMessages, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, userProfile, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, session, onProfileUpdate, onGoogleAuthError, googleCalendarEvents, draftedSchedule, draftedPriorities, completedGCalEventIds, pendingBriefingWindow, pendingBriefingContextSnapshot, buildProjectDraft, fetchEventOpsItemsForAI, pendingDelegation, finalizeDelegation, applyScheduleOps, applyPriorityOps, applyReminderOps, applyProjectOps, normalizeNeedle, handleCreateReminderFromText]);
     
     const handleProactiveAIMessage = useCallback(async (prompt: string) => {
         if (isSending) return;
@@ -4115,11 +4311,14 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const handleClearSchedule = useCallback(() => {
         setScheduleItems([]);
         setDraftedSchedule(null);
+        setTop3Items([]);
+        setDraftedPriorities(null);
         setGoogleCalendarEvents([]);
         setCompletedGCalEventIds(new Set());
         setIsScheduleConfirmed(false);
         setSuppressCalendarFetch(true);
         setShowScheduleClearConfirm(false);
+        setShowPrioritiesClearConfirm(false);
     }, []);
 
     const createScheduleItem = useCallback((item: { time: string; title: string }) => {
@@ -4311,30 +4510,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             }
         }
     }, [delegatedTasks, session, onGoogleAuthError]);
-  
-    const handleCreateReminderFromText = useCallback((text: string) => {
-      const loggedAt = getBriefingNowOverride() ?? Date.now();
-      const newReminder: ReminderItem = {
-        id: `rem-${Date.now()}`,
-        text,
-        completed: false,
-        loggedAt,
-        includeInBriefing: DEFAULT_REMINDER_BRIEFING_PREF,
-      };
-      setReminders(prev => [...prev, newReminder]);
-      if (newReminder.includeInBriefing === 'none') {
-        setNotificationModal({
-          isOpen: true,
-          title: 'Personal Reminder',
-          message: `Reminder saved: ${text}`,
-        });
-        setChatMessages(prev => [
-          ...prev,
-          { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Personal reminder noted: ${text}` }
-        ]);
-      }
-    }, []);
-  
+    
     const handleAddBriefingFromText = useCallback((text: string) => {
       const loggedAt = getBriefingNowOverride() ?? Date.now();
       setBriefingInputs(prev => [...prev, { id: `brief-item-${Date.now()}`, type: 'Logged from chat', text, loggedAt }]);
@@ -4507,9 +4683,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         const context = filterBriefingContext(null, reminders, briefingInputs, delegatedTasks);
         const baseNotes = (typeof notesOverride === 'string' ? notesOverride : keepNotes)?.trim() || '';
         const briefingTypeHint =
-          /AFTERNOON\s+BRIEFING\s+DRAFT/i.test(baseNotes)
+          /AFTERNOON\s+BRIEFING/i.test(baseNotes)
             ? 'AFTERNOON'
-            : /MORNING\s+BRIEFING\s+DRAFT/i.test(baseNotes)
+            : /MORNING\s+BRIEFING/i.test(baseNotes)
               ? 'MORNING'
               : '';
         const hasEmbeddedContext = /(^|\n)(REMINDERS:|DELEGATED TASKS:|VIEW POINTERS:)/i.test(baseNotes);
@@ -4530,9 +4706,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             setBriefingScript("This is taking longer than expected. Please try Finalize again.");
             setIsSending(false);
         }, 60000);
+        const afternoonFormatBlock =
+          briefingTypeHint === 'AFTERNOON'
+            ? `\n\nFORMAT REQUIREMENTS:\n- Output plain text only (no JSON).\n- Convert into TALKING POINTS (no paragraphs).\n- Use numbered sections with trailing colons (e.g., "1. OPERATIONAL FOCUS & EVENTS:").\n- Under each section, use hyphen bullets "- " with 3–6 bullets.\n- Each bullet must be one sentence and start with an action/keyword.\n- Do not include greetings/openers or narrative filler.\n- Do not include REMINDERS/DELEGATED TASKS raw dumps; integrate them into bullets.\n`
+            : '';
         handleSendMessage(
             undefined,
-            `Finalize the briefing as talking points.${typeBlock}${notesBlock}`,
+            `Finalize the briefing as talking points.${typeBlock}${afternoonFormatBlock}${notesBlock}`,
             undefined,
             { hideUserMessage: true }
         );
@@ -4578,11 +4758,25 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       await handleSendMessage(undefined, prompt);
     }, [handleSendMessage]);
 
-    const generateSmartEodQuestions = useCallback(async () => {
-      const scan = scanImportantItemsForEod(new Date());
+    const generateSmartEodQuestions = useCallback((now = new Date()) => {
+      const scan = scanImportantItemsForEod(now);
 
       type Candidate = { sourceType: 'delegated' | 'reminder' | 'focus' | 'briefing' | 'project'; sourceId: string; title: string; time?: string; context?: string };
       const candidates: Candidate[] = [];
+
+      const fullDate = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const primaryFocusParts: string[] = [];
+      const topFocus = top3Items.map(it => String(it.text || '').trim()).filter(Boolean).slice(0, 2);
+      if (topFocus.length > 0) {
+        primaryFocusParts.push(...topFocus);
+      } else {
+        const scheduleFocus = scan.focusScheduleItems.map(it => String(it.title || '').trim()).filter(Boolean).slice(0, 2);
+        if (scheduleFocus.length > 0) primaryFocusParts.push(...scheduleFocus);
+      }
+      setEndOfDayIntro(
+        `Let's wrap up your day. Based on your previous inputs, today was ${fullDate}` +
+        (primaryFocusParts.length > 0 ? `, and your primary focus was on ${primaryFocusParts.join(' and ')}.` : '.')
+      );
 
       scan.dueDelegatedTasks.forEach(task => {
         candidates.push({
@@ -4592,6 +4786,24 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           context: `Deadline: ${task.deadline}`,
         });
       });
+
+      const todayYmd = scan.todayYmd;
+      delegatedTasks
+        .filter(t => !t.completed)
+        .filter(t => {
+          const loggedAt = typeof t.loggedAt === 'number' ? t.loggedAt : null;
+          if (!loggedAt) return false;
+          return toYmdLocal(new Date(loggedAt)) === todayYmd;
+        })
+        .forEach(task => {
+          if (candidates.some(c => c.sourceType === 'delegated' && c.sourceId === task.id)) return;
+          candidates.push({
+            sourceType: 'delegated',
+            sourceId: task.id,
+            title: `${task.assigneeName}: ${task.text}`,
+            context: task.deadline ? `Deadline: ${task.deadline}` : '',
+          });
+        });
 
       scan.dueReminders.forEach(reminder => {
         candidates.push({
@@ -4645,7 +4857,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         selected.forEach((c) => {
           if (result.length >= 3) return;
           if (c.sourceType === 'delegated') {
-            result.push({ id: `q-${c.sourceId}`, sourceType: c.sourceType, sourceId: c.sourceId, title: c.title, question: `Did ${c.title} get completed today? If not, what is still pending?`, answer: '' });
+            result.push({ id: `q-${c.sourceId}`, sourceType: c.sourceType, sourceId: c.sourceId, title: c.title, question: `Status update: ${c.title}. Completed, blocked, or carry-over?`, answer: '' });
           } else if (c.sourceType === 'reminder') {
             result.push({ id: `q-${c.sourceId}`, sourceType: c.sourceType, sourceId: c.sourceId, title: c.title, question: `Were you able to follow up on "${c.title}" today?`, answer: '' });
           } else if (c.sourceType === 'focus') {
@@ -4662,80 +4874,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
       if (selected.length === 0) {
         setSmartEodQuestions([]);
+        setSmartEodQuestionsDate(todayYmd);
         return;
       }
-
-      const itemsBlock = selected
-        .map((c, idx) => {
-          const time = c.time ? ` • Time: ${c.time}` : '';
-          const context = c.context ? ` • Context: ${c.context}` : '';
-          return `${idx + 1}. [${c.sourceType}] ${c.title}${time}${context}`;
-        })
-        .join('\n');
-
-      const prompt = [
-        'SYSTEM: You are generating a smart, selective End-of-Day interview.',
-        'You MUST only ask about the items listed below. Do NOT ask about routine blocks like lunch/admin unless listed.',
-        'Return a single valid JSON object with EXACTLY this structure:',
-        '{ "questions": [ { "id": "string", "sourceType": "delegated|reminder|focus|briefing|project", "sourceId": "string", "title": "string", "question": "string" } ] }',
-        'Rules:',
-        '- Generate 2–3 questions maximum (never more than 3).',
-        '- Make each question specific and outcome-focused (completed vs blocked vs carry-over).',
-        '- Keep each question under 24 words.',
-        '',
-        'IMPORTANT ITEMS:',
-        itemsBlock,
-      ].join('\n');
-
-      try {
-        const minimalState: DashboardState = {
-          chatMessages: [],
-          chatHistory: [],
-          scheduleItems: [],
-          top3Items: [],
-          reminders: [],
-          projects: [],
-          completedProjects: [],
-          keepNotes: '',
-          delegatedTasks: [],
-          team: userProfile.team,
-          hasGreeted,
-          lastResetDate,
-          isScheduleConfirmed,
-          briefingInputs: [],
-          briefingState,
-          collapsedCards: {},
-          weeklyLog: [],
-          priorityForTomorrow,
-          stateVersion: DASHBOARD_STATE_VERSION,
-          completedGCalEventIds: Array.from(completedGCalEventIds),
-        };
-
-        const historyForRequest: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-        const response: any = await sendMessageToGemini(historyForRequest, { ...userProfile, team: userProfile.team }, minimalState, [], new Date(), session?.provider_token || null, eventOpsItems);
-        const rawQuestions = Array.isArray(response?.questions) ? response.questions : null;
-        if (!rawQuestions) {
-          setSmartEodQuestions(fallbackQuestions());
-          return;
-        }
-
-        const normalized = rawQuestions
-          .map((q: any, index: number) => ({
-            id: String(q.id || `q-${index}`),
-            sourceType: (q.sourceType === 'delegated' || q.sourceType === 'reminder' || q.sourceType === 'focus' || q.sourceType === 'briefing' || q.sourceType === 'project') ? q.sourceType : 'focus',
-            sourceId: String(q.sourceId || ''),
-            title: String(q.title || '').trim(),
-            question: String(q.question || '').trim(),
-            answer: '',
-          }))
-          .filter((q: any) => q.question.length > 0)
-          .slice(0, 3);
-
-        setSmartEodQuestions(normalized.length > 0 ? normalized : fallbackQuestions());
-      } catch {
-        setSmartEodQuestions(fallbackQuestions());
-      }
-    }, [scanImportantItemsForEod, userProfile, hasGreeted, lastResetDate, isScheduleConfirmed, briefingState, priorityForTomorrow, completedGCalEventIds, session, eventOpsItems]);
+      setSmartEodQuestions(fallbackQuestions());
+      setSmartEodQuestionsDate(todayYmd);
+    }, [scanImportantItemsForEod, delegatedTasks, top3Items, toYmdLocal]);
 
     const setSmartEodAnswer = useCallback((questionId: string, value: string) => {
       setSmartEodQuestions(prev => prev.map(q => q.id === questionId ? { ...q, answer: value } : q));
@@ -4744,12 +4888,14 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const openInterviewModal = useCallback((mode: 'kickoff' | 'morning-briefing' | 'afternoon-briefing' | 'end-of-day') => {
       setInterviewModalMode(mode);
       if (mode === 'end-of-day') {
-        setIsSmartEodLoading(true);
-        setSmartEodQuestions([]);
-        generateSmartEodQuestions().finally(() => setIsSmartEodLoading(false));
+        const todayYmd = toYmdLocal(new Date());
+        if (smartEodQuestions.length === 0 || smartEodQuestionsDate !== todayYmd) {
+          setIsSmartEodLoading(false);
+          generateSmartEodQuestions(new Date());
+        }
       }
       setIsInterviewModalOpen(true);
-    }, [generateSmartEodQuestions]);
+    }, [generateSmartEodQuestions, smartEodQuestions.length, smartEodQuestionsDate, toYmdLocal]);
 
     const closeInterviewModal = useCallback(() => {
       setIsInterviewModalOpen(false);
@@ -4809,6 +4955,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       const attendanceIssues = String(endOfDayDraft.attendance || '').trim();
       const coachingNotes = String(endOfDayDraft.coachingNotes || '').trim();
       const otherNotes = String(endOfDayDraft.otherNotes || '').trim();
+      const accomplishmentsRaw = String(endOfDayDraft.accomplishments || '').trim();
+      const challengesRaw = String(endOfDayDraft.challenges || '').trim();
+      const goalTomorrow = String(endOfDayDraft.goalTomorrow || '').trim();
+      const leadershipJournal = String(endOfDayDraft.leadershipJournal || '').trim();
+      const delegatedFollowUp = String(endOfDayDraft.delegatedFollowUp || '').trim();
 
       const normalizeTitle = (text: string) =>
         text
@@ -4877,11 +5028,43 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         setStaffPerformanceLog(prev => [...prev, perfEntry]);
       }
 
+      const splitLines = (raw: string) =>
+        raw
+          .split(/\r?\n/)
+          .map(line => line.trim().replace(/^[-•*]\s+/, ''))
+          .filter(Boolean);
+      const accomplishments = splitLines(accomplishmentsRaw);
+      const challenges = splitLines(challengesRaw);
+
+      if (accomplishments.length > 0 || challenges.length > 0) {
+        setWeeklyLog(prev => {
+          const keep = prev.filter(it => it.date !== todayStr || (it.type !== 'accomplishment' && it.type !== 'challenge'));
+          const baseTs = Date.now();
+          const next: WeeklyLogItem[] = [];
+          accomplishments.forEach((text, idx) => {
+            next.push({ id: `wl-${baseTs}-a-${idx}`, date: todayStr, type: 'accomplishment', text });
+          });
+          challenges.forEach((text, idx) => {
+            next.push({ id: `wl-${baseTs}-c-${idx}`, date: todayStr, type: 'challenge', text });
+          });
+          return [...keep, ...next];
+        });
+      }
+
+      if (goalTomorrow) {
+        setPriorityForTomorrow(goalTomorrow);
+      }
+
       const summaryParts: string[] = [];
       summaryParts.push(`Morale: ${morale ? `${morale}/5` : 'N/A'}`);
       summaryParts.push(`Attendance: ${attendanceIssues ? 'Logged' : 'None reported'}`);
+      if (accomplishments.length > 0) summaryParts.push(`${accomplishments.length} accomplishment${accomplishments.length === 1 ? '' : 's'} logged`);
+      if (challenges.length > 0) summaryParts.push(`${challenges.length} challenge${challenges.length === 1 ? '' : 's'} logged`);
       if (coachingNotes) summaryParts.push('Coaching notes saved');
       if (otherNotes) summaryParts.push('Other notes saved');
+      if (goalTomorrow) summaryParts.push('Goal for tomorrow saved');
+      if (leadershipJournal) summaryParts.push('Leadership journal saved');
+      if (delegatedFollowUp) summaryParts.push('Delegated follow-up saved');
       if (carryOverCandidates.length > 0) summaryParts.push(`${carryOverCandidates.length} carry-over item${carryOverCandidates.length === 1 ? '' : 's'} flagged`);
 
       setEndOfDaySummary(summaryParts.join(' · '));
@@ -4931,6 +5114,40 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         .join('\n\n');
 
       const otherNotes = String(draft.otherNotes || '').trim();
+      if (otherNotes) {
+        const chunks = otherNotes
+          .split(/\r?\n|;/)
+          .map((line) => String(line || '').trim())
+          .filter(Boolean);
+        const messages: string[] = [];
+        for (const chunk of chunks) {
+          const reminderMatch =
+            chunk.match(/^create\s+(?:a\s+)?reminder\b(?:\s*[:,-]?\s*(?:to\s+)?)?(.+)$/i) ||
+            chunk.match(/^remind\s+me\b(?:\s*[:,-]?\s*(?:to\s+)?)?(.+)$/i);
+          const reminderText = reminderMatch?.[1]?.trim();
+          if (reminderText) {
+            handleCreateReminderFromText(reminderText);
+            messages.push(`Reminder created: ${reminderText}`);
+            continue;
+          }
+
+          const delegation = parseDelegationFromText(chunk);
+          if (delegation) {
+            const deadline = delegation.deadline?.trim() || 'today';
+            const result = await finalizeDelegation({ personName: delegation.personName, task: delegation.task }, deadline);
+            messages.push(result.message);
+            continue;
+          }
+        }
+
+        if (messages.length > 0) {
+          setNotificationModal({
+            isOpen: true,
+            title: 'Created from Other Notes',
+            message: messages.map(stripMarkdownForModal).join('\n'),
+          });
+        }
+      }
 
       let prompt = '';
       if (interviewModalMode === 'kickoff') {
@@ -4969,14 +5186,15 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         ].join('\n\n');
       }
 
-      await handleSendMessage(undefined, prompt, undefined, { suppressChat: true, hideUserMessage: true });
-      setIsInterviewModalOpen(false);
       if (interviewModalMode === 'kickoff') {
-        setTimeout(() => {
-          setIsScheduleEditorOpen(true);
-        }, 0);
+        openScheduleEditorOnNextKickoffDraftRef.current = true;
+        autoFinalizeKickoffPlanRef.current = true;
+        await handleSendMessage(undefined, prompt, undefined, { hideUserMessage: true });
+      } else {
+        await handleSendMessage(undefined, prompt, undefined, { suppressChat: true, hideUserMessage: true });
       }
-    }, [interviewModalMode, interviewDrafts, handleSendMessage, reminders, briefingInputs, delegatedTasks]);
+      setIsInterviewModalOpen(false);
+    }, [interviewModalMode, interviewDrafts, handleSendMessage, reminders, briefingInputs, delegatedTasks, handleCreateReminderFromText, parseDelegationFromText, finalizeDelegation]);
     const handleToggleCard = useCallback((cardId: string) => setCollapsedCards(prev => ({ ...prev, [cardId]: !prev[cardId] })), []);
 
     // Mode Handlers
@@ -5809,7 +6027,7 @@ ${reportJson}`;
         top3Items, reminders, projects, completedProjects, draftedProject, draftedProjectTasks, draftedSchedule, draftedPriorities, keepNotes, delegatedTasks, isScheduleConfirmed, briefingInputs, briefingState,
         collapsedCards, openSidebarSections, dailyProgress, selectedProject, isBriefingPointersVisible, showBriefingClearConfirm, contextMenu,
         isBriefingNotesModalOpen,
-        weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, smartEodQuestions, isSmartEodLoading, weeklyReport, isWeeklyReportModalOpen, emailVersion, isEmailVersionModalOpen, setIsEmailVersionModalOpen, notificationModal, briefingScript, isBriefingScriptVisible, showScheduleClearConfirm, showPrioritiesClearConfirm, showRemindersClearConfirm, showProjectsClearConfirm,
+        weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, endOfDayIntro, smartEodQuestions, isSmartEodLoading, weeklyReport, isWeeklyReportModalOpen, emailVersion, isEmailVersionModalOpen, setIsEmailVersionModalOpen, notificationModal, briefingScript, isBriefingScriptVisible, showScheduleClearConfirm, showPrioritiesClearConfirm, showRemindersClearConfirm, showProjectsClearConfirm,
         projectToDelete, isAddTaskModalOpen, showDelegatedClearConfirm,
         displayedScheduleItems, isSidebarCollapsed,
         pendingSchedule,

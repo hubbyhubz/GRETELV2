@@ -120,11 +120,11 @@ function App() {
   }, [currentView, requiresGoogleRefresh, userProfile?.setup_complete, activeDashboard]);
 
   const handleUnlockWithTokenRefresh = useCallback(async () => {
-    handleUnlock();
-
     const lockedAtRaw = localStorage.getItem('gretel_locked_at');
     const lockedAt = lockedAtRaw ? Number(lockedAtRaw) : null;
     const lockedMs = lockedAt && Number.isFinite(lockedAt) ? Date.now() - lockedAt : null;
+
+    handleUnlock();
 
     if (lockedMs != null && lockedMs < 45 * 60 * 1000) {
       return;
@@ -298,11 +298,10 @@ function App() {
     }
   };
 
-  const handleLoginSuccess = (nextSession: Session | null) => {
+  const handleLoginSuccess = (_nextSession: Session | null) => {
     setAuthError(null);
     resetInactivityTimer();
-    const hasLinkedGoogle = Boolean((nextSession?.user as any)?.identities?.some((i: any) => i?.provider === 'google'));
-    setRequiresGoogleConnect(!hasLinkedGoogle);
+    setRequiresGoogleConnect(false);
   };
 
   const handleLogout = async () => {
@@ -402,15 +401,29 @@ function App() {
 
   useEffect(() => {
     if (!session || !userProfile?.setup_complete) return;
-    if (requiresGoogleRefresh) return;
-
-    const hasLinkedGoogle = Boolean((session.user as any)?.identities?.some((i: any) => i?.provider === 'google'));
-    if (hasLinkedGoogle) {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (error) {
+        setRequiresGoogleConnect(true);
+        return;
+      }
+      const identities = ((data?.user as any)?.identities ?? []) as any[];
+      const hasLinkedGoogle = identities.some((i: any) => i?.provider === 'google');
+      if (!hasLinkedGoogle) {
+        setRequiresGoogleConnect(true);
+        setRequiresGoogleRefresh(false);
+        return;
+      }
       if (requiresGoogleConnect) setRequiresGoogleConnect(false);
-      return;
-    }
-    setRequiresGoogleConnect(true);
-  }, [session, userProfile?.setup_complete, requiresGoogleRefresh, requiresGoogleConnect]);
+      const hasProviderToken = Boolean((session as any)?.provider_token);
+      setRequiresGoogleRefresh(!hasProviderToken);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.access_token, userProfile?.setup_complete]);
 
   const renderView = () => {
     if (currentView === 'test') {
@@ -584,6 +597,7 @@ function App() {
         <Suspense fallback={null}>
           <LockScreenPage
             userProfile={userProfile}
+            accessToken={session?.access_token || ''}
             onUnlock={handleUnlockWithTokenRefresh}
             onLogout={handleLogout}
           />

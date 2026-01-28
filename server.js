@@ -131,6 +131,79 @@ app.get("/api/health", (_req, res) => {
   res.status(200).json({ ok: true });
 });
 
+app.post("/api/unlock", async (req, res) => {
+  const supabaseUrl =
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    "";
+  const supabaseAnonKey =
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    "";
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    res.status(500).json({ error: "Supabase is not configured on the server." });
+    return;
+  }
+
+  const authHeader = String(req.headers.authorization || "").trim();
+  const tokenMatch = authHeader.match(/^bearer\s+(.+)$/i);
+  const accessToken = tokenMatch?.[1]?.trim() || "";
+  if (!accessToken) {
+    res.status(401).json({ error: "Missing session token." });
+    return;
+  }
+
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  if (!password) {
+    res.status(400).json({ error: "Password is required." });
+    return;
+  }
+
+  try {
+    const userResp = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      method: "GET",
+      headers: {
+        apikey: supabaseAnonKey,
+        authorization: `Bearer ${accessToken}`,
+      },
+    });
+    const userRaw = await userResp.text();
+    if (!userResp.ok) {
+      res.status(401).json({ error: "Invalid session." });
+      return;
+    }
+    const user = userRaw ? JSON.parse(userRaw) : {};
+    const email = user?.email;
+    if (!email) {
+      res.status(400).json({ error: "Session user has no email." });
+      return;
+    }
+
+    const tokenResp = await fetch(
+      `${supabaseUrl}/auth/v1/token?grant_type=password`,
+      {
+        method: "POST",
+        headers: {
+          apikey: supabaseAnonKey,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      }
+    );
+    if (!tokenResp.ok) {
+      res.status(401).json({ error: "Invalid password." });
+      return;
+    }
+
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error?.message || "Unexpected server error" });
+  }
+});
+
 app.post("/api/chat", async (req, res) => {
   const geminiApiKey =
     process.env.GEMINI_API_KEY ||

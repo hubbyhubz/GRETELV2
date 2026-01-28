@@ -73,6 +73,7 @@ import { UserProfile, DashboardView, ScheduleItem } from './types';
 import type { Session } from '@supabase/supabase-js';
 const OnboardingTour = lazy(() => import('./OnboardingTour').then(m => ({ default: m.OnboardingTour })));
 import { AIMessage } from './ui/ai-message';
+import { generateKickoffQuestions } from './kickoffQuestionGenerator';
 
 interface MainDashboardPageProps {
     onLogout: () => void;
@@ -127,8 +128,10 @@ interface InterviewModalProps {
     smartEodQuestions?: Array<{ id: string; question: string; answer: string }>;
     isSmartEodLoading?: boolean;
     onChangeSmartEodAnswer?: (questionId: string, value: string) => void;
-    endOfDayDraft?: { attendance: string; morale: number | null; coachingNotes: string; otherNotes: string };
-    onChangeEndOfDayDraft?: (next: { attendance: string; morale: number | null; coachingNotes: string; otherNotes: string }) => void;
+    endOfDayIntro?: string;
+    eodDelegatedTasks?: Array<{ id: string; assigneeName: string; text: string; deadline: string; completed: boolean }>;
+    endOfDayDraft?: { attendance: string; morale: number | null; moraleFactors: { energy: number | null; teamwork: number | null; load: number | null; stability: number | null }; coachingNotes: string; otherNotes: string; accomplishments: string; challenges: string; goalTomorrow: string; leadershipJournal: string; delegatedFollowUp: string };
+    onChangeEndOfDayDraft?: (next: { attendance: string; morale: number | null; moraleFactors: { energy: number | null; teamwork: number | null; load: number | null; stability: number | null }; coachingNotes: string; otherNotes: string; accomplishments: string; challenges: string; goalTomorrow: string; leadershipJournal: string; delegatedFollowUp: string }) => void;
     primaryActionLabel?: string;
     onClose: () => void;
     onGenerate: () => void;
@@ -149,6 +152,8 @@ const InterviewModal: React.FC<InterviewModalProps> = ({
     smartEodQuestions = [],
     isSmartEodLoading = false,
     onChangeSmartEodAnswer,
+    endOfDayIntro,
+    eodDelegatedTasks = [],
     endOfDayDraft,
     onChangeEndOfDayDraft,
     primaryActionLabel,
@@ -161,7 +166,40 @@ const InterviewModal: React.FC<InterviewModalProps> = ({
     const endOfDayAttendanceRef = React.useRef<HTMLTextAreaElement | null>(null);
     const endOfDayCoachingRef = React.useRef<HTMLTextAreaElement | null>(null);
     const endOfDayOtherRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const endOfDayAccomplishmentsRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const endOfDayChallengesRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const endOfDayGoalTomorrowRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const endOfDayLeadershipRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const endOfDayDelegatedFollowUpRef = React.useRef<HTMLTextAreaElement | null>(null);
     const smartEodQuestionRefs = React.useRef<Record<string, HTMLTextAreaElement | null>>({});
+
+    const moraleFactors = endOfDayDraft?.moraleFactors ?? { energy: null, teamwork: null, load: null, stability: null };
+    const moraleFactorValues = [moraleFactors.energy, moraleFactors.teamwork, moraleFactors.load, moraleFactors.stability];
+    const moraleAnsweredCount = moraleFactorValues.filter(v => typeof v === 'number').length;
+    const suggestedMorale = moraleAnsweredCount === 4
+      ? Math.min(5, Math.max(1, Math.round(moraleFactorValues.reduce((sum, v) => sum + (Number(v) || 0), 0) / 4)))
+      : null;
+
+    const setMoraleFactor = (key: 'energy' | 'teamwork' | 'load' | 'stability', value: number) => {
+      if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+      onChangeEndOfDayDraft({
+        ...endOfDayDraft,
+        moraleFactors: { ...(endOfDayDraft.moraleFactors ?? { energy: null, teamwork: null, load: null, stability: null }), [key]: value },
+      });
+    };
+
+    const lastAutoMoraleRef = React.useRef<number | null>(null);
+    React.useEffect(() => {
+      if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+      if (!suggestedMorale) return;
+      if (lastAutoMoraleRef.current === suggestedMorale && endOfDayDraft.morale === suggestedMorale) return;
+      if (endOfDayDraft.morale === suggestedMorale) {
+        lastAutoMoraleRef.current = suggestedMorale;
+        return;
+      }
+      lastAutoMoraleRef.current = suggestedMorale;
+      onChangeEndOfDayDraft({ ...endOfDayDraft, morale: suggestedMorale });
+    }, [suggestedMorale, endOfDayDraft, onChangeEndOfDayDraft]);
 
     const resizeTextarea = React.useCallback((el: HTMLTextAreaElement | null) => {
         if (!el) return;
@@ -181,6 +219,11 @@ const InterviewModal: React.FC<InterviewModalProps> = ({
             resizeTextarea(endOfDayAttendanceRef.current);
             resizeTextarea(endOfDayCoachingRef.current);
             resizeTextarea(endOfDayOtherRef.current);
+            resizeTextarea(endOfDayAccomplishmentsRef.current);
+            resizeTextarea(endOfDayChallengesRef.current);
+            resizeTextarea(endOfDayGoalTomorrowRef.current);
+            resizeTextarea(endOfDayLeadershipRef.current);
+            resizeTextarea(endOfDayDelegatedFollowUpRef.current);
             smartEodQuestions.forEach((q) => resizeTextarea(smartEodQuestionRefs.current[q.id] || null));
         });
     }, [isOpen, answers, otherNotes, endOfDayDraft, smartEodQuestions, isSmartEodLoading, resizeTextarea]);
@@ -240,14 +283,240 @@ const InterviewModal: React.FC<InterviewModalProps> = ({
                 <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
                     {variant === 'end-of-day' ? (
                         <>
+                            {endOfDayIntro && (
+                                <div className="text-sm text-gray-700 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/30 p-4">
+                                    {endOfDayIntro}
+                                </div>
+                            )}
+
+                            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-4 space-y-4">
+                                <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">1. Daily Review</div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">What were your key accomplishments today?</label>
+                                    <textarea
+                                        ref={endOfDayAccomplishmentsRef}
+                                        value={endOfDayDraft?.accomplishments ?? ''}
+                                        onChange={(e) => {
+                                            if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+                                            onChangeEndOfDayDraft({ ...endOfDayDraft, accomplishments: e.target.value });
+                                            resizeTextarea(endOfDayAccomplishmentsRef.current);
+                                        }}
+                                        className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                        placeholder="List accomplishments (one per line)…"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">What were the biggest challenges you faced?</label>
+                                    <textarea
+                                        ref={endOfDayChallengesRef}
+                                        value={endOfDayDraft?.challenges ?? ''}
+                                        onChange={(e) => {
+                                            if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+                                            onChangeEndOfDayDraft({ ...endOfDayDraft, challenges: e.target.value });
+                                            resizeTextarea(endOfDayChallengesRef.current);
+                                        }}
+                                        className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                        placeholder="List challenges (one per line)…"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">What is your primary goal for tomorrow?</label>
+                                    <textarea
+                                        ref={endOfDayGoalTomorrowRef}
+                                        value={endOfDayDraft?.goalTomorrow ?? ''}
+                                        onChange={(e) => {
+                                            if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+                                            onChangeEndOfDayDraft({ ...endOfDayDraft, goalTomorrow: e.target.value });
+                                            resizeTextarea(endOfDayGoalTomorrowRef.current);
+                                        }}
+                                        className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                        placeholder="Tomorrow’s primary goal…"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-4 space-y-4">
+                                <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">2. Key Performance Indicators (KPIs)</div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Were there any staff tardiness or absenteeism issues to log today?</label>
+                                    <textarea
+                                        ref={endOfDayAttendanceRef}
+                                        value={endOfDayDraft?.attendance ?? ''}
+                                        onChange={(e) => {
+                                            if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+                                            onChangeEndOfDayDraft({ ...endOfDayDraft, attendance: e.target.value });
+                                            resizeTextarea(endOfDayAttendanceRef.current);
+                                        }}
+                                        className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                        placeholder="Log any attendance issues (or write 'None')."
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">On a scale of 1-5, how would you rate team morale today?</label>
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-1">
+                                            {[1, 2, 3, 4, 5].map((value) => {
+                                                const active = (endOfDayDraft?.morale ?? 0) >= value;
+                                                return (
+                                                    <div
+                                                        key={value}
+                                                        className={`h-10 w-10 rounded-lg border text-lg flex items-center justify-center leading-none ${active ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-gray-900/40 text-gray-500 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}
+                                                        aria-hidden="true"
+                                                        title={endOfDayDraft?.morale ? `${endOfDayDraft.morale}/5` : 'Auto-calculated after guided prompts'}
+                                                    >
+                                                        ★
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">
+                                            {endOfDayDraft?.morale ? `${endOfDayDraft.morale}/5` : 'Auto-calculated after guided prompts'}
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/30 p-3">
+                                        <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">Guided rating</div>
+                                        <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Answer these 4 prompts to calculate the morale score.</div>
+                                        <div className="mt-3 space-y-3">
+                                            <div>
+                                                <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">Energy &amp; engagement</div>
+                                                <div className="grid grid-cols-5 gap-2">
+                                                    {[1, 2, 3, 4, 5].map((v) => {
+                                                        const active = moraleFactors.energy === v;
+                                                        return (
+                                                            <button
+                                                                key={v}
+                                                                type="button"
+                                                                onClick={() => setMoraleFactor('energy', v)}
+                                                                className={`h-9 rounded-lg border text-sm font-semibold ${active ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-gray-900/40 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600'}`}
+                                                                aria-label={`Energy and engagement ${v} of 5`}
+                                                            >
+                                                                {v}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">1 drained • 3 steady • 5 energized</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">Teamwork &amp; communication</div>
+                                                <div className="grid grid-cols-5 gap-2">
+                                                    {[1, 2, 3, 4, 5].map((v) => {
+                                                        const active = moraleFactors.teamwork === v;
+                                                        return (
+                                                            <button
+                                                                key={v}
+                                                                type="button"
+                                                                onClick={() => setMoraleFactor('teamwork', v)}
+                                                                className={`h-9 rounded-lg border text-sm font-semibold ${active ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-gray-900/40 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600'}`}
+                                                                aria-label={`Teamwork and communication ${v} of 5`}
+                                                            >
+                                                                {v}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">1 conflict/confusion • 3 OK • 5 smooth handoffs</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">Workload &amp; coverage</div>
+                                                <div className="grid grid-cols-5 gap-2">
+                                                    {[1, 2, 3, 4, 5].map((v) => {
+                                                        const active = moraleFactors.load === v;
+                                                        return (
+                                                            <button
+                                                                key={v}
+                                                                type="button"
+                                                                onClick={() => setMoraleFactor('load', v)}
+                                                                className={`h-9 rounded-lg border text-sm font-semibold ${active ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-gray-900/40 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600'}`}
+                                                                aria-label={`Workload and coverage ${v} of 5`}
+                                                            >
+                                                                {v}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">1 overwhelmed • 3 manageable • 5 well covered</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">Operational stability</div>
+                                                <div className="grid grid-cols-5 gap-2">
+                                                    {[1, 2, 3, 4, 5].map((v) => {
+                                                        const active = moraleFactors.stability === v;
+                                                        return (
+                                                            <button
+                                                                key={v}
+                                                                type="button"
+                                                                onClick={() => setMoraleFactor('stability', v)}
+                                                                className={`h-9 rounded-lg border text-sm font-semibold ${active ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-gray-900/40 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600'}`}
+                                                                aria-label={`Operational stability ${v} of 5`}
+                                                            >
+                                                                {v}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">1 constant issues • 3 some friction • 5 smooth shift</div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-4 text-xs text-gray-600 dark:text-gray-300">
+                                            {suggestedMorale ? `Auto-calculated score: ${suggestedMorale}/5` : `Auto-calculated score: answer all 4 prompts (${moraleAnsweredCount}/4)`}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-4 space-y-4">
+                                <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">3. Delegated Tasks Follow-Up</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">What is the final status of the tasks you delegated?</div>
+                                <div className="text-sm text-gray-700 dark:text-gray-200 space-y-1">
+                                    {eodDelegatedTasks.length === 0 ? (
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">No delegated tasks were detected for today.</div>
+                                    ) : (
+                                        eodDelegatedTasks.map((t) => (
+                                            <div key={t.id}>- {t.assigneeName}: {t.text}</div>
+                                        ))
+                                    )}
+                                </div>
+                                <textarea
+                                    ref={endOfDayDelegatedFollowUpRef}
+                                    value={endOfDayDraft?.delegatedFollowUp ?? ''}
+                                    onChange={(e) => {
+                                        if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+                                        onChangeEndOfDayDraft({ ...endOfDayDraft, delegatedFollowUp: e.target.value });
+                                        resizeTextarea(endOfDayDelegatedFollowUpRef.current);
+                                    }}
+                                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                    placeholder="Status updates (completed / blocked / carry-over)…"
+                                />
+                            </div>
+
+                            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-4 space-y-4">
+                                <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">4. Leadership Journal</div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">As a leader, what was one thing you learned today?</label>
+                                    <textarea
+                                        ref={endOfDayLeadershipRef}
+                                        value={endOfDayDraft?.leadershipJournal ?? ''}
+                                        onChange={(e) => {
+                                            if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
+                                            onChangeEndOfDayDraft({ ...endOfDayDraft, leadershipJournal: e.target.value });
+                                            resizeTextarea(endOfDayLeadershipRef.current);
+                                        }}
+                                        className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
+                                        placeholder="Leadership reflection..."
+                                    />
+                                </div>
+                            </div>
+
                             <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-4">
-                                <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">Smart Check-in</div>
-                                <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Only the most important items from today (max 3).</div>
+                                <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">Today’s Focus Follow-Up</div>
+                                <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Based on your priorities, schedule, and notes (max 3).</div>
                                 <div className="mt-3 space-y-4">
                                     {isSmartEodLoading ? (
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">Generating targeted questions…</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">Preparing questions…</div>
                                     ) : (smartEodQuestions.length === 0 ? (
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">No priority items were detected today. Log KPIs and any other updates below.</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">No priority items were detected today.</div>
                                     ) : (
                                         smartEodQuestions.map((q) => (
                                             <div key={q.id}>
@@ -267,52 +536,10 @@ const InterviewModal: React.FC<InterviewModalProps> = ({
                                     ))}
                                 </div>
                             </div>
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Were there any staff tardiness or absenteeism issues to log today?</label>
-                                <textarea
-                                    ref={endOfDayAttendanceRef}
-                                    value={endOfDayDraft?.attendance ?? ''}
-                                    onChange={(e) => {
-                                        if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
-                                        onChangeEndOfDayDraft({ ...endOfDayDraft, attendance: e.target.value });
-                                        resizeTextarea(endOfDayAttendanceRef.current);
-                                    }}
-                                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/40 p-3 text-sm text-gray-800 dark:text-gray-200 resize-none"
-                                    placeholder="Log any attendance issues (or write 'None')."
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">On a scale of 1-5, how would you rate team morale today?</label>
-                                <div className="flex items-center gap-3">
-                                    <div className="flex items-center gap-1">
-                                        {[1, 2, 3, 4, 5].map((value) => {
-                                            const active = (endOfDayDraft?.morale ?? 0) >= value;
-                                            return (
-                                                <button
-                                                    key={value}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        if (!endOfDayDraft || !onChangeEndOfDayDraft) return;
-                                                        onChangeEndOfDayDraft({ ...endOfDayDraft, morale: value });
-                                                    }}
-                                                    className={`h-10 w-10 rounded-lg border text-lg ${active ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-gray-900/40 text-gray-500 dark:text-gray-300 border-gray-300 dark:border-gray-600'}`}
-                                                    aria-label={`Set morale to ${value} out of 5`}
-                                                >
-                                                    ★
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                    <div className="text-sm text-gray-600 dark:text-gray-300">
-                                        {endOfDayDraft?.morale ? `${endOfDayDraft.morale}/5` : 'Select a rating'}
-                                    </div>
-                                </div>
-                            </div>
 
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Coaching Notes / Performance Logs</label>
-                                <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">Enter specific feedback here (e.g., "Jumar improved breakage handling").</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">Enter specific feedback here (e.g., \"Jumar improved breakage handling\").</div>
                                 <textarea
                                     ref={endOfDayCoachingRef}
                                     value={endOfDayDraft?.coachingNotes ?? ''}
@@ -749,7 +976,6 @@ const DashboardContent: React.FC<{
         showResetConfirm, setShowResetConfirm, handleManualReset,
         showKeepResetConfirm, setShowKeepResetConfirm, handleClearKeepNotes,
         showScheduleClearConfirm, setShowScheduleClearConfirm, handleClearSchedule,
-        showPrioritiesClearConfirm, setShowPrioritiesClearConfirm, handleClearPriorities,
         showRemindersClearConfirm, setShowRemindersClearConfirm, handleClearReminders,
         showProjectsClearConfirm, setShowProjectsClearConfirm, handleClearProjects,
         showBriefingClearConfirm, setShowBriefingClearConfirm, confirmClearBriefingPointers,
@@ -776,8 +1002,25 @@ const DashboardContent: React.FC<{
         pendingSchedule, finalizeSchedule, isSyncing,
         isScheduleEditorOpen, setIsScheduleEditorOpen, draftedSchedule, setDraftedSchedule, scheduleItems, setScheduleItems,
         handleProactiveAIMessage, setIsScheduleConfirmed, draftedPriorities, setDraftedPriorities, setTop3Items,
-        isInterviewModalOpen, interviewModalMode, interviewDrafts, smartEodQuestions, isSmartEodLoading, setSmartEodAnswer, endOfDayDraft, setEndOfDayDraft, submitEndOfDayReview, endOfDaySummary, endOfDayCompletedDate, carryOverTasks, carryOverDecision, openInterviewModal, closeInterviewModal, setInterviewAnswer, setInterviewOtherNotes, handleGenerateInterview,
+        isInterviewModalOpen, interviewModalMode, interviewDrafts, smartEodQuestions, isSmartEodLoading, setSmartEodAnswer, endOfDayDraft, setEndOfDayDraft, submitEndOfDayReview, endOfDaySummary, endOfDayCompletedDate, endOfDayIntro, carryOverTasks, carryOverDecision, openInterviewModal, closeInterviewModal, setInterviewAnswer, setInterviewOtherNotes, handleGenerateInterview,
     } = useDashboardContext();
+
+    const [kickoffQuestions, setKickoffQuestions] = React.useState<string[]>(() => generateKickoffQuestions(userProfile));
+
+    React.useEffect(() => {
+      if (interviewModalMode !== 'kickoff') return;
+      const raw = window.localStorage.getItem('beatrix_user_profile');
+      if (!raw) {
+        setKickoffQuestions(generateKickoffQuestions(userProfile));
+        return;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        setKickoffQuestions(generateKickoffQuestions(parsed));
+      } catch {
+        setKickoffQuestions(generateKickoffQuestions(userProfile));
+      }
+    }, [interviewModalMode, userProfile]);
     
     // State for tracking which message was reset (must be declared before useCallback that uses it)
     const [resetMessageId, setResetMessageId] = React.useState<number | null>(null);
@@ -1983,9 +2226,6 @@ const DashboardContent: React.FC<{
                        <div id="top-priorities" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-hover-animation">
                             <div className="flex items-center justify-between">
                                 <h2 className="text-sm font-bold text-primary-600 flex items-center"><CircleCheckIcon size={16} /><span className="ml-2">Top Priorities</span></h2>
-                                <button onClick={() => { (window as any).stopGretelTour?.(); setShowPrioritiesClearConfirm(true); }} className="h-7 w-7 rounded-full inline-flex items-center justify-center text-gray-500 hover:text-red-500 dark:hover:text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-500/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500" title="Clear Priorities">
-                                    <TrashIcon size={16} />
-                                </button>
                        </div>
                             <div className="mt-3 text-sm text-gray-600 dark:text-gray-400 space-y-2">
                                 {top3Items.length === 0 ? (
@@ -2612,13 +2852,7 @@ const DashboardContent: React.FC<{
             }}
             questions={
               interviewModalMode === 'kickoff'
-                ? [
-                    'What are your top 3 priorities for today?',
-                    'What are the 1–2 highest-risk issues that could derail your day?',
-                    'What must be done before lunch?',
-                    'What can be delegated today (and to whom)?',
-                    'What is your single deep-focus block today and what outcome defines success?',
-                  ]
+                ? kickoffQuestions
                 : interviewModalMode === 'morning-briefing'
                   ? [
                       'What is the single most important operational focus for this morning?',
@@ -2638,6 +2872,21 @@ const DashboardContent: React.FC<{
             }
             otherNotes={
               interviewModalMode ? (interviewDrafts[interviewModalMode]?.otherNotes || '') : ''
+            }
+            endOfDayIntro={interviewModalMode === 'end-of-day' ? endOfDayIntro : ''}
+            eodDelegatedTasks={
+              interviewModalMode === 'end-of-day'
+                ? delegatedTasks
+                    .filter(t => !t.completed)
+                    .filter(t => {
+                      const todayYmd = new Date().toISOString().split('T')[0];
+                      const deadline = String(t.deadline || '');
+                      const loggedAt = typeof t.loggedAt === 'number' ? new Date(t.loggedAt).toISOString().split('T')[0] : null;
+                      return (loggedAt === todayYmd) || deadline.startsWith(todayYmd) || /\btoday\b/i.test(deadline);
+                    })
+                    .slice(0, 4)
+                    .map(t => ({ id: t.id, assigneeName: t.assigneeName, text: t.text, deadline: t.deadline, completed: t.completed }))
+                : []
             }
             endOfDayDraft={endOfDayDraft}
             onChangeEndOfDayDraft={(next) => setEndOfDayDraft(next)}
@@ -2770,8 +3019,7 @@ const DashboardContent: React.FC<{
           {/* Confirmation Modals */}
           {showResetConfirm && <ConfirmationModal title="Reset Day?" message="This will clear your schedule and priorities. Are you sure?" onConfirm={handleManualReset} onCancel={() => setShowResetConfirm(false)} isDestructive />}
           {showKeepResetConfirm && <ConfirmationModal title="Clear Notes?" message="This will delete your current notes. Are you sure?" onConfirm={handleClearKeepNotes} onCancel={() => setShowKeepResetConfirm(false)} isDestructive />}
-          {showScheduleClearConfirm && <ConfirmationModal title="Clear Schedule?" message="Are you sure you want to clear all schedule items?" onConfirm={handleClearSchedule} onCancel={() => setShowScheduleClearConfirm(false)} isDestructive />}
-          {showPrioritiesClearConfirm && <ConfirmationModal title="Clear Priorities?" message="Are you sure you want to clear your top priorities?" onConfirm={handleClearPriorities} onCancel={() => setShowPrioritiesClearConfirm(false)} isDestructive />}
+          {showScheduleClearConfirm && <ConfirmationModal title="Clear Schedule?" message="This will clear Today’s Schedule and Top Priorities. Are you sure?" onConfirm={handleClearSchedule} onCancel={() => setShowScheduleClearConfirm(false)} isDestructive />}
           {showRemindersClearConfirm && <ConfirmationModal title="Clear Reminders?" message="Are you sure you want to clear all reminders?" onConfirm={handleClearReminders} onCancel={() => setShowRemindersClearConfirm(false)} isDestructive />}
           {showProjectsClearConfirm && <ConfirmationModal title="Clear Projects?" message="This will remove all ongoing and completed projects. Are you sure?" onConfirm={handleClearProjects} onCancel={() => setShowProjectsClearConfirm(false)} isDestructive />}
           {showBriefingClearConfirm && <ConfirmationModal title="Clear Pointers?" message="Are you sure you want to delete all briefing pointers?" onConfirm={confirmClearBriefingPointers} onCancel={() => setShowBriefingClearConfirm(false)} isDestructive />}
@@ -2812,13 +3060,13 @@ const DashboardContent: React.FC<{
                 )}
                 <textarea
                   className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4 max-h-[60vh] overflow-y-auto w-full min-h-[240px]"
-                  value={briefingScript || ''}
+                  value={briefingScript === 'Generating briefing script...' ? '' : (briefingScript || '')}
                   ref={briefingScriptTextareaRef}
                   onChange={(e) => {
                     setBriefingScript(e.target.value);
                     resizeBriefingScriptTextarea();
                   }}
-                  placeholder="No script generated yet."
+                  placeholder={briefingScript === 'Generating briefing script...' ? '' : 'No script generated yet.'}
                 />
               </div>
             </div>

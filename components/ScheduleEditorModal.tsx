@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { ScheduleItem } from './types';
 import { cascadeReschedule, parseScheduleRangeToMinutes } from './assistantActionUtils';
@@ -25,19 +25,25 @@ const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [newItem, setNewItem] = useState({ time: '', title: '' });
   const [isClosing, setIsClosing] = useState(false);
+  const hasInitializedOpenRef = useRef(false);
 
   // Update local schedule when prop changes - ensure it always displays the full schedule
   useEffect(() => {
-    if (isOpen) {
-      // Always use the initialSchedule prop - it should contain the draft schedule
-      const scheduleToUse = Array.isArray(initialSchedule) && initialSchedule.length > 0 
-        ? [...initialSchedule] 
-        : [];
-      setSchedule(scheduleToUse);
-      setEditingIndex(null);
-      setNewItem({ time: '', title: '' });
-      setIsClosing(false);
+    if (!isOpen) {
+      hasInitializedOpenRef.current = false;
+      return;
     }
+
+    if (hasInitializedOpenRef.current) return;
+    hasInitializedOpenRef.current = true;
+
+    const scheduleToUse = Array.isArray(initialSchedule) && initialSchedule.length > 0
+      ? [...initialSchedule]
+      : [];
+    setSchedule(scheduleToUse);
+    setEditingIndex(null);
+    setNewItem({ time: '', title: '' });
+    setIsClosing(false);
   }, [isOpen, initialSchedule]);
 
   const closeModal = useCallback((persistDraft: boolean) => {
@@ -206,6 +212,7 @@ const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
                 return (
                 <div
                   key={item.id}
+                  data-edit-row={index}
                   className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600"
                 >
                   {editingIndex === index ? (
@@ -215,6 +222,8 @@ const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
                         type="text"
                         defaultValue={item.time}
                         onBlur={(e) => {
+                          const nextTarget = e.relatedTarget as HTMLElement | null;
+                          if (nextTarget && nextTarget.closest(`[data-edit-row="${index}"]`)) return;
                           const time = e.target.value.trim();
                           const titleInput = document.getElementById(`edit-title-${index}`) as HTMLInputElement;
                           const title = titleInput?.value.trim() || item.title;
@@ -243,6 +252,8 @@ const ScheduleEditorModal: React.FC<ScheduleEditorModalProps> = ({
                         type="text"
                         defaultValue={item.title}
                         onBlur={(e) => {
+                          const nextTarget = e.relatedTarget as HTMLElement | null;
+                          if (nextTarget && nextTarget.closest(`[data-edit-row="${index}"]`)) return;
                           const title = e.target.value.trim();
                           const timeInput = document.getElementById(`edit-time-${index}`) as HTMLInputElement;
                           const time = timeInput?.value.trim() || item.time;

@@ -1,16 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 // FIX: Update import path from '../App' to './types' to resolve module export errors.
 import type { UserProfile } from './types';
-import { createClient } from '@supabase/supabase-js';
-import { supabaseAnonKey, supabaseUrl } from './supabaseClient';
 
 interface LockScreenPageProps {
   userProfile: UserProfile;
+  accessToken: string;
   onUnlock: () => void;
   onLogout: () => void;
 }
 
-const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, onUnlock, onLogout }) => {
+const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, accessToken, onUnlock, onLogout }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -30,40 +29,33 @@ const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, onUnlock, 
     setIsLoading(true);
     setError('');
 
-    if (!supabaseUrl || !supabaseAnonKey) {
-      setError('Auth is not configured. Please contact an admin.');
-      setIsLoading(false);
-      setPassword('');
-      return;
-    }
+    try {
+      const response = await fetch('/api/unlock', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ password }),
+      });
 
-    const lockAuthClient = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
-      },
-    });
-
-    const { error } = await lockAuthClient.auth.signInWithPassword({
-      email: userProfile.email,
-      password,
-    });
-
-    if (error) {
-      // Provide user-friendly error messages
-      if (error.message.includes('Invalid login credentials')) {
-        setError('Incorrect password. Please try again.');
-      } else {
-        setError('An error occurred. Please try again.');
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          setError('Incorrect password. Please try again.');
+        } else {
+          setError('Unable to verify password right now. Please try again.');
+        }
+        setIsLoading(false);
+        setPassword('');
+        return;
       }
-      setIsLoading(false);
-      // Clear the password field on a failed attempt for security
+
       setPassword('');
-    } else {
-      await lockAuthClient.auth.signOut();
-      // Successful password verification
       onUnlock();
+    } catch {
+      setError('Unable to verify password right now. Please check your connection and try again.');
+      setIsLoading(false);
+      setPassword('');
     }
   };
 

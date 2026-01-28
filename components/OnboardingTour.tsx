@@ -244,19 +244,24 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
       const isCompleted = userProfile.tour_completed || false;
       // Still use localStorage for current step/progress (local state)
       const savedState = localStorage.getItem(TOUR_STORAGE_KEY);
-      let currentStep = 0;
+      let savedCurrentStep = 0;
+      let savedDismissed = false;
+      let savedCompleted = false;
       if (savedState) {
         try {
           const parsed = JSON.parse(savedState);
-          currentStep = parsed.currentStep || 0;
+          savedCurrentStep = parsed.currentStep || 0;
+          savedDismissed = Boolean(parsed.dismissed);
+          savedCompleted = Boolean(parsed.completed);
         } catch (e) {
           // Ignore parse errors
         }
       }
+      const completed = isCompleted || savedCompleted;
       const newTourState = {
-        completed: isCompleted,
-        currentStep: isCompleted ? 0 : currentStep,
-        dismissed: isCompleted,
+        completed,
+        currentStep: completed ? 0 : savedCurrentStep,
+        dismissed: completed ? true : savedDismissed,
         version: TOUR_VERSION,
         lastShown: new Date().toISOString(),
       };
@@ -659,7 +664,7 @@ export const OnboardingTour = ({ userProfile, onComplete }: OnboardingTourProps)
             await saveTourState({
               completed: true,
               currentStep: 0,
-              dismissed: false,
+              dismissed: true,
               version: TOUR_VERSION,
               lastShown: new Date().toISOString(),
             }, true); // Save to Supabase when completed

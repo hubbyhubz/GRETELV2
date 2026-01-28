@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 
 const GoogleRefreshPage: React.FC = () => {
   const [isRedirecting, setIsRedirecting] = useState(false);
 
   const handleConnect = async () => {
+    if (isRedirecting) return;
     setIsRedirecting(true);
     // FIX: Replaced the incorrect `linkIdentity` with `signInWithOAuth`.
     // This is the correct, robust method for both first-time connections and
@@ -19,6 +20,11 @@ const GoogleRefreshPage: React.FC = () => {
     });
     // The page will redirect, so no need to set isRedirecting back to false.
   };
+
+  useEffect(() => {
+    handleConnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="w-full max-w-md text-center animate__animated animate__bounceIn">
@@ -42,7 +48,7 @@ const GoogleRefreshPage: React.FC = () => {
           {isRedirecting ? (
             <>
               <div className="custom-loader-sm"></div>
-              Redirecting...
+              Redirecting to Google...
             </>
           ) : (
             'Connect with Google'
