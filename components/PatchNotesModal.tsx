@@ -8,6 +8,21 @@ interface PatchNotesModalProps {
 const PatchNotesModal: React.FC<PatchNotesModalProps> = ({ version, onClose }) => {
   const patchNotes = [
     {
+      version: "1.5.4",
+      date: "January 29, 2026",
+      title: "Daily Kick-off + End-of-Day Upgrade",
+      features: [
+        "Dynamic Daily Kick-off Questions: Kick-off prompts now generate from your Setup Wizard profile instead of hardcoded text.",
+        "End-of-Day Review Revamp: New structured layout with intro summary, daily review, KPIs, delegated follow-up, and leadership journal.",
+        "Morale Rating Rubric: Guided prompts now calculate team morale automatically for a consistent 1–5 score."
+      ],
+      fixes: [
+        "Briefing Script Polish: Removed placeholder text from the script textbox while generating.",
+        "Afternoon Briefing Finalize: Improved talking-point formatting and reliability for afternoon drafts.",
+        "End-of-Day Modal: Smart check-in now preserves generated content when closing and reopening."
+      ]
+    },
+    {
       version: "1.5.3",
       date: "January 21, 2026",
       title: "Swipe Navigation",
@@ -97,7 +112,7 @@ const PatchNotesModal: React.FC<PatchNotesModalProps> = ({ version, onClose }) =
   const [isClosing, setIsClosing] = useState(false);
   const [showBottomShadow, setShowBottomShadow] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const buttonRef = React.useRef<HTMLButtonElement>(null);
+  const buttonRef = React.useRef<HTMLButtonElement | null>(null);
   const cleanupRef = React.useRef<(() => void) | null>(null);
 
   // Check for scroll overflow to show/hide shadow

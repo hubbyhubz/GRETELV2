@@ -177,7 +177,7 @@ const InterviewModal: React.FC<InterviewModalProps> = ({
     const moraleFactorValues = [moraleFactors.energy, moraleFactors.teamwork, moraleFactors.load, moraleFactors.stability];
     const moraleAnsweredCount = moraleFactorValues.filter(v => typeof v === 'number').length;
     const suggestedMorale = moraleAnsweredCount === 4
-      ? Math.min(5, Math.max(1, Math.round(moraleFactorValues.reduce((sum, v) => sum + (Number(v) || 0), 0) / 4)))
+      ? Math.min(5, Math.max(1, Math.round(moraleFactorValues.reduce<number>((sum, v) => sum + (Number(v) || 0), 0) / 4)))
       : null;
 
     const setMoraleFactor = (key: 'energy' | 'teamwork' | 'load' | 'stability', value: number) => {
