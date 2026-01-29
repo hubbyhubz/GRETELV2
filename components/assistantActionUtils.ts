@@ -170,7 +170,6 @@ export const applyScheduleOps = (current: ScheduleItem[], ops: any[]) => {
       if (op?.item?.time != null && time !== next[i].time) {
         // Get the item to update
         const itemToUpdate = next[i];
-        const oldTime = itemToUpdate.time;
         
         // Remove the item from schedule temporarily
         const tempSchedule = next.filter((_, idx) => idx !== i);
@@ -511,8 +510,7 @@ const findNextAvailableSlot = (
  */
 export const cascadeReschedule = (
   schedule: ScheduleItem[],
-  newItem: { time: string; title: string },
-  hardConstraintKeywords: string[] = ['lunch', 'briefing', 'meeting', 'standup', 'sync']
+  newItem: { time: string; title: string }
 ): ScheduleItem[] => {
   const newRange = parseScheduleRangeToMinutes(newItem.time);
   if (!newRange) {

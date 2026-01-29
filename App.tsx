@@ -478,6 +478,7 @@ function App() {
     if (isLocked && session && userProfile) {
       return <MainDashboardPage
         onLogout={handleLogout}
+        onLock={lockNow}
         userProfile={userProfile}
         onProfileUpdate={handleProfileUpdate}
         onNavigateToPrivacy={() => navigateToPrivacyPolicy('dashboard')}
