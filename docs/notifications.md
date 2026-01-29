@@ -7,6 +7,9 @@ This project supports automated push notifications for tasks, projects, event op
 Run these SQL scripts in Supabase SQL Editor:
 - [supabase_assistant_inbox.sql](file:///e:/BEATRIX/supabase_assistant_inbox.sql)
 - [supabase_notification_system.sql](file:///e:/BEATRIX/supabase_notification_system.sql)
+- [supabase_push_subscriptions.sql](file:///e:/GRETEL/supabase_push_subscriptions.sql)
+- [supabase_push_notifications_queue.sql](file:///e:/GRETEL/supabase_push_notifications_queue.sql)
+- [supabase_auto_push_trigger.sql](file:///e:/GRETEL/supabase_auto_push_trigger.sql) (optional; queues pushes for assistant inbox messages)
 
 Enable Realtime for:
 - `public.assistant_inbox_messages`
@@ -59,3 +62,19 @@ Required GitHub repository secrets:
 
 Workflow file:
 - `.github/workflows/assistant-notifications.yml`
+
+## 5) Run on a schedule (Vercel Cron)
+
+This repo includes a Vercel Cron that calls `/api/notify-run` on an interval.
+
+Recommended env variables in Vercel:
+- `VITE_SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `VAPID_PUBLIC_KEY`
+- `VAPID_PRIVATE_KEY`
+- `VAPID_SUBJECT` (optional)
+- `NOTIFY_RUN_SECRET` (set a long random string)
+
+When `NOTIFY_RUN_SECRET` is set, the endpoint allows either:
+- Vercel Cron header: `x-vercel-cron: 1`
+- Manual calls: `Authorization: Bearer <NOTIFY_RUN_SECRET>`

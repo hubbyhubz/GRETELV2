@@ -8,10 +8,11 @@ interface InAppNotificationProps {
   message: string;
   onDismiss: (id: string) => void;
   duration?: number;
+  actions?: Array<{ label: string; onClick: () => void }>;
 }
 
 export const InAppNotification: React.FC<InAppNotificationProps> = ({ 
-  id, title, message, onDismiss, duration = 5000 
+  id, title, message, onDismiss, duration = 5000, actions = []
 }) => {
   useEffect(() => {
     if (duration > 0) {
@@ -37,6 +38,20 @@ export const InAppNotification: React.FC<InAppNotificationProps> = ({
           <div className="ml-3 w-0 flex-1 pt-0.5">
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{title}</p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{message}</p>
+            {actions.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {actions.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    className="inline-flex items-center rounded-md bg-gray-100 dark:bg-gray-700 px-2.5 py-1 text-xs font-semibold text-gray-800 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-600"
+                    onClick={action.onClick}
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="ml-4 flex flex-shrink-0">
             <button

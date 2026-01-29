@@ -607,6 +607,18 @@ export const cascadeReschedule = (
   return updatedSchedule;
 };
 
+export const EVENT_OPS_PREP_MINUTES = 90;
+export const EVENT_OPS_WRAP_MINUTES = 120;
+
+export const getEventOpsReminderMoments = (servingMinutes: number) => {
+  return [
+    { label: 'T-90', minute: Math.max(0, servingMinutes - EVENT_OPS_PREP_MINUTES) },
+    { label: 'T-30', minute: Math.max(0, servingMinutes - 30) },
+    { label: 'T-0', minute: servingMinutes },
+    { label: 'T+120', minute: Math.min(24 * 60, servingMinutes + EVENT_OPS_WRAP_MINUTES) },
+  ];
+};
+
 export const buildEventOpsBlocksForToday = (
   items: Array<{ id: string; kind: string; event_date: string; name: string; location: string | null; serving_time: string | null }>,
   todayYmd: string
@@ -618,8 +630,8 @@ export const buildEventOpsBlocksForToday = (
       const serving = String(it?.serving_time || '').slice(0, 5);
       const minutes = parseHmToMinutes(serving);
       if (minutes == null) return null;
-      const start = Math.max(0, minutes - 90);
-      const end = Math.min(24 * 60, minutes + 120);
+      const start = Math.max(0, minutes - EVENT_OPS_PREP_MINUTES);
+      const end = Math.min(24 * 60, minutes + EVENT_OPS_WRAP_MINUTES);
       return { start, end, item: it };
     })
     .filter(Boolean) as Array<{ start: number; end: number; item: any }>;

@@ -3,16 +3,20 @@ import { supabase } from './supabaseClient';
 import { InAppNotification } from './InAppNotification';
 import { registerServiceWorker, subscribeUserToPush } from '../lib/pushManager';
 import { AnimatePresence } from 'framer-motion';
+import { getDefaultAssistantNotificationPreferences } from '../lib/notificationRules';
 
 interface Toast {
   id: string;
+  messageId?: string;
   title: string;
   message: string;
+  metadata?: any;
 }
 
 export const NotificationManager: React.FC = () => {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [permission, setPermission] = useState<NotificationPermission>('default');
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     if ('Notification' in window) {
@@ -30,9 +34,48 @@ export const NotificationManager: React.FC = () => {
     registerServiceWorker();
   }, []);
 
-  const addToast = useCallback((title: string, message: string) => {
-    const id = Date.now().toString();
-    setToasts(prev => [...prev, { id, title, message }]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (error) return;
+      const id = data?.user?.id;
+      if (id) setUserId(id);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('assistant_notification_preferences')
+        .select('preferences')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (error) return;
+      if (cancelled) return;
+      const existing = (data as any)?.preferences ?? null;
+      const defaults = getDefaultAssistantNotificationPreferences(tz);
+      const merged = {
+        ...defaults,
+        ...(existing && typeof existing === 'object' ? existing : {}),
+        timezone: typeof existing?.timezone === 'string' && existing.timezone.trim() ? existing.timezone.trim() : defaults.timezone,
+        quietHours: existing?.quietHours ?? defaults.quietHours,
+        strictMode: existing?.strictMode !== false,
+        snoozes: existing?.snoozes ?? {},
+      };
+      await supabase.from('assistant_notification_preferences').upsert({ user_id: userId, preferences: merged });
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts(prev => [...prev, { id, ...toast }]);
   }, []);
 
   const removeToast = useCallback((id: string) => {
@@ -63,8 +106,8 @@ export const NotificationManager: React.FC = () => {
           // Check if the message belongs to current user (RLS should handle this, but filter to be safe)
           // Also check if we are already displaying it?
           // For now, just show it.
-          const { title, content } = payload.new;
-          addToast(title || 'Assistant', content);
+          const { id, title, content, metadata } = payload.new as any;
+          addToast({ messageId: id, title: title || 'Assistant', message: content, metadata });
         }
       )
       .subscribe();
@@ -109,6 +152,54 @@ export const NotificationManager: React.FC = () => {
               title={toast.title}
               message={toast.message}
               onDismiss={removeToast}
+              duration={toast.metadata?.priority === 'critical' ? 15000 : 5000}
+              actions={[
+                ...(toast.metadata?.url
+                  ? [
+                      {
+                        label: 'Open',
+                        onClick: () => {
+                          window.location.href = String(toast.metadata.url);
+                        },
+                      },
+                    ]
+                  : []),
+                ...(toast.metadata?.dedupe_key && userId
+                  ? [
+                      {
+                        label: 'Snooze 15m',
+                        onClick: async () => {
+                          const snoozeUntil = Date.now() + 15 * 60 * 1000;
+                          const { data } = await supabase
+                            .from('assistant_notification_preferences')
+                            .select('preferences')
+                            .eq('user_id', userId)
+                            .maybeSingle();
+                          const existing = (data as any)?.preferences ?? {};
+                          const snoozes = { ...(existing.snoozes ?? {}) };
+                          snoozes[String(toast.metadata.dedupe_key)] = snoozeUntil;
+                          await supabase
+                            .from('assistant_notification_preferences')
+                            .upsert({ user_id: userId, preferences: { ...existing, snoozes } });
+                          removeToast(toast.id);
+                        },
+                      },
+                      {
+                        label: 'Done',
+                        onClick: async () => {
+                          const messageId = toast.messageId;
+                          if (messageId) {
+                            await supabase
+                              .from('assistant_inbox_messages')
+                              .update({ dismissed_at: new Date().toISOString() })
+                              .eq('id', messageId);
+                          }
+                          removeToast(toast.id);
+                        },
+                      },
+                    ]
+                  : []),
+              ]}
             />
           ))}
         </AnimatePresence>

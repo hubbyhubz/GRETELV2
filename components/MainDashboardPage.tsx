@@ -983,7 +983,7 @@ const DashboardContent: React.FC<{
         showBriefingClearConfirm, setShowBriefingClearConfirm, confirmClearBriefingPointers,
         isAddTaskModalOpen, setIsAddTaskModalOpen,
         showDelegatedClearConfirm, setShowDelegatedClearConfirm, handleClearDelegatedTasks,
-        handleDailyKickoff, handleCreateWeeklyReport, handleClosePatchNotes,
+        handleCreateWeeklyReport, handleClosePatchNotes,
         // Modals props
         handleClearBriefingPointers, isBriefingPointersVisible, setIsBriefingPointersVisible,
         isBriefingNotesModalOpen, setIsBriefingNotesModalOpen,
