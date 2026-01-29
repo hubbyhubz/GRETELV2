@@ -53,7 +53,7 @@ function App() {
   // Custom Hooks
   const { session, isLoading: authLoading, setSession } = useAuthListener();
   const { userProfile, isFetching: profileLoading, error: profileError, updateProfileLocal } = useProfileData(session);
-  const { isLocked, setIsLocked, handleUnlock, resetInactivityTimer } = useInactivityLock(session, userProfile);
+  const { isLocked, setIsLocked, handleUnlock, resetInactivityTimer, lockNow } = useInactivityLock(session, userProfile);
 
   const isLoading = authLoading || (!!session && profileLoading && !userProfile);
   const [showLoadingHint, setShowLoadingHint] = useState(false);
@@ -68,6 +68,7 @@ function App() {
   const [requiresGoogleRefresh, setRequiresGoogleRefresh] = useState(false);
   const [requiresGoogleConnect, setRequiresGoogleConnect] = useState(false);
   const [shouldShowPatchNotes, setShouldShowPatchNotes] = useState(false);
+  const [pendingGoogleReconnect, setPendingGoogleReconnect] = useState(false);
   const [createAccountFormData, setCreateAccountFormData] = useState<CreateAccountFormData>({
     name: '',
     email: '',
@@ -120,21 +121,12 @@ function App() {
   }, [currentView, requiresGoogleRefresh, userProfile?.setup_complete, activeDashboard]);
 
   const handleUnlockWithTokenRefresh = useCallback(async () => {
-    const lockedAtRaw = localStorage.getItem('gretel_locked_at');
-    const lockedAt = lockedAtRaw ? Number(lockedAtRaw) : null;
-    const lockedMs = lockedAt && Number.isFinite(lockedAt) ? Date.now() - lockedAt : null;
-
-    handleUnlock();
-
-    if (lockedMs != null && lockedMs < 45 * 60 * 1000) {
-      return;
+    await handleUnlock();
+    if (pendingGoogleReconnect) {
+      setPendingGoogleReconnect(false);
+      setRequiresGoogleRefresh(true);
     }
-
-    try {
-      await supabase.auth.refreshSession();
-    } catch {
-    }
-  }, [handleUnlock]);
+  }, [handleUnlock, pendingGoogleReconnect]);
 
   if (!isSupabaseConfigured) {
     return (
@@ -301,7 +293,8 @@ function App() {
   const handleLoginSuccess = (_nextSession: Session | null) => {
     setAuthError(null);
     resetInactivityTimer();
-    setRequiresGoogleConnect(false);
+    setRequiresGoogleConnect(true);
+    setRequiresGoogleRefresh(false);
   };
 
   const handleLogout = async () => {
@@ -327,6 +320,10 @@ function App() {
 
   const handleGoogleAuthError = () => {
     console.warn('⚠️ Google Auth Error detected, prompting for refresh.');
+    if (isLocked) {
+      setPendingGoogleReconnect(true);
+      return;
+    }
     setRequiresGoogleRefresh(true);
   };
 
@@ -395,12 +392,13 @@ function App() {
       sessionStorage.removeItem('needsGoogleRefresh');
 
       console.log('✅ New user setup complete. Forcing Google Account connection flow.');
-      setRequiresGoogleRefresh(true);
+      setRequiresGoogleConnect(true);
     }
   };
 
   useEffect(() => {
     if (!session || !userProfile?.setup_complete) return;
+    if (isLocked) return;
     let cancelled = false;
     (async () => {
       const { data, error } = await supabase.auth.getUser();
@@ -423,7 +421,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [session?.access_token, userProfile?.setup_complete]);
+  }, [session?.access_token, userProfile?.setup_complete, isLocked]);
 
   const renderView = () => {
     if (currentView === 'test') {
@@ -475,6 +473,23 @@ function App() {
           </div>
         </div>
       );
+    }
+
+    if (isLocked && session && userProfile) {
+      return <MainDashboardPage
+        onLogout={handleLogout}
+        userProfile={userProfile}
+        onProfileUpdate={handleProfileUpdate}
+        onNavigateToPrivacy={() => navigateToPrivacyPolicy('dashboard')}
+        onNavigateToTerms={() => navigateToTermsOfService('dashboard')}
+        activeDashboard={activeDashboard}
+        setActiveDashboard={setActiveDashboard}
+        appVersion={APP_VERSION}
+        onGoogleAuthError={handleGoogleAuthError}
+        shouldShowPatchNotes={shouldShowPatchNotes}
+        onPatchNotesViewed={handlePatchNotesViewed}
+        session={session}
+      />;
     }
 
     if (requiresGoogleRefresh) {
@@ -537,6 +552,7 @@ function App() {
       case 'setupWizard':
         return <MainDashboardPage
           onLogout={handleLogout}
+          onLock={lockNow}
           userProfile={userProfile}
           onProfileUpdate={handleProfileUpdate}
           onNavigateToPrivacy={() => navigateToPrivacyPolicy('dashboard')}
@@ -556,6 +572,7 @@ function App() {
       default:
         return <MainDashboardPage
           onLogout={handleLogout}
+          onLock={lockNow}
           userProfile={userProfile}
           onProfileUpdate={handleProfileUpdate}
           onNavigateToPrivacy={() => navigateToPrivacyPolicy('dashboard')}
@@ -599,7 +616,6 @@ function App() {
             userProfile={userProfile}
             accessToken={session?.access_token || ''}
             onUnlock={handleUnlockWithTokenRefresh}
-            onLogout={handleLogout}
           />
         </Suspense>
       )}

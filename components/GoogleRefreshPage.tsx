@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { supabase } from './supabaseClient';
 
 const GoogleRefreshPage: React.FC = () => {
@@ -20,11 +20,6 @@ const GoogleRefreshPage: React.FC = () => {
     });
     // The page will redirect, so no need to set isRedirecting back to false.
   };
-
-  useEffect(() => {
-    handleConnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <div className="w-full max-w-md text-center animate__animated animate__bounceIn">

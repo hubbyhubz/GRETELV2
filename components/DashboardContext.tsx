@@ -593,6 +593,7 @@ type WeeklyLogUpdatePayload = {
 interface DashboardProviderProps {
   children: ReactNode;
   onLogout: () => void;
+  onLock: () => void;
   userProfile: UserProfile;
   onProfileUpdate: (updatedProfile: UserProfile) => Promise<void>;
   onNavigateToPrivacy: () => void;
@@ -1445,6 +1446,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         setBriefingInputs([]);
         setBriefingState('idle');
         setReminders(prev => prev.filter(item => !item.completed));
+        setDelegatedTasks(prev => prev.filter(task => !task.completed));
         setLastResetDate(today);
       };
 
@@ -1464,6 +1466,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setBriefingState('idle'); 
       setIsScheduleConfirmed(false);
       setPriorityForTomorrow('');
+      setDelegatedTasks(prev => prev.filter(task => !task.completed));
       const today = new Date().toISOString().split('T')[0];
       setLastResetDate(today);
       setNotifiedEventIds(new Set()); 
@@ -6010,6 +6013,7 @@ ${reportJson}`;
 
     const value: DashboardContextType = {
         onLogout: props.onLogout,
+        onLock: props.onLock,
         userProfile: props.userProfile,
         onProfileUpdate: props.onProfileUpdate,
         onNavigateToPrivacy: props.onNavigateToPrivacy,

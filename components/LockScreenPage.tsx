@@ -6,10 +6,9 @@ interface LockScreenPageProps {
   userProfile: UserProfile;
   accessToken: string;
   onUnlock: () => void;
-  onLogout: () => void;
 }
 
-const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, accessToken, onUnlock, onLogout }) => {
+const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, accessToken, onUnlock }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -110,14 +109,6 @@ const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, accessToke
             {isLoading ? 'Unlocking...' : 'Unlock'}
           </button>
         </form>
-        <div className="mt-6">
-          <button
-            onClick={onLogout}
-            className="text-sm text-gray-600 dark:text-gray-400 hover:text-primary-600 hover:underline transition duration-300"
-          >
-            Not you? Log Out
-          </button>
-        </div>
       </div>
     </div>
   );

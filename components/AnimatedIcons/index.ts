@@ -49,6 +49,8 @@ export { UserIcon } from './UserIcon';
 
 export { SecurityIcon } from './SecurityIcon';
 
+export { LockKeyholeOpenIcon } from './LockKeyholeOpenIcon';
+
 export { FilePenLineIcon } from './FilePenLineIcon';
 
 export { LucideMenuIcon } from './LucideMenuIcon';

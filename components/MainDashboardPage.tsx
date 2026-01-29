@@ -35,6 +35,7 @@ import {
   ProjectIcon,
   RadioIcon,
   UsersIcon,
+  LockKeyholeOpenIcon,
   FilePenLineIcon,
   LucidePaperclipIcon,
   LucideCommandIcon,
@@ -77,6 +78,7 @@ import { generateKickoffQuestions } from './kickoffQuestionGenerator';
 
 interface MainDashboardPageProps {
     onLogout: () => void;
+    onLock: () => void;
     userProfile: UserProfile;
     onProfileUpdate: (updatedProfile: UserProfile) => Promise<void>;
     onNavigateToPrivacy: () => void;
@@ -958,7 +960,7 @@ const DashboardContent: React.FC<{
     setShowScheduleAnimationRef: React.MutableRefObject<((value: boolean) => void) | null>;
 }> = ({ setShowConfettiRef, setShowScheduleAnimationRef }) => {
     const {
-        userProfile, onLogout, activeDashboard, setActiveDashboard, appVersion,
+        userProfile, onLogout, onLock, activeDashboard, setActiveDashboard, appVersion,
         currentView, setCurrentView, isMobileMenuOpen, setIsMobileMenuOpen, mobileView, setMobileView,
         chatInput, handleChatInput, handleSendMessage, isSending,
         chatMessages, desktopTextareaRef, mobileTextareaRef, desktopFileInputRef, mobileFileInputRef,
@@ -1498,6 +1500,7 @@ const DashboardContent: React.FC<{
     const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const [isLogoutIconHovered, setIsLogoutIconHovered] = React.useState(false);
+    const [isLockIconHovered, setIsLockIconHovered] = React.useState(false);
     const [isMobileLogoutIconHovered, setIsMobileLogoutIconHovered] = React.useState(false);
 
     const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -2080,6 +2083,17 @@ const DashboardContent: React.FC<{
                     <button onClick={() => setIsPatchNotesVisible(true)} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800" title="What's New"><GiftIcon size={20} /></button>
                     <button onClick={() => setIsFeedbackVisible(true)} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800" title="Submit Feedback"><FeedbackIcon size={20} /></button>
                     <button id="settings-button" onClick={() => { setCurrentView('settings'); setInitialSettingsTab('profile'); }} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800" title="Settings"><SettingsIcon size={20} /></button>
+                    <button
+                      onClick={onLock}
+                      onMouseEnter={() => setIsLockIconHovered(true)}
+                      onMouseLeave={() => setIsLockIconHovered(false)}
+                      onFocus={() => setIsLockIconHovered(true)}
+                      onBlur={() => setIsLockIconHovered(false)}
+                      className="h-9 w-9 rounded-full flex items-center justify-center text-primary-600 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800"
+                      title="Lock"
+                    >
+                      <LockKeyholeOpenIcon size={20} isHovered={isLockIconHovered} />
+                    </button>
                     <button 
                       onClick={onLogout} 
                       onMouseEnter={() => setIsLogoutIconHovered(true)}

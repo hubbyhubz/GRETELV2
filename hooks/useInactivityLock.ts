@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../components/supabaseClient';
 import type { UserProfile } from '../components/types';
@@ -13,6 +13,19 @@ export function useInactivityLock(session: Session | null, userProfile: UserProf
 
     const inactivityTimer = useRef<number | null>(null);
 
+    const lockNow = useCallback(() => {
+        if (!userProfile?.setup_complete) return;
+        setIsLocked(true);
+        localStorage.setItem('gretel_is_locked', 'true');
+        localStorage.setItem('gretel_locked_at', Date.now().toString());
+
+        if (session?.user?.id) {
+            supabase.from('profiles').update({ is_app_locked: true }).eq('id', session.user.id).then(({ error }) => {
+                if (error) console.error('Error syncing lock state:', error);
+            });
+        }
+    }, [session?.user?.id, userProfile?.setup_complete]);
+
     const resetInactivityTimer = () => {
         if (inactivityTimer.current) {
             clearTimeout(inactivityTimer.current);
@@ -23,16 +36,7 @@ export function useInactivityLock(session: Session | null, userProfile: UserProf
             // Only lock if there is a logged-in user on the dashboard who has completed setup
             if (userProfile && userProfile.setup_complete) {
                 console.log('🔒 Inactivity timeout - Locking App');
-                setIsLocked(true);
-                localStorage.setItem('gretel_is_locked', 'true');
-                localStorage.setItem('gretel_locked_at', Date.now().toString());
-
-                // Sync lock state to Supabase
-                if (session?.user?.id) {
-                    supabase.from('profiles').update({ is_app_locked: true }).eq('id', session.user.id).then(({ error }) => {
-                        if (error) console.error('Error syncing lock state:', error);
-                    });
-                }
+                lockNow();
             }
         }, INACTIVITY_TIMEOUT);
     };
@@ -88,5 +92,5 @@ export function useInactivityLock(session: Session | null, userProfile: UserProf
         resetInactivityTimer();
     };
 
-    return { isLocked, setIsLocked, handleUnlock, resetInactivityTimer };
+    return { isLocked, setIsLocked, handleUnlock, resetInactivityTimer, lockNow };
 }
