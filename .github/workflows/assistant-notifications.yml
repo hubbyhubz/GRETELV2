@@ -1,0 +1,26 @@
+name: Assistant Notifications
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  notify-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call notify-run endpoint
+        env:
+          NOTIFY_RUN_URL: ${{ secrets.NOTIFY_RUN_URL }}
+          NOTIFY_RUN_SECRET: ${{ secrets.NOTIFY_RUN_SECRET }}
+        run: |
+          if [ -z "$NOTIFY_RUN_URL" ]; then
+            echo "Missing NOTIFY_RUN_URL repo secret (e.g. https://<your-domain>/api/notify-run)"
+            exit 1
+          fi
+
+          if [ -n "$NOTIFY_RUN_SECRET" ]; then
+            curl -fsS -H "Authorization: Bearer $NOTIFY_RUN_SECRET" "$NOTIFY_RUN_URL"
+          else
+            curl -fsS "$NOTIFY_RUN_URL"
+          fi

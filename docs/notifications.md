@@ -51,17 +51,14 @@ Useful options:
 
 ## 4) Run on a schedule (GitHub Actions)
 
-You can run the notification runner as a scheduled GitHub Action.
+You can call the notification runner endpoint on a schedule using GitHub Actions.
 
 Required GitHub repository secrets:
-- `VITE_SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `VAPID_PUBLIC_KEY`
-- `VAPID_PRIVATE_KEY`
-- `VAPID_SUBJECT` (optional)
+- `NOTIFY_RUN_URL` (example: `https://<your-domain>/api/notify-run`)
+- `NOTIFY_RUN_SECRET` (must match `NOTIFY_RUN_SECRET` env in your deployment; optional if not set)
 
 Workflow file:
-- `.github/workflows/assistant-notifications.yml`
+- `.github/workflows/assistant-notifications.yml` (every 5 minutes)
 
 ## 5) Run on a schedule (Vercel Cron)
 
@@ -73,6 +70,7 @@ Recommended env variables in Vercel:
 - `VAPID_PUBLIC_KEY`
 - `VAPID_PRIVATE_KEY`
 - `VAPID_SUBJECT` (optional)
+- `DEFAULT_TIME_ZONE` (optional; IANA timezone like `America/Los_Angeles`, used as fallback)
 - `NOTIFY_RUN_SECRET` (set a long random string)
 
 When `NOTIFY_RUN_SECRET` is set, the endpoint allows either:

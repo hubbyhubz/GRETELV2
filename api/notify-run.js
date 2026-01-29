@@ -171,7 +171,7 @@ export default async function handler(req, res) {
   });
 
   const now = new Date();
-  const defaultTz = 'UTC';
+  const defaultTz = getEnv('DEFAULT_TIME_ZONE', 'UTC');
 
   const { data: subUsers, error: subUsersError } = await supabase
     .from('push_subscriptions')

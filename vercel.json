@@ -3,7 +3,7 @@
     { "source": "/((?!api/|assets/|icons/|avatars/|sw\\.js|manifest\\.json|favicon\\.ico|robots\\.txt).*)", "destination": "/" }
   ],
   "crons": [
-    { "path": "/api/notify-run", "schedule": "*/5 * * * *" }
+    { "path": "/api/notify-run", "schedule": "0 0 * * *" }
   ],
   "headers": [
     {
