@@ -8,6 +8,23 @@ interface PatchNotesModalProps {
 const PatchNotesModal: React.FC<PatchNotesModalProps> = ({ version, onClose }) => {
   const patchNotes = [
     {
+      version: "1.5.5",
+      date: "January 30, 2026",
+      title: "OKR Goal Plan + Security Hardening",
+      features: [
+        "My Goal Plan Enhancements: Improved header responsiveness and better behavior when the Update Objective drawer is open.",
+        "Update Objective Drawer Polish: Cleaner spacing and properly sized fields (including larger Description/Initiatives and fixed KR Weight/Budget/Stretch layout).",
+        "OKR Check-ins Dashboard Card: Added a compact widget that shows check-ins due for the active cycle.",
+        "OKR Reliability Upgrade: Added optional transactional database routines and stronger data integrity for OKR operations."
+      ],
+      fixes: [
+        "Security: Removed unsafe HTML injection from chat rendering to prevent XSS.",
+        "Security: Sanitized Excel export cells to prevent formula injection.",
+        "Import: Added file-size guardrails and improved KR de-duplication within a single import run.",
+        "Data: More accurate latest-checkin selection per KR (uses optimized query when available)."
+      ]
+    },
+    {
       version: "1.5.4",
       date: "January 29, 2026",
       title: "Daily Kick-off + End-of-Day Upgrade",

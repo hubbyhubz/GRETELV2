@@ -32,7 +32,7 @@ const TwoFactorAuthPage = lazy(() => import('./components/TwoFactorAuthPage'));
 const GoogleRefreshPage = lazy(() => import('./components/GoogleRefreshPage'));
 const TestPage = lazy(() => import('./components/TestPage'));
 
-const APP_VERSION = "1.5.4"; // Version for patch notes
+const APP_VERSION = "1.5.5"; // Version for patch notes
 
 // Extend the View type locally to include 'test'
 type ExtendedView = View | 'test';

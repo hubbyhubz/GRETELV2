@@ -13,7 +13,7 @@ const normalizeAvatarUrl = (url: string) => {
     return url.replace('/AVATAR/', '/avatars/');
 };
 
-const APP_VERSION = "1.5.3";
+const APP_VERSION = "1.5.5";
 
 export function useProfileData(session: Session | null) {
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
