@@ -18,7 +18,9 @@ import {
   createDefaultCycle,
   createKeyResult,
   createObjective,
+  deleteAllObjectivesInCycleCascade,
   deleteCycleCascade,
+  deleteObjectivesByComponentCascade,
   deleteObjectiveCascade,
   logCheckin,
 } from './okrMutations';
@@ -32,14 +34,21 @@ export function useOKRData(userId: string | null) {
   const [selectedCycleId, setSelectedCycleId] = React.useState<string | null>(null);
   const [objectives, setObjectives] = React.useState<ObjectiveWithKrs[]>([]);
   const [latestCheckinByKr, setLatestCheckinByKr] = React.useState<Record<string, OKRCheckinRow | undefined>>({});
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isCyclesLoading, setIsCyclesLoading] = React.useState(false);
+  const [isObjectivesLoading, setIsObjectivesLoading] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [selectedObjectiveId, setSelectedObjectiveId] = React.useState<string | null>(null);
 
+  const cyclesReqIdRef = React.useRef(0);
+  const objectivesReqIdRef = React.useRef(0);
+
+  const isLoading = isCyclesLoading || isObjectivesLoading;
+
   const refreshCycles = React.useCallback(async () => {
     if (!userId) return;
-    setIsLoading(true);
+    const reqId = (cyclesReqIdRef.current += 1);
+    setIsCyclesLoading(true);
     setLoadError(null);
     const { data, error } = await supabase
       .from('okr_cycles')
@@ -47,13 +56,15 @@ export function useOKRData(userId: string | null) {
       .eq('user_id', userId)
       .order('start_date', { ascending: false });
 
+    if (reqId !== cyclesReqIdRef.current) return;
+
     if (error) {
       setCycles([]);
       setSelectedCycleId(null);
       setObjectives([]);
       setLatestCheckinByKr({});
       setLoadError(error.message);
-      setIsLoading(false);
+      setIsCyclesLoading(false);
       return;
     }
 
@@ -63,12 +74,13 @@ export function useOKRData(userId: string | null) {
       ? selectedCycleId
       : rows.find((c) => c.status === 'active')?.id || rows[0]?.id || null;
     setSelectedCycleId(nextSelected);
-    setIsLoading(false);
+    setIsCyclesLoading(false);
   }, [userId, selectedCycleId]);
 
   const refreshObjectives = React.useCallback(async () => {
     if (!userId || !selectedCycleId) return;
-    setIsLoading(true);
+    const reqId = (objectivesReqIdRef.current += 1);
+    setIsObjectivesLoading(true);
     setLoadError(null);
 
     const { data: objRows, error: objErr } = await supabase
@@ -79,19 +91,21 @@ export function useOKRData(userId: string | null) {
       .order('created_at', { ascending: false });
 
     if (objErr) {
+      if (reqId !== objectivesReqIdRef.current) return;
       setObjectives([]);
       setLatestCheckinByKr({});
       setLoadError(objErr.message);
-      setIsLoading(false);
+      setIsObjectivesLoading(false);
       return;
     }
 
     const objList = (objRows as OKRObjectiveRow[]) || [];
     const objectiveIds = objList.map((o) => o.id);
     if (!objectiveIds.length) {
+      if (reqId !== objectivesReqIdRef.current) return;
       setObjectives([]);
       setLatestCheckinByKr({});
-      setIsLoading(false);
+      setIsObjectivesLoading(false);
       return;
     }
 
@@ -103,10 +117,11 @@ export function useOKRData(userId: string | null) {
       .order('created_at', { ascending: true });
 
     if (krErr) {
+      if (reqId !== objectivesReqIdRef.current) return;
       setObjectives([]);
       setLatestCheckinByKr({});
       setLoadError(krErr.message);
-      setIsLoading(false);
+      setIsObjectivesLoading(false);
       return;
     }
 
@@ -120,19 +135,31 @@ export function useOKRData(userId: string | null) {
     const krIds = krs.map((kr) => kr.id);
     const latestByKr: Record<string, OKRCheckinRow | undefined> = {};
     if (krIds.length) {
-      const { data: checkinsRows, error: chkErr } = await supabase
-        .from('okr_checkins')
-        .select('*')
-        .eq('user_id', userId)
-        .in('key_result_id', krIds)
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (!chkErr) {
-        ((checkinsRows as OKRCheckinRow[]) || []).forEach((row) => {
-          if (!latestByKr[row.key_result_id]) latestByKr[row.key_result_id] = row;
+      const { data: latestRows, error: latestErr } = await supabase.rpc('okr_latest_checkins', {
+        p_user_id: userId,
+        p_kr_ids: krIds,
+      });
+      if (!latestErr) {
+        ((latestRows as OKRCheckinRow[]) || []).forEach((row) => {
+          latestByKr[row.key_result_id] = row;
         });
+      } else {
+        const { data: checkinsRows, error: chkErr } = await supabase
+          .from('okr_checkins')
+          .select('*')
+          .eq('user_id', userId)
+          .in('key_result_id', krIds)
+          .order('created_at', { ascending: false })
+          .limit(500);
+        if (!chkErr) {
+          ((checkinsRows as OKRCheckinRow[]) || []).forEach((row) => {
+            if (!latestByKr[row.key_result_id]) latestByKr[row.key_result_id] = row;
+          });
+        }
       }
     }
+
+    if (reqId !== objectivesReqIdRef.current) return;
 
     setLatestCheckinByKr(latestByKr);
     const merged: ObjectiveWithKrs[] = objList.map((o) => {
@@ -140,7 +167,7 @@ export function useOKRData(userId: string | null) {
       return { ...o, krs: objKrs, progress01: computeObjectiveProgress(objKrs) };
     });
     setObjectives(merged);
-    setIsLoading(false);
+    setIsObjectivesLoading(false);
   }, [userId, selectedCycleId]);
 
   const createDefaultCycleForUser = React.useCallback(async (payload: { name: string; cadence: OKRCycleRow['cadence']; start_date: string; end_date: string; reminder_time: string }) => {
@@ -171,7 +198,7 @@ export function useOKRData(userId: string | null) {
     return result;
   }, [userId]);
 
-  const createObjectiveForCycle = React.useCallback(async (draft: { title: string; description: string; priority: number }) => {
+  const createObjectiveForCycle = React.useCallback(async (draft: { title: string; description: string; priority: number } & Record<string, any>) => {
     if (!userId || !selectedCycleId) return { ok: false as const, error: 'Missing cycle or user id.', missingTable: false };
     setIsSaving(true);
     const result = await createObjective({ userId, cycleId: selectedCycleId, draft });
@@ -185,7 +212,7 @@ export function useOKRData(userId: string | null) {
     return result;
   }, [userId, selectedCycleId]);
 
-  const createKeyResultForObjective = React.useCallback(async (objectiveId: string, draft: { title: string; metric_type: OKRMetricType; direction: OKRDirection; unit: string; start_value: string; target_value: string; due_date: string; checkin_frequency: OKRCheckinFrequency }) => {
+  const createKeyResultForObjective = React.useCallback(async (objectiveId: string, draft: { title: string; metric_type: OKRMetricType; direction: OKRDirection; unit: string; start_value: string; target_value: string; due_date: string; checkin_frequency: OKRCheckinFrequency } & Record<string, any>) => {
     if (!userId) return { ok: false as const, error: 'Missing user id.', missingTable: false };
     setIsSaving(true);
     const result = await createKeyResult({ userId, objectiveId, draft });
@@ -196,6 +223,46 @@ export function useOKRData(userId: string | null) {
     setObjectives((prev) => applyKrToObjectives({ objectives: prev, objectiveId, kr: result.kr }));
     setIsSaving(false);
     return result;
+  }, [userId]);
+
+  const updateObjectiveById = React.useCallback(async (objectiveId: string, patch: Partial<OKRObjectiveRow>) => {
+    if (!userId) return { ok: false as const, error: 'Missing user id.' };
+    setIsSaving(true);
+    const { data, error } = await supabase
+      .from('okr_objectives')
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('id', objectiveId)
+      .select('*')
+      .single();
+    if (error) {
+      setIsSaving(false);
+      return { ok: false as const, error: error.message };
+    }
+    const updated = data as OKRObjectiveRow;
+    setObjectives((prev) => prev.map((o) => (o.id === objectiveId ? { ...o, ...updated } : o)));
+    setIsSaving(false);
+    return { ok: true as const, objective: updated };
+  }, [userId]);
+
+  const updateKeyResultById = React.useCallback(async (krId: string, patch: Partial<OKRKeyResultRow>) => {
+    if (!userId) return { ok: false as const, error: 'Missing user id.' };
+    setIsSaving(true);
+    const { data, error } = await supabase
+      .from('okr_key_results')
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('id', krId)
+      .select('*')
+      .single();
+    if (error) {
+      setIsSaving(false);
+      return { ok: false as const, error: error.message };
+    }
+    const updated = data as OKRKeyResultRow;
+    setObjectives((prev) => applyUpdatedKrToObjectives({ objectives: prev, kr: updated }));
+    setIsSaving(false);
+    return { ok: true as const, kr: updated };
   }, [userId]);
 
   const logCheckinForKr = React.useCallback(async (kr: OKRKeyResultRow, params: { value: string; confidence: 1 | 2 | 3 | 4 | 5; health: OKRHealth; note: string }) => {
@@ -269,6 +336,53 @@ export function useOKRData(userId: string | null) {
     return result;
   }, [userId, cycles]);
 
+  const deleteObjectivesByComponent = React.useCallback(async (objectiveComponent: string) => {
+    if (!userId || !selectedCycleId) return { ok: false as const, error: 'Missing cycle or user id.' };
+    setIsSaving(true);
+    const result = await deleteObjectivesByComponentCascade({ userId, cycleId: selectedCycleId, objectiveComponent });
+    if (!result.ok) {
+      setIsSaving(false);
+      return result;
+    }
+    const deletedObjectiveIdSet = new Set<string>(result.deletedObjectiveIds || []);
+    setObjectives((prev) => prev.filter((o) => !deletedObjectiveIdSet.has(o.id)));
+    if (result.deletedKrIds?.length) {
+      setLatestCheckinByKr((prev) => {
+        const next = { ...prev };
+        result.deletedKrIds.forEach((id: string) => {
+          delete next[id];
+        });
+        return next;
+      });
+    }
+    if (selectedObjectiveId && deletedObjectiveIdSet.has(selectedObjectiveId)) setSelectedObjectiveId(null);
+    setIsSaving(false);
+    return result;
+  }, [userId, selectedCycleId, selectedObjectiveId]);
+
+  const deleteAllObjectivesInSelectedCycle = React.useCallback(async () => {
+    if (!userId || !selectedCycleId) return { ok: false as const, error: 'Missing cycle or user id.' };
+    setIsSaving(true);
+    const result = await deleteAllObjectivesInCycleCascade({ userId, cycleId: selectedCycleId });
+    if (!result.ok) {
+      setIsSaving(false);
+      return result;
+    }
+    setObjectives([]);
+    if (result.deletedKrIds?.length) {
+      setLatestCheckinByKr((prev) => {
+        const next = { ...prev };
+        result.deletedKrIds.forEach((id: string) => {
+          delete next[id];
+        });
+        return next;
+      });
+    }
+    setSelectedObjectiveId(null);
+    setIsSaving(false);
+    return result;
+  }, [userId, selectedCycleId]);
+
   React.useEffect(() => {
     refreshCycles();
   }, [refreshCycles]);
@@ -297,5 +411,9 @@ export function useOKRData(userId: string | null) {
     logCheckinForKr,
     deleteObjectiveById,
     deleteCycleById,
+    deleteObjectivesByComponent,
+    deleteAllObjectivesInSelectedCycle,
+    updateObjectiveById,
+    updateKeyResultById,
   };
 }

@@ -1104,12 +1104,16 @@ export const sendMessageToGemini = async (
   currentDate: Date,
   _accessToken: string | null, // FIX: Keep for future use with tools, prefix with _ to mark as unused
   eventOpsItems: EventOpsItem[] = [],
-  options?: { mode?: 'briefing_finalize' }
+  options?: { mode?: 'briefing_finalize'; okrSnapshot?: string }
 ): Promise<any> => {
   const isBriefingFinalize = options?.mode === 'briefing_finalize';
-  const systemInstruction = isBriefingFinalize
+  let systemInstruction = isBriefingFinalize
     ? buildBriefingFinalizeInstruction(userProfile, currentDate)
     : buildSystemInstruction(userProfile, dashboardState, googleCalendarEvents, currentDate, eventOpsItems);
+
+  if (!isBriefingFinalize && options?.okrSnapshot) {
+    systemInstruction += `\n\nOKR SNAPSHOT (for coaching + reminders):\n${options.okrSnapshot}`;
+  }
 
   try {
     const maxHistoryChars = isBriefingFinalize ? 12000 : 100000;
@@ -1145,7 +1149,7 @@ export const sendMessageToGemini = async (
       const status = queueError?.status;
       const details = queueError instanceof Error ? queueError.message : String(queueError);
       if (typeof details === 'string' && details.includes('Missing OPENAI_API_KEY')) {
-        return { text: "I'm sorry, the AI service is not configured. An admin must set **OPENAI_API_KEY** in Vercel → Project → Settings → Environment Variables." };
+        return { text: "I'm sorry, the AI service is not configured. An admin must set **GEMINI_API_KEY** (or **GOOGLE_API_KEY**) in your environment variables." };
       }
       if (
         status === 500 &&

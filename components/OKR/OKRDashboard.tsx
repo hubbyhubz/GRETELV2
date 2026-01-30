@@ -32,10 +32,19 @@ export function OKRDashboard(props: {
   const { cycles, selectedCycleId, onSelectCycleId, objectives, latestCheckinByKr, isLoading, isSaving, onCreateObjective, onOpenObjective, onDeleteObjective, onCreateCycle, onDeleteCycle } = props;
   const [objectiveDraft, setObjectiveDraft] = React.useState({ title: '', description: '', priority: 3 });
   const [isAddingCycle, setIsAddingCycle] = React.useState(false);
-  const [cycleDraft, setCycleDraft] = React.useState(() => {
+
+  type CycleDraft = {
+    name: string;
+    cadence: 'quarterly' | 'annual' | 'custom';
+    start_date: string;
+    end_date: string;
+    reminder_time: string;
+  };
+
+  const [cycleDraft, setCycleDraft] = React.useState<CycleDraft>(() => {
     const nowLocal = new Date();
     const range = quarterRange(nowLocal);
-    return { name: toQuarterLabel(nowLocal), cadence: 'quarterly' as const, start_date: range.start, end_date: range.end, reminder_time: '09:00' };
+    return { name: toQuarterLabel(nowLocal), cadence: 'quarterly', start_date: range.start, end_date: range.end, reminder_time: '09:00' };
   });
   const [confirmState, setConfirmState] = React.useState<ConfirmState>(null);
 

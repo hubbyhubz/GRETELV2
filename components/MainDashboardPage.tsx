@@ -51,6 +51,8 @@ import { PlusIcon } from './AnimatedIcons/PlusIcon.tsx';
 import { GripHorizontalIcon } from './AnimatedIcons/GripHorizontalIcon.tsx';
 import { MessageCircleMoreIcon } from './AnimatedIcons/MessageCircleMoreIcon.tsx';
 import { CalendarDaysIcon } from './AnimatedIcons/CalendarDaysIcon.tsx';
+import { OKRDashboardWidget } from './OKR/OKRDashboardWidget';
+import { useOkrSnapshot } from './OKR/useOkrSnapshot';
 
 // Lazy load Modals
 const FeedbackModal = lazy(() => import('./FeedbackModal'));
@@ -661,7 +663,7 @@ interface ChatMessageProps {
     msg: any;
     index: number;
     userProfile: any;
-    formatChatText: (text: string) => string;
+    normalizeChatText: (text: string) => string;
     handleMakeChanges: () => void;
     handleMakeProjectChanges: () => void;
     handleConfirmProjectDraft: () => void;
@@ -678,7 +680,7 @@ interface ChatMessageProps {
 }
 
 const ChatMessage = React.memo<ChatMessageProps>(({
-    msg, index, userProfile, formatChatText, handleMakeChanges,
+    msg, index, userProfile, normalizeChatText, handleMakeChanges,
     handleMakeProjectChanges, handleConfirmProjectDraft,
     draftedProject, draftedProjectTasks, weeklyReport, lastWeeklyReportIndex,
     emailVersion, setIsWeeklyReportModalOpen, setIsEmailVersionModalOpen,
@@ -709,7 +711,7 @@ const ChatMessage = React.memo<ChatMessageProps>(({
                 )}
                 {msg.role === 'user' ? (
                     <div className="rounded-lg sm:rounded-2xl px-3 py-2.5 sm:p-4 shadow-none sm:shadow-sm bg-primary-600 text-white sm:rounded-tr-none sm:ml-auto">
-                        <div className="prose prose-sm max-[360px]:prose-xs dark:prose-invert max-w-none whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: formatChatText(msg.text) }}></div>
+                        <div className="text-sm whitespace-pre-wrap break-words">{normalizeChatText(String(msg.text || ''))}</div>
                         {msg.imageUrl && <img src={msg.imageUrl} alt="Uploaded" className="mt-2 rounded-lg max-w-full h-auto border border-gray-200 dark:border-gray-700" />}
                     </div>
                 ) : (
@@ -1007,6 +1009,8 @@ const DashboardContent: React.FC<{
         handleProactiveAIMessage, setIsScheduleConfirmed, draftedPriorities, setDraftedPriorities, setTop3Items,
         isInterviewModalOpen, interviewModalMode, interviewDrafts, smartEodQuestions, isSmartEodLoading, setSmartEodAnswer, endOfDayDraft, setEndOfDayDraft, submitEndOfDayReview, endOfDaySummary, endOfDayCompletedDate, endOfDayIntro, carryOverTasks, carryOverDecision, openInterviewModal, closeInterviewModal, setInterviewAnswer, setInterviewOtherNotes, handleGenerateInterview,
     } = useDashboardContext();
+
+    const okrSnapshotState = useOkrSnapshot({ userId: userProfile?.id || null });
 
     const [kickoffQuestions, setKickoffQuestions] = React.useState<string[]>(() => generateKickoffQuestions(userProfile));
 
@@ -1482,15 +1486,9 @@ const DashboardContent: React.FC<{
 
     const welcomeName = userProfile.nickname || userProfile.name.split(' ')[0];
     
-    const formatChatText = (text: string) => {
-        // Handle literal \n from AI (fix for jumbled text issue)
+    const normalizeChatText = (text: string) => {
         const fixedEscapes = text.replace(/\\n/g, '\n');
-        
-        const normalized = fixedEscapes.replace(/\r\n/g, '\n');
-        const withBullets = normalized.replace(/^\s*[-*]\s+/gm, '• ');
-        const withLineBreaks = withBullets.replace(/\n/g, '<br />');
-        const withBold = withLineBreaks.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-        return withBold.replace(/\*(\S[^*]*\S)\*/g, '<i>$1</i>');
+        return fixedEscapes.replace(/\r\n/g, '\n');
     };
 
     // Debounced menu toggle
@@ -1831,7 +1829,7 @@ const DashboardContent: React.FC<{
                         msg={msg}
                         index={index}
                         userProfile={userProfile}
-                        formatChatText={formatChatText}
+                        normalizeChatText={normalizeChatText}
                         handleMakeChanges={handleMakeChanges}
                         handleMakeProjectChanges={handleMakeProjectChanges}
                         handleConfirmProjectDraft={handleConfirmProjectDraft}
@@ -2337,6 +2335,14 @@ const DashboardContent: React.FC<{
                                 )}
                             </div>
                        </div>
+
+                       <OKRDashboardWidget
+                          snapshot={okrSnapshotState.snapshot}
+                          isLoading={okrSnapshotState.isLoading}
+                          error={okrSnapshotState.error}
+                          onRefresh={okrSnapshotState.refresh}
+                          onOpenOkrs={() => setActiveDashboard('okr')}
+                       />
                     </div>
 
                         {/* Center Pane: Chat */}
@@ -3046,7 +3052,10 @@ const DashboardContent: React.FC<{
           <EmailVersionModal 
             isOpen={isEmailVersionModalOpen}
             emailContent={emailVersion}
-            onClose={() => setIsEmailVersionModalOpen(false)}
+            onClose={() => {
+              setIsEmailVersionModalOpen(false);
+              setIsWeeklyReportModalOpen(true);
+            }}
           />
           {contextMenu.visible && <ActionContextMenu x={contextMenu.x} y={contextMenu.y} selectedText={contextMenu.text} flipped={contextMenu.flipped} onClose={() => setContextMenu({ ...contextMenu, visible: false })} onAddReminder={handleCreateReminderFromText} onAddBriefing={handleAddBriefingFromText} onExplain={(t) => handleSendMessage(undefined, `Explain this: "${t}"`)} onDelegate={(t) => { setQuickActionModal({ isOpen: true, title: 'Delegate Task', prefill: t }); }} />}
           

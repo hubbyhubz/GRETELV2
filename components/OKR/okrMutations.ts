@@ -65,7 +65,7 @@ export async function createCycle(params: {
 export async function createObjective(params: {
   userId: string;
   cycleId: string;
-  draft: { title: string; description: string; priority: number };
+  draft: { title: string; description: string; priority: number } & Record<string, any>;
 }) {
   const { userId, cycleId, draft } = params;
   const payload = {
@@ -75,6 +75,9 @@ export async function createObjective(params: {
     description: draft.description.trim() || null,
     status: 'active',
     priority: draft.priority,
+    objective_component: typeof draft.objective_component === 'string' ? (draft.objective_component.trim() || null) : null,
+    weightage: Number.isFinite(Number(draft.weightage)) ? Number(draft.weightage) : null,
+    tracking_status: typeof draft.tracking_status === 'string' ? draft.tracking_status : null,
     updated_at: new Date().toISOString(),
   };
   const { data, error } = await supabase.from('okr_objectives').insert(payload).select('*').single();
@@ -85,25 +88,37 @@ export async function createObjective(params: {
 export async function createKeyResult(params: {
   userId: string;
   objectiveId: string;
-  draft: { title: string; metric_type: OKRMetricType; direction: OKRDirection; unit: string; start_value: string; target_value: string; due_date: string; checkin_frequency: OKRCheckinFrequency };
+  draft: { title: string; metric_type: OKRMetricType; direction: OKRDirection; unit: string; start_value: string; target_value: string; due_date: string; checkin_frequency: OKRCheckinFrequency } & Record<string, any>;
 }) {
   const { userId, objectiveId, draft } = params;
   const start = asNumber(draft.start_value);
+  const achievedCandidate = Number(draft.achieved_value);
+  const achieved = Number.isFinite(achievedCandidate) ? achievedCandidate : null;
   const payload = {
     user_id: userId,
     objective_id: objectiveId,
     title: draft.title.trim(),
     metric_type: draft.metric_type,
     unit: draft.unit.trim() || null,
+    metric: typeof draft.metric === 'string' ? (draft.metric.trim() || null) : null,
+    target_operator: typeof draft.target_operator === 'string' ? draft.target_operator : null,
     direction: draft.direction,
     start_value: start,
     target_value: asNumber(draft.target_value),
-    current_value: start,
+    current_value: achieved != null ? achieved : start,
+    achieved_value: achieved,
     due_date: draft.due_date,
-    weight: 1,
+    start_date: draft.start_date || null,
+    end_date: draft.end_date || null,
+    weight: Number.isFinite(Number(draft.weight)) ? Number(draft.weight) : 1,
     status: 'active',
     checkin_frequency: draft.checkin_frequency,
     reminder_enabled: true,
+    initiatives: typeof draft.initiatives === 'string' ? (draft.initiatives.trim() || null) : null,
+    tracking_status: typeof draft.tracking_status === 'string' ? draft.tracking_status : null,
+    data_source: typeof draft.data_source === 'string' ? (draft.data_source.trim() || null) : null,
+    budget_target_value: Number.isFinite(Number(draft.budget_target_value)) ? Number(draft.budget_target_value) : null,
+    stretch_target_value: Number.isFinite(Number(draft.stretch_target_value)) ? Number(draft.stretch_target_value) : null,
     updated_at: new Date().toISOString(),
   };
   const { data, error } = await supabase.from('okr_key_results').insert(payload).select('*').single();
@@ -121,6 +136,21 @@ export async function logCheckin(params: {
 }) {
   const { userId, kr, value, confidence, health, note } = params;
   const nextValue = asNumber(value);
+
+  const { data: rpcData, error: rpcErr } = await supabase.rpc('okr_log_checkin', {
+    p_user_id: userId,
+    p_key_result_id: kr.id,
+    p_value: nextValue,
+    p_confidence: confidence,
+    p_health: health,
+    p_note: note,
+  });
+
+  if (!rpcErr && rpcData) {
+    const updatedKr = (rpcData as any).kr as OKRKeyResultRow;
+    const checkin = (rpcData as any).checkin as OKRCheckinRow;
+    if (updatedKr?.id && checkin?.id) return { ok: true as const, kr: updatedKr, checkin };
+  }
 
   const { data: updatedKr, error: upErr } = await supabase
     .from('okr_key_results')
@@ -147,6 +177,15 @@ export async function deleteObjectiveCascade(params: {
   objectiveId: string;
 }) {
   const { userId, objectiveId } = params;
+
+  const { data: rpcData, error: rpcErr } = await supabase.rpc('okr_delete_objective', {
+    p_user_id: userId,
+    p_objective_id: objectiveId,
+  });
+  if (!rpcErr && rpcData) {
+    const deletedKrIds = (rpcData as any).deletedKrIds as string[] | undefined;
+    return { ok: true as const, deletedKrIds: deletedKrIds || [] };
+  }
 
   const { data: krRows, error: krListErr } = await supabase
     .from('okr_key_results')
@@ -190,6 +229,18 @@ export async function deleteCycleCascade(params: {
   cycleId: string;
 }) {
   const { userId, cycleId } = params;
+
+  const { data: rpcData, error: rpcErr } = await supabase.rpc('okr_delete_cycle', {
+    p_user_id: userId,
+    p_cycle_id: cycleId,
+  });
+  if (!rpcErr && rpcData) {
+    return {
+      ok: true as const,
+      deletedObjectiveIds: ((rpcData as any).deletedObjectiveIds as string[] | undefined) || [],
+      deletedKrIds: ((rpcData as any).deletedKrIds as string[] | undefined) || [],
+    };
+  }
 
   const { data: objRows, error: objListErr } = await supabase
     .from('okr_objectives')
@@ -246,6 +297,135 @@ export async function deleteCycleCascade(params: {
     .eq('id', cycleId);
 
   if (cycDelErr) return { ok: false as const, error: cycDelErr.message };
+  return { ok: true as const, deletedObjectiveIds: objectiveIds, deletedKrIds: krIds };
+}
+
+export async function deleteObjectivesByComponentCascade(params: {
+  userId: string;
+  cycleId: string;
+  objectiveComponent: string;
+}) {
+  const { userId, cycleId, objectiveComponent } = params;
+
+  const { data: rpcData, error: rpcErr } = await supabase.rpc('okr_delete_objectives_by_component', {
+    p_user_id: userId,
+    p_cycle_id: cycleId,
+    p_objective_component: objectiveComponent,
+  });
+  if (!rpcErr && rpcData) {
+    return {
+      ok: true as const,
+      deletedObjectiveIds: ((rpcData as any).deletedObjectiveIds as string[] | undefined) || [],
+      deletedKrIds: ((rpcData as any).deletedKrIds as string[] | undefined) || [],
+    };
+  }
+
+  const { data: objRows, error: objListErr } = await supabase
+    .from('okr_objectives')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('cycle_id', cycleId)
+    .eq('objective_component', objectiveComponent);
+
+  if (objListErr) return { ok: false as const, error: objListErr.message };
+  const objectiveIds = ((objRows as Array<{ id: string }>) || []).map((r) => r.id);
+  if (!objectiveIds.length) return { ok: true as const, deletedObjectiveIds: [], deletedKrIds: [] };
+
+  const { data: krRows, error: krListErr } = await supabase
+    .from('okr_key_results')
+    .select('id')
+    .eq('user_id', userId)
+    .in('objective_id', objectiveIds);
+
+  if (krListErr) return { ok: false as const, error: krListErr.message };
+  const krIds = ((krRows as Array<{ id: string }>) || []).map((r) => r.id);
+
+  if (krIds.length) {
+    const { error: chkDelErr } = await supabase
+      .from('okr_checkins')
+      .delete()
+      .eq('user_id', userId)
+      .in('key_result_id', krIds);
+    if (chkDelErr) return { ok: false as const, error: chkDelErr.message };
+  }
+
+  const { error: krDelErr } = await supabase
+    .from('okr_key_results')
+    .delete()
+    .eq('user_id', userId)
+    .in('objective_id', objectiveIds);
+  if (krDelErr) return { ok: false as const, error: krDelErr.message };
+
+  const { error: objDelErr } = await supabase
+    .from('okr_objectives')
+    .delete()
+    .eq('user_id', userId)
+    .eq('cycle_id', cycleId)
+    .eq('objective_component', objectiveComponent);
+  if (objDelErr) return { ok: false as const, error: objDelErr.message };
+
+  return { ok: true as const, deletedObjectiveIds: objectiveIds, deletedKrIds: krIds };
+}
+
+export async function deleteAllObjectivesInCycleCascade(params: {
+  userId: string;
+  cycleId: string;
+}) {
+  const { userId, cycleId } = params;
+
+  const { data: rpcData, error: rpcErr } = await supabase.rpc('okr_delete_all_objectives_in_cycle', {
+    p_user_id: userId,
+    p_cycle_id: cycleId,
+  });
+  if (!rpcErr && rpcData) {
+    return {
+      ok: true as const,
+      deletedObjectiveIds: ((rpcData as any).deletedObjectiveIds as string[] | undefined) || [],
+      deletedKrIds: ((rpcData as any).deletedKrIds as string[] | undefined) || [],
+    };
+  }
+
+  const { data: objRows, error: objListErr } = await supabase
+    .from('okr_objectives')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('cycle_id', cycleId);
+  if (objListErr) return { ok: false as const, error: objListErr.message };
+
+  const objectiveIds = ((objRows as Array<{ id: string }>) || []).map((r) => r.id);
+  if (!objectiveIds.length) return { ok: true as const, deletedObjectiveIds: [], deletedKrIds: [] };
+
+  const { data: krRows, error: krListErr } = await supabase
+    .from('okr_key_results')
+    .select('id')
+    .eq('user_id', userId)
+    .in('objective_id', objectiveIds);
+  if (krListErr) return { ok: false as const, error: krListErr.message };
+
+  const krIds = ((krRows as Array<{ id: string }>) || []).map((r) => r.id);
+  if (krIds.length) {
+    const { error: chkDelErr } = await supabase
+      .from('okr_checkins')
+      .delete()
+      .eq('user_id', userId)
+      .in('key_result_id', krIds);
+    if (chkDelErr) return { ok: false as const, error: chkDelErr.message };
+  }
+
+  const { error: krDelErr } = await supabase
+    .from('okr_key_results')
+    .delete()
+    .eq('user_id', userId)
+    .in('objective_id', objectiveIds);
+  if (krDelErr) return { ok: false as const, error: krDelErr.message };
+
+  const { error: objDelErr } = await supabase
+    .from('okr_objectives')
+    .delete()
+    .eq('user_id', userId)
+    .eq('cycle_id', cycleId);
+  if (objDelErr) return { ok: false as const, error: objDelErr.message };
+
   return { ok: true as const, deletedObjectiveIds: objectiveIds, deletedKrIds: krIds };
 }
 

@@ -10,8 +10,10 @@ import type { Content } from '@google/genai';
 // FIX: All type imports were pointing to App.tsx which doesn't export them. Changed to import from the correct types.ts file.
 import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, UserMood, EventOpsItem, DailyOpsMetricEntry, StaffPerformanceLogEntry, CarryOverTaskEntry } from './types';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
+import { fetchOkrSnapshot, formatOkrSnapshotForPrompt } from './OKR/okrSnapshot';
 import { applyPriorityOps as applyPriorityOpsUtil, applyProjectOps as applyProjectOpsUtil, applyReminderOps as applyReminderOpsUtil, applyScheduleOps as applyScheduleOpsUtil, buildEventOpsBlocksForToday, detectEventOpsScheduleClarification, normalizeNeedle as normalizeNeedleUtil, parseDeadlineFromText as parseDeadlineFromTextUtil, parseScheduleRangeToMinutes, cascadeReschedule } from './assistantActionUtils';
 import { bestFuzzyMatch, inferFinalizePlan, inferFreeStyle } from './freeStyleNlu';
+import { buildWeeklyDashboardSummary } from '../lib/weeklyDashboard';
 
 // Version for the dashboard state structure. Increment this to trigger migrations.
 const DASHBOARD_STATE_VERSION = "1.1.0";
@@ -985,6 +987,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       items: [],
       error: null,
     });
+    const okrSnapshotFetchCacheRef = useRef<{ at: number; text: string; error: string | null }>({
+      at: 0,
+      text: '',
+      error: null,
+    });
     
     const [openSidebarSections, setOpenSidebarSections] = useState<Record<string, boolean>>({});
     const [isBriefingPointersVisible, setIsBriefingPointersVisible] = useState(false);
@@ -1663,6 +1670,28 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         return [];
       }
     }, [isCloudLoading, cloudError, userProfile.id, toYmdLocal]);
+
+    const fetchOkrSnapshotForAI = useCallback(async (force = false): Promise<string> => {
+      const nowMs = Date.now();
+      const cached = okrSnapshotFetchCacheRef.current;
+      const ttlMs = 60_000;
+      if (!force && cached.at > 0 && nowMs - cached.at < ttlMs) return cached.text;
+      if (!isSupabaseConfigured || isCloudLoading || cloudError || !userProfile.id) return cached.text;
+
+      try {
+        const res = await fetchOkrSnapshot({ userId: userProfile.id, now: new Date(), maxDueItems: 6 });
+        if (!res.ok) {
+          okrSnapshotFetchCacheRef.current = { at: nowMs, text: '', error: res.error };
+          return '';
+        }
+        const text = formatOkrSnapshotForPrompt(res.snapshot);
+        okrSnapshotFetchCacheRef.current = { at: nowMs, text, error: null };
+        return text;
+      } catch (err: any) {
+        okrSnapshotFetchCacheRef.current = { at: nowMs, text: '', error: 'fetch_failed' };
+        return '';
+      }
+    }, [isCloudLoading, cloudError, userProfile.id]);
 
     useEffect(() => {
       if (!isSupabaseConfigured) return;
@@ -2662,6 +2691,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           const currentAccessToken = session?.provider_token || null;
           const freshEventOpsItems = isBriefingFinalizeRequest ? [] : await fetchEventOpsItemsForAI(14, true);
           if (freshEventOpsItems.length > 0) setEventOpsItems(freshEventOpsItems);
+          const okrSnapshotText = isBriefingFinalizeRequest ? '' : await fetchOkrSnapshotForAI(true);
           const response = await sendMessageToGemini(
             newHistory,
             { ...userProfile, team: userProfile.team },
@@ -2670,7 +2700,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             new Date(),
             currentAccessToken,
             freshEventOpsItems,
-            isBriefingFinalizeRequest ? { mode: 'briefing_finalize' } : undefined
+            isBriefingFinalizeRequest ? { mode: 'briefing_finalize' } : { okrSnapshot: okrSnapshotText || undefined }
           );
           let overrideChatText: string | null = null;
           let overrideIsPlanDraft: boolean | null = null;
@@ -5305,28 +5335,24 @@ Then based on their role as ${userProfile.role}, acknowledge their typical workl
     const handleCreateWeeklyReport = useCallback(async () => {
         // Clear previous email version for new report
         setEmailVersion('');
-        
-        // Calculate week range
-        const today = new Date();
-        const dayOfWeek = today.getDay();
-        const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Adjust to Monday
-        const weekStart = new Date(today.setDate(diff));
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekEnd.getDate() + 6);
-        
-        const weekRange = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
-        const weekStartYmd = toYmdLocal(weekStart);
-        const weekEndYmd = toYmdLocal(weekEnd);
-        weeklyReportMetricsRef.current = { startYmd: weekStartYmd, endYmd: weekEndYmd };
+        const today = new Date();
+        const summary = buildWeeklyDashboardSummary({
+          today,
+          weeklyLog,
+          dailyOpsMetrics,
+        });
+
+        const weekStartYmd = (() => {
+          const t = new Date(today);
+          t.setHours(0, 0, 0, 0);
+          const day = t.getDay();
+          const diff = (day + 6) % 7;
+          t.setDate(t.getDate() - diff);
+          return toYmdLocal(t);
+        })();
+        const weekEndYmd = toYmdLocal(today);
         const weeklyOpsEntries = dailyOpsMetrics.filter(it => it.date >= weekStartYmd && it.date <= weekEndYmd);
-        const weeklyMoraleScores = weeklyOpsEntries
-          .map(it => it.moraleScore)
-          .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
-        const computedAverageWeeklyMorale =
-          weeklyMoraleScores.length > 0
-            ? Math.round((weeklyMoraleScores.reduce((sum, v) => sum + v, 0) / weeklyMoraleScores.length) * 10) / 10
-            : null;
         const computedAttendanceIssues = weeklyOpsEntries
           .map(it => ({ date: it.date, text: String(it.attendanceIssues || '').trim() }))
           .filter(it => it.text.length > 0 && !/^(none|no|n\/a)\b/i.test(it.text))
@@ -5343,20 +5369,11 @@ Then based on their role as ${userProfile.role}, acknowledge their typical workl
         const assistantAck: ChatMessage = {
             id: Date.now() + 1,
             role: 'model',
-            text: `Perfect timing! Let me pull together your weekly report for ${weekRange}. I'll compile your accomplishments, project updates, and key metrics from this week...`
+            text: `Perfect timing! Let me pull together your weekly dashboard summary for ${summary.week_of}.`
         };
         setChatMessages(prev => [...prev, assistantAck]);
         
-        // Auto-populate data from dashboard
-        const completedTasks = delegatedTasks.filter(t => t.completed).length;
-        const totalTasks = delegatedTasks.length;
-        const completedProjects = projects.filter(p => {
-            const avgProgress = p.milestones.length > 0 
-                ? p.milestones.reduce((sum, m) => sum + (Number(m.progress) || 0), 0) / p.milestones.length 
-                : 0;
-            return avgProgress >= 100;
-        });
-        
+        // Auto-populate project snapshots from dashboard
         const projectUpdates = projects.map(p => {
             const avgProgress = p.milestones.length > 0 
                 ? Math.round(p.milestones.reduce((sum, m) => sum + (Number(m.progress) || 0), 0) / p.milestones.length)
@@ -5370,148 +5387,44 @@ Then based on their role as ${userProfile.role}, acknowledge their typical workl
             };
         });
         
-        const accomplishments = weeklyLog.filter(log => log.type === 'accomplishment').map(log => log.text);
-        const challenges = weeklyLog.filter(log => log.type === 'challenge').map(log => log.text);
-        
-        // Calculate mode usage for the week
-        const weekStartTime = weekStart.getTime();
-        const weekEndTime = weekEnd.getTime();
-        const weekModeHistory = modeHistory.filter(entry => {
-            const activatedInWeek = entry.activatedAt >= weekStartTime && entry.activatedAt <= weekEndTime;
-            const deactivatedInWeek = entry.deactivatedAt && entry.deactivatedAt >= weekStartTime;
-            return activatedInWeek || deactivatedInWeek;
-        });
-        
-        const modeStats = {
-            crisis: weekModeHistory.filter(m => m.mode === 'crisis').length,
-            strategic: weekModeHistory.filter(m => m.mode === 'strategic').length,
-            redDay: weekModeHistory.filter(m => m.mode === 'red-day').length
+        const accomplishments = summary.highlights;
+        const challenges = summary.lowlights;
+
+        weeklyReportMetricsRef.current = null;
+
+        const report: WeeklyReport = {
+          weekRange: summary.week_of,
+          summary: [
+            `Week of ${summary.week_of}.`,
+            `Total breakage: ${summary.financials.total_breakage}.`,
+            summary.metrics.avg_morale == null ? 'Average morale: N/A.' : `Average morale: ${summary.metrics.avg_morale}.`,
+          ].join('\n'),
+          averageWeeklyMorale: summary.metrics.avg_morale,
+          attendanceIssues: computedAttendanceIssues,
+          accomplishments,
+          challenges,
+          projects: projectUpdates,
+          nextSteps: [],
         };
-        
-        // Extract chat context for each mode session
-        const modeSessionDetails = weekModeHistory.map(entry => {
-            const modeName = entry.mode === 'crisis' ? 'Crisis' : entry.mode === 'strategic' ? 'Strategic' : 'Red Day';
-            const activatedDate = new Date(entry.activatedAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-            const duration = entry.deactivatedAt 
-                ? Math.round((entry.deactivatedAt - entry.activatedAt) / (1000 * 60)) + ' minutes'
-                : 'still active';
-            
-            // Find chat messages that occurred during this mode session
-            const sessionEndTime = entry.deactivatedAt || Date.now();
-            const sessionMessages = chatMessages.filter(msg => {
-                // Messages have id as timestamp
-                return msg.id >= entry.activatedAt && msg.id <= sessionEndTime && !msg.text.startsWith('SYSTEM:');
-            });
-            
-            // Extract user messages and assistant responses to understand the context
-            const userMessages = sessionMessages.filter(msg => msg.role === 'user').map(msg => msg.text);
-            const assistantMessages = sessionMessages.filter(msg => msg.role === 'model').map(msg => msg.text);
-            
-            return {
-                modeName,
-                activatedDate,
-                duration,
-                userMessages: userMessages.slice(0, 5), // First 5 messages to understand context
-                assistantMessages: assistantMessages.slice(0, 5),
-                messageCount: sessionMessages.length
-            };
-        });
-        
-        const modeSummary = weekModeHistory.length > 0 ? `
-Mode Usage This Week (${modeStats.crisis + modeStats.strategic + modeStats.redDay} total activations):
-- Crisis Mode: ${modeStats.crisis} time${modeStats.crisis !== 1 ? 's' : ''} (urgent operational issues)
-- Strategic Mode: ${modeStats.strategic} time${modeStats.strategic !== 1 ? 's' : ''} (planning and analysis)
-- Red Day Mode: ${modeStats.redDay} time${modeStats.redDay !== 1 ? 's' : ''} (workload management)
 
-DETAILED MODE SESSIONS:
-${modeSessionDetails.map((session, idx) => `
-Session ${idx + 1}: ${session.modeName} Mode
-- When: ${session.activatedDate}
-- Duration: ${session.duration}
-- Chat Activity: ${session.messageCount} messages exchanged
-- User's Key Topics/Issues: ${session.userMessages.length > 0 ? session.userMessages.join(' | ') : 'No specific messages logged'}
-- Assistant's Responses: ${session.assistantMessages.length > 0 ? session.assistantMessages.slice(0, 2).join(' | ') : 'No responses logged'}
-`).join('\n')}` : 'No special modes activated this week.';
-        
-        // Detailed prompt for AI (sent internally)
-        const aiPrompt = `SYSTEM: Generate a comprehensive weekly report for the week of ${weekRange}. Use the following data:
-- Completed Tasks: ${completedTasks} of ${totalTasks} delegated tasks
-- Active Projects: ${projects.length} (${completedProjects.length} completed)
-- Weekly Log Entries: ${weeklyLog.length} items (${accomplishments.length} accomplishments, ${challenges.length} challenges)
-
-Daily Metrics (End-of-Day Reviews):
-- Average Weekly Morale (computed): ${computedAverageWeeklyMorale == null ? 'N/A' : computedAverageWeeklyMorale}
-- Attendance Issues (computed):
-${computedAttendanceIssues.length > 0 ? computedAttendanceIssues.map(line => `- ${line}`).join('\n') : '- None'}
-
-${modeSummary}
-
-Project Details:
-${projectUpdates.map(p => `- ${p.name}: ${p.progress}% progress, ${p.status}${p.nextMilestone ? `, Next: ${p.nextMilestone}` : ''}`).join('\n')}
-
-CRITICAL INSTRUCTIONS FOR MODE ACTIVITY SECTION:
-${weekModeHistory.length > 0 ? `
-The user activated special operational modes this week (Crisis/Strategic/Red Day). This is VERY IMPORTANT context.
-
-For the "modeActivity" field in the weekly report, you MUST:
-1. Analyze each mode session listed above to understand WHAT happened
-2. Explain HOW the user handled each situation based on the chat messages
-3. Identify and describe the SOLUTIONS or ACTIONS taken during each mode
-4. Write this as a narrative paragraph (not bullet points) that tells the story of the week's intensity
-5. Focus on outcomes and resolutions, not just that modes were activated
-6. Use professional language suitable for management reporting
-
-Example format: "This week required elevated operational focus with [X] crisis responses and [Y] strategic planning sessions. During the crisis mode activations on [dates], the team addressed [issues mentioned in chat]. Solutions implemented included [actions from assistant responses]. Strategic planning sessions focused on [topics from strategic mode chats], resulting in [outcomes]. The red day mode on [date] helped prioritize [workload items] effectively."
-
-If you cannot determine specific details from the chat messages, provide a general professional summary of the mode usage and its implications for the week's operations.
-` : 'No special modes were activated this week.'}
-
-CRITICAL: Your response MUST be a JSON object with EXACTLY this structure:
-{
-  "text": "A friendly message confirming the report is ready (e.g., 'All done! Your weekly report is ready. I've compiled X accomplishments, Y projects, and Z action items...')",
-  "weeklyReport": {
-    "summary": "Executive summary of the week as a string",
-    "averageWeeklyMorale": ${computedAverageWeeklyMorale == null ? 'null' : computedAverageWeeklyMorale},
-    "attendanceIssues": ${computedAttendanceIssues.length > 0 ? JSON.stringify(computedAttendanceIssues) : '[]'},
-    "accomplishments": ["accomplishment 1", "accomplishment 2", "..."],
-    "challenges": ["challenge 1", "challenge 2", "..."],
-    "projects": [
-      {
-        "name": "Project Name",
-        "progress": 75,
-        "status": "On Track",
-        "nextMilestone": "Next milestone description"
-      }
-    ],
-    ${weekModeHistory.length > 0 ? `"modeActivity": "REQUIRED - Narrative paragraph explaining: 1) What operational challenges arose (from chat messages), 2) How they were handled (actions taken), 3) Solutions implemented (outcomes). Be specific and professional. This should be a comprehensive paragraph, not bullet points.",` : ''}
-    "nextSteps": ["action item 1", "action item 2", "..."],
-    "weekRange": "${weekRange}"
-  }
-}
-
-IMPORTANT RULES:
-1. You MUST include BOTH the "text" and "weeklyReport" fields at the top level
-2. The "weeklyReport" object MUST include ALL required fields
-3. ${weekModeHistory.length > 0 ? 'The "modeActivity" field is MANDATORY when modes were used - analyze the chat messages and write a professional narrative' : 'Omit the "modeActivity" field'}
-4. Make the report comprehensive and professional
-5. Arrays can be empty [] if no data is available, but they must be present`;
-
-        // Send the detailed prompt - handleSendMessage will convert "SYSTEM:" prompts to user-friendly messages
-        await handleSendMessage(undefined, aiPrompt);
+        setWeeklyReport(report);
+        setIsWeeklyReportModalOpen(true);
     }, [handleSendMessage, delegatedTasks, projects, weeklyLog, modeHistory, chatMessages, dailyOpsMetrics, toYmdLocal]);
 
     const handleGenerateEmailReport = useCallback(async (report: WeeklyReport): Promise<string | null> => {
         setEmailVersion(''); // Clear previous email version
         const reportJson = JSON.stringify(report, null, 2);
         
-        const prompt = `Transform the following weekly report into a professional email format suitable for sending to management or stakeholders.
+        const prompt = `Transform the following weekly report into a professional plain-text email suitable for sending to management or stakeholders.
 
 CRITICAL INSTRUCTIONS:
 - Format it as a complete email with Subject line, greeting, body, and signature
 - The email should look like a real professional email, not a report document
 - Include placeholders [Recipient Name], [Your Name], and [Your Job Title] for personalization
 - Use proper email formatting with clear sections
-- **IF modeActivity field is present**: This is CRITICAL context showing crisis situations, strategic planning, or high-workload periods. Integrate this prominently as a dedicated section or weave it naturally into the narrative
+- If the modeActivity field is present: this is critical context showing crisis situations, strategic planning, or high-workload periods. Integrate this prominently as a dedicated section or weave it naturally into the narrative
+- Output MUST be plain text only: do not use markdown formatting characters like *, **, _, backticks, or code fences
+- For bullet points, use "- " or "• " (do not use "* " as a bullet)
 
 REQUIRED EMAIL STRUCTURE:
 Subject: Weekly Report: [Week Range]
@@ -5523,7 +5436,7 @@ Dear [Recipient Name],
 [Executive Summary section - transform the summary into a natural paragraph]
 
 ${report.modeActivity ? `
-**Operational Context & Challenge Resolution**
+Operational Context & Challenge Resolution
 [IF modeActivity field exists in the report, include a dedicated section here that presents the mode activity information professionally. This section should explain:
 - What operational challenges or strategic needs arose
 - How they were handled (crisis response, strategic planning, workload management)
