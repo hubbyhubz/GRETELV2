@@ -6,6 +6,7 @@ import '../styles/checkbox.css';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSwipe } from '../hooks/useSwipe.ts';
 import { DashboardProvider, useDashboardContext } from './DashboardContext';
+import OKRPage from './OKR/OKRPage';
 // Lazy load heavy components
 const AccountSettingsPage = lazy(() => import('./AccountSettingsPage').then(m => ({ default: m.AccountSettingsPage })));
 const EventsOperationsPage = lazy(() => import('./EventsOperationsPage.tsx'));
@@ -876,7 +877,7 @@ const SidebarNav = React.memo<{
                                         }}
                                         onMouseEnter={() => setHoveredItemId(item.id)}
                                         onMouseLeave={() => setHoveredItemId(null)}
-                                        className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'px-3'} h-[48px] w-full text-sm font-medium rounded-lg group focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600 ${activeDashboard === item.view ? 'bg-red-50 dark:bg-red-900/30 text-primary-600' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                                        className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'px-3'} h-[48px] w-full text-sm font-medium rounded-lg group focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600 ${activeDashboard === item.view ? 'bg-primary-50 dark:bg-primary-950/30 text-primary-600' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                                         style={{
                                             transition: 'background-color 150ms cubic-bezier(0.4, 0, 0.2, 1)',
                                         }}
@@ -945,7 +946,7 @@ const MobileSidebarItem = ({ item, activeDashboard, handleSendMessage, setIsMobi
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
             onClick={() => { item.action ? item.action() : handleSendMessage(undefined, `Action: ${item.name}`); setIsMobileMenuOpen(false); }}
-            className={`group flex items-center w-full p-2 text-sm font-medium rounded-lg transition-colors duration-200 ease-in-out ${item.view && activeDashboard === item.view ? 'bg-red-50 dark:bg-red-900/30 text-primary-600' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+            className={`group flex items-center w-full p-2 text-sm font-medium rounded-lg transition-colors duration-200 ease-in-out ${item.view && activeDashboard === item.view ? 'bg-primary-50 dark:bg-primary-950/30 text-primary-600' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
         >
             <span className="shrink-0 w-8 flex justify-center mr-3 transition-transform duration-200 ease-in-out group-hover:scale-110 group-active:scale-95">
                 {React.isValidElement(item.icon) ? React.cloneElement(item.icon, { ref: iconRef, isHovered } as any) : item.icon}
@@ -1211,6 +1212,7 @@ const DashboardContent: React.FC<{
             items: [
                 { id: 'dash', name: 'Dashboard', description: 'Go to your main dashboard', icon: <HomeIcon size={20} />, view: 'main' as DashboardView, action: () => setActiveDashboard('main') },
                 { id: 'events', name: 'Event Ops', description: 'Manage events and schedules', icon: <CalendarIcon size={20} />, view: 'events' as DashboardView, action: () => setActiveDashboard('events') },
+                { id: 'okr', name: 'OKR', description: 'Personal improvement OKRs', icon: <LucideTargetIcon size={20} />, view: 'okr' as DashboardView, action: () => setActiveDashboard('okr' as DashboardView) },
             ]
         },
         {
@@ -2127,6 +2129,24 @@ const DashboardContent: React.FC<{
                 >
                 <Suspense fallback={<div className="flex h-full items-center justify-center"><div className="custom-loader-lg"></div></div>}>
                     <EventsOperationsPage />
+                </Suspense>
+                </motion.div>
+            ) : activeDashboard === 'okr' ? (
+                <motion.div
+                    key="okr"
+                    initial={{ x: '100%', opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: '-50%', opacity: 0 }}
+                    transition={{ 
+                        type: 'spring', 
+                        stiffness: 300, 
+                        damping: 30,
+                        opacity: { duration: 0.2 }
+                    }}
+                    style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}
+                >
+                <Suspense fallback={<div className="flex h-full items-center justify-center"><div className="custom-loader-lg"></div></div>}>
+                    <OKRPage />
                 </Suspense>
                 </motion.div>
             ) : (

@@ -124,3 +124,33 @@ After the table exists:
 Repeat the same SQL migration in both Supabase projects:
 - Development Supabase project
 - Production Supabase project
+
+---
+
+# Migration Instructions: OKR Personal MVP (Supabase)
+
+## Goal
+Enable the OKR module (personal-first) to save and load OKR cycles/objectives/key results/check-ins from Supabase.
+
+## Step 1: Run the SQL Migration
+1. Go to Supabase Dashboard → **SQL Editor**
+2. Open and run `migrations/okr_personal_mvp.sql`
+
+## Step 2: Verify the Migration
+Confirm tables exist:
+- `okr_cycles`
+- `okr_objectives`
+- `okr_key_results`
+- `okr_checkins`
+
+Optional verification query:
+```sql
+select
+  to_regclass('public.okr_cycles') as okr_cycles,
+  to_regclass('public.okr_objectives') as okr_objectives,
+  to_regclass('public.okr_key_results') as okr_key_results,
+  to_regclass('public.okr_checkins') as okr_checkins;
+```
+
+## Step 3: Refresh the App
+Hard refresh the page (Ctrl+Shift+R) and open the OKR section from the sidebar.

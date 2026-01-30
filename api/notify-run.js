@@ -391,6 +391,87 @@ export default async function handler(req, res) {
         }
       }
     }
+
+    const { data: okrCycleRow } = await supabase
+      .from('okr_cycles')
+      .select('id, reminder_time')
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const okrReminderMinute = parseHmToMinutes(String(okrCycleRow?.reminder_time || '').slice(0, 5));
+    if (okrReminderMinute != null && shouldFireAt(okrReminderMinute) && !(inQuiet && shouldSuppressInQuietHours('okr_checkin_due'))) {
+      const { data: okrKrs } = await supabase
+        .from('okr_key_results')
+        .select('id, title, checkin_frequency, reminder_enabled, status')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .eq('reminder_enabled', true)
+        .limit(250);
+
+      const krs = Array.isArray(okrKrs) ? okrKrs : [];
+      const krIds = krs.map((kr) => kr.id).filter(Boolean);
+
+      const latestByKr = {};
+      if (krIds.length > 0) {
+        const { data: okrCheckins } = await supabase
+          .from('okr_checkins')
+          .select('key_result_id, created_at')
+          .eq('user_id', userId)
+          .in('key_result_id', krIds)
+          .order('created_at', { ascending: false })
+          .limit(500);
+
+        const rows = Array.isArray(okrCheckins) ? okrCheckins : [];
+        for (const row of rows) {
+          if (!latestByKr[row.key_result_id]) latestByKr[row.key_result_id] = row.created_at;
+        }
+      }
+
+      const due = [];
+      for (const kr of krs) {
+        const lastAt = latestByKr[kr.id] || null;
+        if (!lastAt) {
+          due.push(kr);
+          continue;
+        }
+        const lastYmd = formatYmdInTimeZone(new Date(lastAt), prefs.timeZone);
+        if (!lastYmd) {
+          due.push(kr);
+          continue;
+        }
+        if (String(kr.checkin_frequency) === 'daily') {
+          if (lastYmd !== todayYmd) due.push(kr);
+          continue;
+        }
+        const diffMs = now.getTime() - new Date(lastAt).getTime();
+        const diffDays = diffMs / (1000 * 60 * 60 * 24);
+        if (!Number.isFinite(diffDays) || diffDays >= 7) due.push(kr);
+      }
+
+      if (due.length > 0) {
+        const dedupeKey = `okr_checkin_due:${todayYmd}`;
+        const until = Number(prefs.snoozes?.[dedupeKey] || 0);
+        if (!(until && until > Date.now())) {
+          const { inserted } = await tryInsertNotificationLog(supabase, userId, dedupeKey, 'okr_checkin_due', 'standard');
+          if (inserted) {
+            const top = due.slice(0, 3).map((kr) => kr.title).join(', ');
+            await createInAppAndPush(supabase, {
+              userId,
+              title: 'OKR check-in due',
+              body: `${due.length} key result(s) need a check-in today. Start with: ${top}.`,
+              dedupeKey,
+              kind: 'okr_checkin_due',
+              url: '/',
+              priority: 'standard',
+            });
+            generated.push({ userId, kind: 'okr_checkin_due' });
+          }
+        }
+      }
+    }
   }
 
   const sendable = Boolean(vapidPublicKey && vapidPrivateKey);

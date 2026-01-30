@@ -78,6 +78,13 @@ export function useInactivityLock(session: Session | null, userProfile: UserProf
         }
     }, [userProfile?.is_app_locked]);
 
+    useEffect(() => {
+        if (session) return;
+        setIsLocked(false);
+        localStorage.removeItem('gretel_is_locked');
+        localStorage.removeItem('gretel_locked_at');
+    }, [session]);
+
     const handleUnlock = () => {
         setIsLocked(false);
         localStorage.removeItem('gretel_is_locked');

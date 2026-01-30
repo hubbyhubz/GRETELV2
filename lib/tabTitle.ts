@@ -18,6 +18,7 @@ export function getTabKeyFromTopLevelView(view: View | "test", dashboardView?: D
     case "dashboard":
       if (dashboardView === 'events') return "calendar";
       if (dashboardView === 'analytics') return "analytics";
+      if (dashboardView === 'okr') return "okrs";
       return "dashboard";
     case "privacyPolicy":
       return "privacy policy";
@@ -33,4 +34,3 @@ export function getTabKeyFromTopLevelView(view: View | "test", dashboardView?: D
       return "app";
   }
 }
-

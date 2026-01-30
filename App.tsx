@@ -602,7 +602,7 @@ function App() {
 
   return (
     <div className={!isDashboardView && currentView !== 'test' ? 'min-h-screen flex items-center justify-center p-4 sm:p-6' : ''}>
-      {!isDashboardView && currentView !== 'resetPassword' && currentView !== 'test' && <ThemeToggleButton />}
+      {!isLocked && !isDashboardView && currentView !== 'resetPassword' && currentView !== 'test' && <ThemeToggleButton />}
       <Suspense fallback={
         <div className="flex items-center justify-center min-h-screen">
           <div className="custom-loader-lg"></div>
@@ -611,12 +611,12 @@ function App() {
         {renderView()}
       </Suspense>
       {isDashboardView && <NotificationManager />}
-      {isLocked && userProfile && (
+      {isLocked && session && userProfile && (
         <Suspense fallback={null}>
           <LockScreenPage
             userProfile={userProfile}
-            accessToken={session?.access_token || ''}
             onUnlock={handleUnlockWithTokenRefresh}
+            onSessionExpired={handleLogout}
           />
         </Suspense>
       )}

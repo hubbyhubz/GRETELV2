@@ -2,7 +2,7 @@ import type { Content } from '@google/genai';
 
 export type View = 'login' | 'createAccount' | 'forgotPassword' | 'setupWizard' | 'dashboard' | 'privacyPolicy' | 'termsOfService' | 'resetPassword' | 'twoFactor';
 export type LegalPageSource = 'login' | 'dashboard' | 'createAccount';
-export type DashboardView = 'main' | 'analytics' | 'events';
+export type DashboardView = 'main' | 'analytics' | 'events' | 'okr';
 export type UserMood = 'neutral' | 'positive' | 'negative' | 'stressed' | 'excited' | 'tired';
 
 export interface WizardData {

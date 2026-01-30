@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 // FIX: Update import path from '../App' to './types' to resolve module export errors.
 import type { UserProfile } from './types';
+import { supabase } from './supabaseClient';
+import ThemeToggleButton from './ThemeToggleButton';
 
 interface LockScreenPageProps {
   userProfile: UserProfile;
-  accessToken: string;
   onUnlock: () => void;
+  onSessionExpired: () => void;
 }
 
-const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, accessToken, onUnlock }) => {
+const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, onUnlock, onSessionExpired }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -25,10 +27,38 @@ const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, accessToke
       setError('Password is required.');
       return;
     }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setError("You're offline. Reconnect to verify and try again.");
+      return;
+    }
+
     setIsLoading(true);
     setError('');
 
     try {
+      const refreshResult = await supabase.auth.refreshSession();
+      if (refreshResult.error) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session) {
+          setIsLoading(false);
+          setPassword('');
+          setError('Session expired. Please sign in again.');
+          onSessionExpired();
+          return;
+        }
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token || '';
+      if (!accessToken) {
+        setIsLoading(false);
+        setPassword('');
+        setError('Session expired. Please sign in again.');
+        onSessionExpired();
+        return;
+      }
+
       const response = await fetch('/api/unlock', {
         method: 'POST',
         headers: {
@@ -39,7 +69,10 @@ const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, accessToke
       });
 
       if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
+        if (response.status === 440) {
+          setError('Session expired. Please sign in again.');
+          onSessionExpired();
+        } else if (response.status === 401 || response.status === 403) {
           setError('Incorrect password. Please try again.');
         } else {
           setError('Unable to verify password right now. Please try again.');
@@ -60,6 +93,7 @@ const LockScreenPage: React.FC<LockScreenPageProps> = ({ userProfile, accessToke
 
   return (
     <div className="fixed inset-0 bg-gray-900 bg-opacity-90 z-50 flex items-center justify-center p-4 sm:p-6 animate-fade-in">
+      <ThemeToggleButton />
       <div className="w-full max-w-sm bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-lg sm:shadow-2xl p-4 max-[360px]:p-3 min-[414px]:p-5 sm:p-6 border border-gray-200 dark:border-gray-700 transition-colors duration-300 text-center animate-scale-in">
         <img
           src={userProfile.avatar}

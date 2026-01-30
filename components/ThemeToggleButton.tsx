@@ -21,7 +21,7 @@ const ThemeToggleButton: React.FC<ThemeToggleButtonProps> = ({ position = 'fixed
         <div 
             className={positionClasses}
             style={{ 
-                zIndex: 99999,
+                zIndex: position === 'fixed' ? 60 : 'auto',
                 position: position === 'fixed' ? 'fixed' : 'static',
                 top: position === 'fixed' ? '1rem' : undefined,
                 right: position === 'fixed' ? '1rem' : undefined,

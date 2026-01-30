@@ -152,7 +152,7 @@ app.post("/api/unlock", async (req, res) => {
   const tokenMatch = authHeader.match(/^bearer\s+(.+)$/i);
   const accessToken = tokenMatch?.[1]?.trim() || "";
   if (!accessToken) {
-    res.status(401).json({ error: "Missing session token." });
+    res.status(440).json({ error: "Session expired.", code: "session_expired" });
     return;
   }
 
@@ -163,43 +163,61 @@ app.post("/api/unlock", async (req, res) => {
   }
 
   try {
+    const userController = new AbortController();
+    const userTimeout = setTimeout(() => userController.abort(), 12000);
     const userResp = await fetch(`${supabaseUrl}/auth/v1/user`, {
       method: "GET",
       headers: {
         apikey: supabaseAnonKey,
         authorization: `Bearer ${accessToken}`,
       },
+      signal: userController.signal,
     });
+    clearTimeout(userTimeout);
+
     const userRaw = await userResp.text();
     if (!userResp.ok) {
-      res.status(401).json({ error: "Invalid session." });
-      return;
-    }
-    const user = userRaw ? JSON.parse(userRaw) : {};
-    const email = user?.email;
-    if (!email) {
-      res.status(400).json({ error: "Session user has no email." });
+      res.status(440).json({ error: "Session expired.", code: "session_expired" });
       return;
     }
 
-    const tokenResp = await fetch(
-      `${supabaseUrl}/auth/v1/token?grant_type=password`,
-      {
-        method: "POST",
-        headers: {
-          apikey: supabaseAnonKey,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      }
-    );
+    const user = userRaw ? JSON.parse(userRaw) : {};
+    const email = user?.email;
+    if (!email) {
+      res.status(400).json({ error: "Session user has no email.", code: "session_invalid" });
+      return;
+    }
+
+    const tokenController = new AbortController();
+    const tokenTimeout = setTimeout(() => tokenController.abort(), 12000);
+    const tokenResp = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: {
+        apikey: supabaseAnonKey,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+      signal: tokenController.signal,
+    });
+    clearTimeout(tokenTimeout);
+
     if (!tokenResp.ok) {
-      res.status(401).json({ error: "Invalid password." });
+      if (tokenResp.status === 429 || tokenResp.status >= 500) {
+        res.status(503).json({ error: "Verification temporarily unavailable.", code: "verify_unavailable" });
+        return;
+      }
+
+      res.status(401).json({ error: "Invalid password.", code: "invalid_password" });
       return;
     }
 
     res.status(200).json({ ok: true });
   } catch (error) {
+    const name = error?.name;
+    if (name === "AbortError") {
+      res.status(503).json({ error: "Verification timed out.", code: "verify_timeout" });
+      return;
+    }
     res.status(500).json({ error: error?.message || "Unexpected server error" });
   }
 });

@@ -9,6 +9,24 @@ export function useAuthListener() {
     useEffect(() => {
         let mounted = true;
 
+        const refreshIfNeeded = async () => {
+            try {
+                const { data: sessionData } = await supabase.auth.getSession();
+                const current = sessionData.session;
+                if (!current) return;
+
+                const expiresAtSeconds = typeof current.expires_at === 'number' ? current.expires_at : null;
+                if (!expiresAtSeconds) return;
+
+                const msUntilExpiry = expiresAtSeconds * 1000 - Date.now();
+                if (msUntilExpiry > 60_000) return;
+
+                await supabase.auth.refreshSession();
+            } catch {
+                return;
+            }
+        };
+
         // Quick check to avoid long loading states if no session
         const checkInitialSession = async () => {
             try {
@@ -32,6 +50,15 @@ export function useAuthListener() {
         };
 
         checkInitialSession();
+
+        const handleVisibilityOrFocus = () => {
+            if (!mounted) return;
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+            refreshIfNeeded();
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+        window.addEventListener('focus', handleVisibilityOrFocus);
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
@@ -68,6 +95,8 @@ export function useAuthListener() {
 
         return () => {
             mounted = false;
+            document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+            window.removeEventListener('focus', handleVisibilityOrFocus);
             subscription.unsubscribe();
         };
     }, []);
