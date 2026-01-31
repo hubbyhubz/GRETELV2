@@ -17,6 +17,7 @@ import { syncAssistantBrainProfile } from './components/assistantBrainService';
 import { useAuthListener } from './hooks/useAuthListener';
 import { useProfileData } from './hooks/useProfileData';
 import { useInactivityLock } from './hooks/useInactivityLock';
+import { registerServiceWorker, subscribeUserToPush } from './lib/pushManager';
 
 // Lazy load components to improve performance
 const CreateAccountPage = lazy(() => import('./components/CreateAccountPage'));
@@ -93,6 +94,14 @@ function App() {
     currentViewRef.current = currentView;
   }, [currentView]);
 
+  useEffect(() => {
+    if (!session) return;
+    registerServiceWorker();
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      subscribeUserToPush();
+    }
+  }, [session]);
+
   // Restore patch notes closed state from sessionStorage on mount
   useEffect(() => {
     // Check if user has explicitly closed patch notes for this version
@@ -158,16 +167,15 @@ function App() {
   // FIXED: Add safety timeout to break loading loops
   useEffect(() => {
     const timeout = setTimeout(() => {
-      if (isLoading) {
-        console.warn('⚠️ Loading timeout reached - breaking loop and resetting to login');
-        // setIsLoading is not available here, handled by authListener
-        setAuthError("Login timed out. Please try again.");
-        setCurrentView('login');
-      }
-    }, 10000); // 10 second timeout (reduced from 15s)
+      if (!isLoading) return;
+      if (session) return;
+      console.warn('⚠️ Loading timeout reached - breaking loop and resetting to login');
+      setAuthError("Login timed out. Please try again.");
+      setCurrentView('login');
+    }, 15000);
 
     return () => clearTimeout(timeout);
-  }, [isLoading]);
+  }, [isLoading, session]);
 
   // Check for OAuth callback errors
   useEffect(() => {

@@ -27,7 +27,7 @@ export function useAuthListener() {
             }
         };
 
-        // Quick check to avoid long loading states if no session
+        // Quick check to avoid long loading states (especially on mobile)
         const checkInitialSession = async () => {
             try {
                 const { data: { session }, error } = await supabase.auth.getSession();
@@ -36,8 +36,11 @@ export function useAuthListener() {
                 if (error || !session) {
                     setIsLoading(false);
                     setSession(null);
+                    return;
                 }
-                // If session exists, the onAuthStateChange will catch it (INITIAL_SESSION)
+
+                setSession(session);
+                setIsLoading(false);
             } catch (error: any) {
                 if (!mounted) return;
                 // Ignore AbortError which happens on rapid navigation/reloads

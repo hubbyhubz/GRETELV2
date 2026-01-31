@@ -5,6 +5,50 @@ import { syncAssistantBrainDashboardState } from './assistantBrainService';
 
 const TABLE_NAME = 'dashboard_states';
 
+const getOutboxKey = (userId: string) => `gretel:dashboardStateOutbox:${userId}`;
+
+const queueOutboxState = (userId: string, state: DashboardState) => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    const payload = { ts: Date.now(), state };
+    window.localStorage.setItem(getOutboxKey(userId), JSON.stringify(payload));
+  } catch {
+    return;
+  }
+};
+
+const readOutboxState = (userId: string): { ts: number; state: DashboardState } | null => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    const raw = window.localStorage.getItem(getOutboxKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (typeof parsed.ts !== 'number' || !parsed.state) return null;
+    return { ts: parsed.ts, state: parsed.state as DashboardState };
+  } catch {
+    return null;
+  }
+};
+
+const clearOutboxState = (userId: string) => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.removeItem(getOutboxKey(userId));
+  } catch {
+    return;
+  }
+};
+
+export const flushQueuedDashboardState = async (userId: string): Promise<boolean> => {
+  const queued = readOutboxState(userId);
+  if (!queued) return false;
+  await saveDashboardState(userId, queued.state);
+  const stillQueued = readOutboxState(userId);
+  if (!stillQueued) return true;
+  return false;
+};
+
 /**
  * Gets the dashboard state from the Supabase table for the logged-in user.
  * @param userId The ID of the currently authenticated user.
@@ -63,12 +107,14 @@ export const saveDashboardState = async (userId: string, state: DashboardState):
       // Check if it's a network error (TypeError: Failed to fetch)
       if (updateError.message && updateError.message.includes('Failed to fetch')) {
           console.warn('Network error saving to Supabase (offline?):', updateError);
-          // Do NOT throw. Just log and continue. The local state is still valid.
+          queueOutboxState(userId, state);
           return;
       }
       console.error('Error updating dashboard state to Supabase:', updateError);
       throw new Error(updateError.message);
     }
+
+    clearOutboxState(userId);
 
     syncAssistantBrainDashboardState(userId, state).catch(() => {});
   } else {
@@ -78,11 +124,18 @@ export const saveDashboardState = async (userId: string, state: DashboardState):
       .insert({ user_id: userId, state: state });
 
     if (insertError) {
+      if (insertError.message && insertError.message.includes('Failed to fetch')) {
+        console.warn('Network error saving to Supabase (offline?):', insertError);
+        queueOutboxState(userId, state);
+        return;
+      }
       // A 409 Conflict here would indicate a race condition where another process
       // inserted a row between our check and our insert.
       console.error('Error inserting dashboard state to Supabase:', insertError);
       throw new Error(insertError.message);
     }
+
+    clearOutboxState(userId);
 
     syncAssistantBrainDashboardState(userId, state).catch(() => {});
   }

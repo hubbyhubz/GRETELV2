@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode, useLayoutEffect, useMemo } from 'react';
 // FIX: The sendMessageToGemini function was missing an export in geminiService.ts; it has been added, making this import correct.
 import { sendMessageToGemini } from './geminiService';
-import { getDashboardState, saveDashboardState } from './googleDriveService';
+import { getDashboardState, saveDashboardState, flushQueuedDashboardState } from './googleDriveService';
 import { batchAddEventsToCalendar, getTodaysEvents } from './googleCalendarService';
 import { createTask, findOrCreateTaskList, updateTask, deleteTask } from './googleTasksService';
 import type { Session } from '@supabase/supabase-js';
@@ -15,6 +15,7 @@ import { applyPriorityOps as applyPriorityOpsUtil, applyProjectOps as applyProje
 import { bestFuzzyMatch, inferFinalizePlan, inferFreeStyle } from './freeStyleNlu';
 import { buildWeeklyDashboardSummary } from '../lib/weeklyDashboard';
 import { fetchGoogleUserInfo, getGoogleEmailStorageKey } from '../lib/googleUserInfo';
+import { mergeDashboardStateForCrossDeviceSync } from '../lib/dashboardStateMerge';
 
 // Version for the dashboard state structure. Increment this to trigger migrations.
 const DASHBOARD_STATE_VERSION = "1.1.0";
@@ -1182,6 +1183,20 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const mobileTextareaRef = useRef<HTMLTextAreaElement>(null);
     const saveTimeoutRef = useRef<number | null>(null);
     const forceSaveRef = useRef<boolean>(false);
+    const isApplyingRemoteStateRef = useRef<boolean>(false);
+    const latestCrossDeviceSlicesRef = useRef<{
+      reminders: ReminderItem[];
+      briefingInputs: BriefingInputItem[];
+      delegatedTasks: DelegatedTaskItem[];
+      staffPerformanceLog: StaffPerformanceLogEntry[] | undefined;
+      dismissedDelegatedReminderTaskIds: string[] | undefined;
+    }>({
+      reminders: [],
+      briefingInputs: [],
+      delegatedTasks: [],
+      staffPerformanceLog: undefined,
+      dismissedDelegatedReminderTaskIds: undefined,
+    });
     const assistantMemoryRef = useRef<string>(String(userProfile.assistantMemory || ''));
     const desktopFileInputRef = useRef<HTMLInputElement>(null);
     const mobileFileInputRef = useRef<HTMLInputElement>(null);
@@ -1475,6 +1490,30 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   
     useEffect(() => { loadState(); }, [loadState]); 
 
+    useEffect(() => {
+      if (!userProfile?.id) return;
+      flushQueuedDashboardState(userProfile.id).catch(() => {});
+
+      const handleOnline = () => {
+        flushQueuedDashboardState(userProfile.id).catch(() => {});
+      };
+
+      const handleVisible = () => {
+        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+        flushQueuedDashboardState(userProfile.id).catch(() => {});
+      };
+
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('focus', handleVisible);
+      document.addEventListener('visibilitychange', handleVisible);
+
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('focus', handleVisible);
+        document.removeEventListener('visibilitychange', handleVisible);
+      };
+    }, [userProfile?.id]);
+
     // Auto-resize textarea when chatInput changes (including when cleared programmatically)
     useEffect(() => {
         const textarea = desktopTextareaRef.current || mobileTextareaRef.current;
@@ -1544,6 +1583,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, [isCloudLoading, lastResetDate, resetDailyState]);
   
     useEffect(() => {
+      if (isApplyingRemoteStateRef.current) return;
       if (isCloudLoading || cloudError) return;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       // Use shorter delay if force save is requested (e.g., after finalization)
@@ -1575,6 +1615,70 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       }, saveDelay);
       return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
     }, [chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, dismissedDelegatedReminderTaskIds, userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt, suppressCalendarFetch, lastEventOpsNudgeDate, pendingDelegation, pendingScheduleClarification]);
+
+    useEffect(() => {
+      if (isCloudLoading || cloudError) return;
+      if (isApplyingRemoteStateRef.current) return;
+      forceSaveRef.current = true;
+    }, [reminders, briefingInputs, delegatedTasks, staffPerformanceLog, isCloudLoading, cloudError]);
+
+    useEffect(() => {
+      latestCrossDeviceSlicesRef.current = {
+        reminders,
+        briefingInputs,
+        delegatedTasks,
+        staffPerformanceLog,
+        dismissedDelegatedReminderTaskIds,
+      };
+    }, [reminders, briefingInputs, delegatedTasks, staffPerformanceLog, dismissedDelegatedReminderTaskIds]);
+
+    useEffect(() => {
+      if (!userProfile?.id) return;
+      if (isCloudLoading) return;
+      const channel = supabase
+        .channel(`dashboard_states:${userProfile.id}`)
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'dashboard_states', filter: `user_id=eq.${userProfile.id}` },
+          async () => {
+            try {
+              const remote = await getDashboardState(userProfile.id);
+              if (!remote) return;
+              isApplyingRemoteStateRef.current = true;
+              const localSlices = latestCrossDeviceSlicesRef.current;
+              const merged = mergeDashboardStateForCrossDeviceSync(
+                {
+                  reminders: localSlices.reminders,
+                  briefingInputs: localSlices.briefingInputs,
+                  delegatedTasks: localSlices.delegatedTasks,
+                  staffPerformanceLog: localSlices.staffPerformanceLog,
+                  dismissedDelegatedReminderTaskIds: localSlices.dismissedDelegatedReminderTaskIds,
+                },
+                {
+                  reminders: remote.reminders,
+                  briefingInputs: remote.briefingInputs,
+                  delegatedTasks: remote.delegatedTasks,
+                  staffPerformanceLog: remote.staffPerformanceLog,
+                  dismissedDelegatedReminderTaskIds: remote.dismissedDelegatedReminderTaskIds,
+                },
+              );
+
+              setReminders(merged.reminders);
+              setBriefingInputs(merged.briefingInputs);
+              setDelegatedTasks(merged.delegatedTasks);
+              setStaffPerformanceLog(merged.staffPerformanceLog);
+              setDismissedDelegatedReminderTaskIds(merged.dismissedDelegatedReminderTaskIds);
+            } finally {
+              isApplyingRemoteStateRef.current = false;
+            }
+          },
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }, [userProfile?.id, isCloudLoading]);
 
     const toYmdLocal = useCallback((date: Date) => {
       const y = date.getFullYear();
