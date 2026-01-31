@@ -131,7 +131,7 @@ export const applyScheduleOps = (current: ScheduleItem[], ops: any[]) => {
       const title = String(op?.item?.title || '').trim();
       if (!title) return;
       
-      const newItem = { id: `sched-${nowTs}-${index}`, time, title, completed: false };
+      const newItem = { id: `sched-${nowTs}-${index}`, time, title, completed: false, updatedAt: nowTs };
       
       // Apply cascading reschedule: push down conflicting items
       next = cascadeReschedule(next, { time, title });
@@ -179,7 +179,7 @@ export const applyScheduleOps = (current: ScheduleItem[], ops: any[]) => {
         const cascaded = cascadeReschedule(tempSchedule, { time, title });
         
         // Add the updated item back with new time
-        const updatedItem = { ...itemToUpdate, time, title };
+        const updatedItem = { ...itemToUpdate, time, title, updatedAt: nowTs };
         next = [...cascaded, updatedItem];
         
         // Sort by time
@@ -192,7 +192,7 @@ export const applyScheduleOps = (current: ScheduleItem[], ops: any[]) => {
         });
       } else {
         // Just update title, no time change
-      next = next.map((item, idx) => (idx === i ? { ...item, time, title } : item));
+      next = next.map((item, idx) => (idx === i ? { ...item, time, title, updatedAt: nowTs } : item));
       }
     }
   });

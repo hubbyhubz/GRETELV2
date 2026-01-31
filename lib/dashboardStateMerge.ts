@@ -16,8 +16,25 @@ const mergeById = <T extends { id: string }>(local: T[] = [], remote: T[] = []) 
 
 const mergeScheduleItems = (first: ScheduleItem[] = [], second: ScheduleItem[] = []) => {
   const byId = new Map<string, ScheduleItem>();
-  for (const item of first) byId.set(item.id, item);
-  for (const item of second) byId.set(item.id, item);
+  const upsert = (item: ScheduleItem) => {
+    const prev = byId.get(item.id);
+    if (!prev) {
+      byId.set(item.id, item);
+      return;
+    }
+    const prevTs = typeof prev.updatedAt === 'number' ? prev.updatedAt : 0;
+    const nextTs = typeof item.updatedAt === 'number' ? item.updatedAt : 0;
+    if (nextTs > prevTs) {
+      byId.set(item.id, item);
+      return;
+    }
+    if (nextTs === prevTs) {
+      byId.set(item.id, item);
+    }
+  };
+
+  for (const item of first) upsert(item);
+  for (const item of second) upsert(item);
 
   const secondOrder = second.map(i => i.id);
   const out: ScheduleItem[] = [];

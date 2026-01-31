@@ -4163,6 +4163,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
     const handleLinkedToggle = useCallback((itemId: string, isGCal: boolean, itemTitle: string, isCompleted: boolean) => {
       const newStatus = !isCompleted;
+      const nowTs = Date.now();
 
       const normalize = (str: string) =>
           str
@@ -4225,12 +4226,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           let updated: ScheduleItem[];
           if (!isPriorityToggle) {
               updated = prev.map(item =>
-                  (item.id === itemId && !isGCal) ? { ...item, completed: newStatus } : item
+                  (item.id === itemId && !isGCal) ? { ...item, completed: newStatus, updatedAt: nowTs } : item
               );
           } else {
               const bestIds = matchingIds(prev.map(item => ({ id: item.id, title: item.title })));
               if (bestIds.length === 0) return prev;
-              updated = prev.map(item => bestIds.includes(item.id) ? { ...item, completed: newStatus } : item);
+              updated = prev.map(item => bestIds.includes(item.id) ? { ...item, completed: newStatus, updatedAt: nowTs } : item);
           }
           
           // Check if all schedule items are now completed - trigger animation immediately
