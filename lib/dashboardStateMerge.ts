@@ -1,4 +1,11 @@
-import type { DashboardState, ReminderItem, BriefingInputItem, DelegatedTaskItem, StaffPerformanceLogEntry } from '../components/types';
+import type {
+  DashboardState,
+  ReminderItem,
+  BriefingInputItem,
+  DelegatedTaskItem,
+  StaffPerformanceLogEntry,
+  ScheduleItem,
+} from '../components/types';
 
 const mergeById = <T extends { id: string }>(local: T[] = [], remote: T[] = []) => {
   const byId = new Map<string, T>();
@@ -7,15 +14,33 @@ const mergeById = <T extends { id: string }>(local: T[] = [], remote: T[] = []) 
   return Array.from(byId.values());
 };
 
+const mergeScheduleItems = (first: ScheduleItem[] = [], second: ScheduleItem[] = []) => {
+  const byId = new Map<string, ScheduleItem>();
+  for (const item of first) byId.set(item.id, item);
+  for (const item of second) byId.set(item.id, item);
+
+  const secondOrder = second.map(i => i.id);
+  const out: ScheduleItem[] = [];
+  for (const id of secondOrder) {
+    const item = byId.get(id);
+    if (item) out.push(item);
+  }
+  for (const item of Array.from(byId.values())) {
+    if (!secondOrder.includes(item.id)) out.push(item);
+  }
+  return out;
+};
+
 export const mergeDashboardStateForCrossDeviceSync = (
-  local: Pick<DashboardState, 'reminders' | 'briefingInputs' | 'delegatedTasks' | 'staffPerformanceLog' | 'dismissedDelegatedReminderTaskIds'>,
-  remote: Pick<DashboardState, 'reminders' | 'briefingInputs' | 'delegatedTasks' | 'staffPerformanceLog' | 'dismissedDelegatedReminderTaskIds'>,
+  local: Pick<DashboardState, 'scheduleItems' | 'reminders' | 'briefingInputs' | 'delegatedTasks' | 'staffPerformanceLog' | 'dismissedDelegatedReminderTaskIds'>,
+  remote: Pick<DashboardState, 'scheduleItems' | 'reminders' | 'briefingInputs' | 'delegatedTasks' | 'staffPerformanceLog' | 'dismissedDelegatedReminderTaskIds'>,
   opts?: { prefer?: 'local' | 'remote' },
 ) => {
   const prefer = opts?.prefer ?? 'remote';
   const first = prefer === 'remote' ? local : remote;
   const second = prefer === 'remote' ? remote : local;
   return {
+    scheduleItems: mergeScheduleItems(first.scheduleItems, second.scheduleItems),
     reminders: mergeById<ReminderItem>(first.reminders, second.reminders),
     briefingInputs: mergeById<BriefingInputItem>(first.briefingInputs, second.briefingInputs),
     delegatedTasks: mergeById<DelegatedTaskItem>(first.delegatedTasks, second.delegatedTasks),

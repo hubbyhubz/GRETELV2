@@ -62,8 +62,9 @@ Desktop now listens for Supabase Realtime in two layers:
 Merge logic:
 - [dashboardStateMerge.ts](file:///e:/GRETEL/lib/dashboardStateMerge.ts)
 
-### E) Merge critical slices on save (prevents overwriting remote reminders)
+### E) Merge critical slices on save (prevents overwriting remote reminders/schedule)
 When saving `dashboard_states`, the client now merges the critical cross-device arrays with the current remote state before updating:
+- `scheduleItems`
 - `reminders`
 - `briefingInputs`
 - `delegatedTasks`

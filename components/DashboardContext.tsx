@@ -1188,12 +1188,14 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const dashboardSyncChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
     const dashboardSyncBroadcastTimeoutRef = useRef<number | null>(null);
     const latestCrossDeviceSlicesRef = useRef<{
+      scheduleItems: ScheduleItem[];
       reminders: ReminderItem[];
       briefingInputs: BriefingInputItem[];
       delegatedTasks: DelegatedTaskItem[];
       staffPerformanceLog: StaffPerformanceLogEntry[] | undefined;
       dismissedDelegatedReminderTaskIds: string[] | undefined;
     }>({
+      scheduleItems: [],
       reminders: [],
       briefingInputs: [],
       delegatedTasks: [],
@@ -1638,17 +1640,18 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       if (isApplyingRemoteStateRef.current) return;
       if (Date.now() - lastRemoteApplyAtRef.current < 1500) return;
       forceSaveRef.current = true;
-    }, [reminders, briefingInputs, delegatedTasks, staffPerformanceLog, isCloudLoading, cloudError]);
+    }, [scheduleItems, reminders, briefingInputs, delegatedTasks, staffPerformanceLog, isCloudLoading, cloudError]);
 
     useEffect(() => {
       latestCrossDeviceSlicesRef.current = {
+        scheduleItems,
         reminders,
         briefingInputs,
         delegatedTasks,
         staffPerformanceLog,
         dismissedDelegatedReminderTaskIds,
       };
-    }, [reminders, briefingInputs, delegatedTasks, staffPerformanceLog, dismissedDelegatedReminderTaskIds]);
+    }, [scheduleItems, reminders, briefingInputs, delegatedTasks, staffPerformanceLog, dismissedDelegatedReminderTaskIds]);
 
     useEffect(() => {
       if (!userProfile?.id) return;
@@ -1668,6 +1671,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             const localSlices = latestCrossDeviceSlicesRef.current;
             const merged = mergeDashboardStateForCrossDeviceSync(
               {
+                scheduleItems: localSlices.scheduleItems,
                 reminders: localSlices.reminders,
                 briefingInputs: localSlices.briefingInputs,
                 delegatedTasks: localSlices.delegatedTasks,
@@ -1675,6 +1679,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 dismissedDelegatedReminderTaskIds: localSlices.dismissedDelegatedReminderTaskIds,
               },
               {
+                scheduleItems: remote.scheduleItems,
                 reminders: remote.reminders,
                 briefingInputs: remote.briefingInputs,
                 delegatedTasks: remote.delegatedTasks,
@@ -1683,6 +1688,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               },
             );
 
+            setScheduleItems(merged.scheduleItems);
             setReminders(merged.reminders);
             setBriefingInputs(merged.briefingInputs);
             setDelegatedTasks(merged.delegatedTasks);
@@ -1710,6 +1716,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               const localSlices = latestCrossDeviceSlicesRef.current;
               const merged = mergeDashboardStateForCrossDeviceSync(
                 {
+                  scheduleItems: localSlices.scheduleItems,
                   reminders: localSlices.reminders,
                   briefingInputs: localSlices.briefingInputs,
                   delegatedTasks: localSlices.delegatedTasks,
@@ -1717,6 +1724,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   dismissedDelegatedReminderTaskIds: localSlices.dismissedDelegatedReminderTaskIds,
                 },
                 {
+                  scheduleItems: remote.scheduleItems,
                   reminders: remote.reminders,
                   briefingInputs: remote.briefingInputs,
                   delegatedTasks: remote.delegatedTasks,
@@ -1725,6 +1733,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 },
               );
 
+              setScheduleItems(merged.scheduleItems);
               setReminders(merged.reminders);
               setBriefingInputs(merged.briefingInputs);
               setDelegatedTasks(merged.delegatedTasks);
@@ -1743,6 +1752,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           const remote = await getDashboardState(userProfile.id);
           if (!remote) return;
           const remoteHash = JSON.stringify({
+            scheduleItems: remote.scheduleItems,
             reminders: remote.reminders,
             briefingInputs: remote.briefingInputs,
             delegatedTasks: remote.delegatedTasks,
@@ -1751,6 +1761,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           });
           const localSlices = latestCrossDeviceSlicesRef.current;
           const localHash = JSON.stringify({
+            scheduleItems: localSlices.scheduleItems,
             reminders: localSlices.reminders,
             briefingInputs: localSlices.briefingInputs,
             delegatedTasks: localSlices.delegatedTasks,
@@ -1762,6 +1773,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           lastRemoteApplyAtRef.current = Date.now();
           const merged = mergeDashboardStateForCrossDeviceSync(
             {
+              scheduleItems: localSlices.scheduleItems,
               reminders: localSlices.reminders,
               briefingInputs: localSlices.briefingInputs,
               delegatedTasks: localSlices.delegatedTasks,
@@ -1769,6 +1781,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               dismissedDelegatedReminderTaskIds: localSlices.dismissedDelegatedReminderTaskIds,
             },
             {
+              scheduleItems: remote.scheduleItems,
               reminders: remote.reminders,
               briefingInputs: remote.briefingInputs,
               delegatedTasks: remote.delegatedTasks,
@@ -1776,6 +1789,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               dismissedDelegatedReminderTaskIds: remote.dismissedDelegatedReminderTaskIds,
             },
           );
+          setScheduleItems(merged.scheduleItems);
           setReminders(merged.reminders);
           setBriefingInputs(merged.briefingInputs);
           setDelegatedTasks(merged.delegatedTasks);
