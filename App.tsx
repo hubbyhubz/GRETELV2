@@ -301,7 +301,7 @@ function App() {
   const handleLoginSuccess = (_nextSession: Session | null) => {
     setAuthError(null);
     resetInactivityTimer();
-    setRequiresGoogleConnect(true);
+    setRequiresGoogleConnect(false);
     setRequiresGoogleRefresh(false);
   };
 
@@ -408,24 +408,33 @@ function App() {
     if (!session || !userProfile?.setup_complete) return;
     if (isLocked) return;
     let cancelled = false;
+
+    const resolveHasLinkedGoogle = (user: any) => {
+      const identities = (user?.identities ?? []) as any[];
+      if (Array.isArray(identities) && identities.some((i: any) => i?.provider === 'google')) return true;
+      const providers = user?.app_metadata?.providers;
+      if (Array.isArray(providers) && providers.includes('google')) return true;
+      const provider = user?.app_metadata?.provider;
+      if (provider === 'google') return true;
+      return false;
+    };
+
     (async () => {
       const { data, error } = await supabase.auth.getUser();
       if (cancelled) return;
       if (error) {
-        setRequiresGoogleConnect(true);
+        // Transient network / auth API errors should not force a hard "Connect Google" gate.
+        // Keep current state and let subsequent successful auth checks correct the UI.
         return;
       }
       const user = data?.user as any;
-      const identities = (user?.identities ?? []) as any[];
-      const hasLinkedGoogle = identities.some((i: any) => i?.provider === 'google');
+      const hasLinkedGoogle = resolveHasLinkedGoogle(user);
       if (!hasLinkedGoogle) {
         setRequiresGoogleConnect(true);
         setRequiresGoogleRefresh(false);
         return;
       }
       if (requiresGoogleConnect) setRequiresGoogleConnect(false);
-      const hasProviderToken = Boolean((session as any)?.provider_token);
-      setRequiresGoogleRefresh(!hasProviderToken);
     })();
     return () => {
       cancelled = true;
