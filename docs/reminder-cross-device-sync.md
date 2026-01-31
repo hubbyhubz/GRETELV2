@@ -23,6 +23,10 @@ File:
 ### 3) Desktop did not proactively receive remote updates
 Even when mobile successfully saved to Supabase, desktop didn’t have a “live” refresh protocol for these state blobs.
 
+### 4) Whole-blob overwrites could drop cross-device changes
+Because the entire dashboard state is stored as a single JSON blob, a device saving an older local snapshot could overwrite the newer snapshot written by another device.
+This is especially likely if the laptop is active (typing, chatting) while the phone creates reminders.
+
 ## Fix
 
 ### A) Add an outbox for failed dashboard state saves
@@ -57,6 +61,17 @@ Desktop now listens for Supabase Realtime in two layers:
 
 Merge logic:
 - [dashboardStateMerge.ts](file:///e:/GRETEL/lib/dashboardStateMerge.ts)
+
+### E) Merge critical slices on save (prevents overwriting remote reminders)
+When saving `dashboard_states`, the client now merges the critical cross-device arrays with the current remote state before updating:
+- `reminders`
+- `briefingInputs`
+- `delegatedTasks`
+- `staffPerformanceLog`
+- `dismissedDelegatedReminderTaskIds`
+
+File:
+- [googleDriveService.ts](file:///e:/GRETEL/components/googleDriveService.ts)
 
 ## Automated Tests
 - Merge behavior is covered via unit tests:

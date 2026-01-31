@@ -2,6 +2,7 @@ import { supabase } from './supabaseClient';
 // FIX: Update import path from '../App' to './types' to resolve module export errors.
 import type { DashboardState } from './types';
 import { syncAssistantBrainDashboardState } from './assistantBrainService';
+import { mergeDashboardStateForCrossDeviceSync } from '../lib/dashboardStateMerge';
 
 const TABLE_NAME = 'dashboard_states';
 
@@ -87,7 +88,7 @@ export const saveDashboardState = async (userId: string, state: DashboardState):
   // First, check if a record for the user already exists to decide whether to update or insert.
   const { data: existingRecord, error: checkError } = await supabase
     .from(TABLE_NAME)
-    .select('user_id')
+    .select('user_id, state')
     .eq('user_id', userId)
     .maybeSingle();
 
@@ -97,10 +98,41 @@ export const saveDashboardState = async (userId: string, state: DashboardState):
   }
 
   if (existingRecord) {
+    let stateToPersist = state;
+    const remoteState = (existingRecord as any)?.state as DashboardState | undefined;
+    if (remoteState) {
+      const merged = mergeDashboardStateForCrossDeviceSync(
+        {
+          reminders: remoteState.reminders,
+          briefingInputs: remoteState.briefingInputs,
+          delegatedTasks: remoteState.delegatedTasks,
+          staffPerformanceLog: remoteState.staffPerformanceLog,
+          dismissedDelegatedReminderTaskIds: remoteState.dismissedDelegatedReminderTaskIds,
+        },
+        {
+          reminders: state.reminders,
+          briefingInputs: state.briefingInputs,
+          delegatedTasks: state.delegatedTasks,
+          staffPerformanceLog: state.staffPerformanceLog,
+          dismissedDelegatedReminderTaskIds: state.dismissedDelegatedReminderTaskIds,
+        },
+        { prefer: 'remote' },
+      );
+
+      stateToPersist = {
+        ...state,
+        reminders: merged.reminders,
+        briefingInputs: merged.briefingInputs,
+        delegatedTasks: merged.delegatedTasks,
+        staffPerformanceLog: merged.staffPerformanceLog,
+        dismissedDelegatedReminderTaskIds: merged.dismissedDelegatedReminderTaskIds,
+      };
+    }
+
     // A record exists, so we perform an UPDATE.
     const { error: updateError } = await supabase
       .from(TABLE_NAME)
-      .update({ state: state })
+      .update({ state: stateToPersist })
       .eq('user_id', userId);
 
     if (updateError) {
@@ -116,7 +148,7 @@ export const saveDashboardState = async (userId: string, state: DashboardState):
 
     clearOutboxState(userId);
 
-    syncAssistantBrainDashboardState(userId, state).catch(() => {});
+    syncAssistantBrainDashboardState(userId, stateToPersist).catch(() => {});
   } else {
     // No record exists, so we perform an INSERT.
     const { error: insertError } = await supabase

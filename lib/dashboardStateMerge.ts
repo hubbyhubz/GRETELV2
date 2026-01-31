@@ -10,18 +10,21 @@ const mergeById = <T extends { id: string }>(local: T[] = [], remote: T[] = []) 
 export const mergeDashboardStateForCrossDeviceSync = (
   local: Pick<DashboardState, 'reminders' | 'briefingInputs' | 'delegatedTasks' | 'staffPerformanceLog' | 'dismissedDelegatedReminderTaskIds'>,
   remote: Pick<DashboardState, 'reminders' | 'briefingInputs' | 'delegatedTasks' | 'staffPerformanceLog' | 'dismissedDelegatedReminderTaskIds'>,
+  opts?: { prefer?: 'local' | 'remote' },
 ) => {
+  const prefer = opts?.prefer ?? 'remote';
+  const first = prefer === 'remote' ? local : remote;
+  const second = prefer === 'remote' ? remote : local;
   return {
-    reminders: mergeById<ReminderItem>(local.reminders, remote.reminders),
-    briefingInputs: mergeById<BriefingInputItem>(local.briefingInputs, remote.briefingInputs),
-    delegatedTasks: mergeById<DelegatedTaskItem>(local.delegatedTasks, remote.delegatedTasks),
-    staffPerformanceLog: mergeById<StaffPerformanceLogEntry>(local.staffPerformanceLog || [], remote.staffPerformanceLog || []),
+    reminders: mergeById<ReminderItem>(first.reminders, second.reminders),
+    briefingInputs: mergeById<BriefingInputItem>(first.briefingInputs, second.briefingInputs),
+    delegatedTasks: mergeById<DelegatedTaskItem>(first.delegatedTasks, second.delegatedTasks),
+    staffPerformanceLog: mergeById<StaffPerformanceLogEntry>(first.staffPerformanceLog || [], second.staffPerformanceLog || []),
     dismissedDelegatedReminderTaskIds: Array.from(
       new Set<string>([
-        ...(local.dismissedDelegatedReminderTaskIds || []),
-        ...(remote.dismissedDelegatedReminderTaskIds || []),
+        ...(first.dismissedDelegatedReminderTaskIds || []),
+        ...(second.dismissedDelegatedReminderTaskIds || []),
       ]),
     ),
   };
 };
-

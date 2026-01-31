@@ -28,5 +28,23 @@ describe('mergeDashboardStateForCrossDeviceSync', () => {
     expect(merged.staffPerformanceLog?.map(s => s.id).sort()).toEqual(['s1', 's2']);
     expect(merged.dismissedDelegatedReminderTaskIds.sort()).toEqual(['x', 'y']);
   });
-});
 
+  it('can prefer local values on id conflicts', () => {
+    const local = {
+      reminders: [{ id: 'r1', text: 'local', completed: false }],
+      briefingInputs: [],
+      delegatedTasks: [],
+      staffPerformanceLog: [],
+      dismissedDelegatedReminderTaskIds: [],
+    };
+    const remote = {
+      reminders: [{ id: 'r1', text: 'remote', completed: true }],
+      briefingInputs: [],
+      delegatedTasks: [],
+      staffPerformanceLog: [],
+      dismissedDelegatedReminderTaskIds: [],
+    };
+    const merged = mergeDashboardStateForCrossDeviceSync(local as any, remote as any, { prefer: 'local' });
+    expect(merged.reminders.find(r => r.id === 'r1')?.text).toBe('local');
+  });
+});
