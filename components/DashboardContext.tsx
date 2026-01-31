@@ -515,6 +515,7 @@ const normalizeDelegatedTasks = (items: DelegatedTaskItem[]): DelegatedTaskItem[
     items.map(item => ({
       ...item,
       loggedAt: resolveLoggedAt(item.loggedAt),
+      updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : resolveLoggedAt(item.loggedAt),
       status: resolveDelegatedStatus(item.status, item.completed),
       remarks: item.remarks ?? '',
     }))
@@ -2105,6 +2106,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                         deadline: deadline || 'TBD',
                         completed: false,
                         loggedAt: baseTs,
+                        updatedAt: baseTs,
                         status: 'not_started',
                         remarks: '',
                     };
@@ -2369,6 +2371,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         deadline: parsed.deadline,
         completed: false,
         loggedAt,
+        updatedAt: loggedAt,
         status: 'not_started',
         remarks: '',
       };
@@ -3102,6 +3105,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                     deadline: deadline,
                     completed: false,
                     loggedAt,
+                    updatedAt: loggedAt,
                     status: 'not_started',
                     remarks: '',
                   };
@@ -4365,7 +4369,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       if (completed && !taskToUpdate.completed) {
         handleProactiveAIMessage(`SYSTEM_ALERT:USER_COMPLETED_TASK:Type='Delegated', Task='${taskToUpdate.text}'`);
       }
-      const nextTasks = delegatedTasks.map(task => task.id === taskId ? { ...task, status, completed } : task);
+      const nowTs = Date.now();
+      const nextTasks = delegatedTasks.map(task => task.id === taskId ? { ...task, status, completed, updatedAt: nowTs } : task);
       setDelegatedTasks(nextTasks);
       setProjects(prev => updateProjectsFromTasks(prev, nextTasks));
 
@@ -4388,11 +4393,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, [delegatedTasks, session, onGoogleAuthError, handleProactiveAIMessage]);
 
     const handleDelegatedTaskRemarksChange = useCallback((taskId: string, remarks: string) => {
-      setDelegatedTasks(prev => prev.map(task => task.id === taskId ? { ...task, remarks } : task));
+      const nowTs = Date.now();
+      setDelegatedTasks(prev => prev.map(task => task.id === taskId ? { ...task, remarks, updatedAt: nowTs } : task));
     }, []);
 
     const handleDelegatedTaskDeadlineChange = useCallback((taskId: string, deadline: string) => {
-      setDelegatedTasks(prev => prev.map(task => task.id === taskId ? { ...task, deadline: deadline.trim() || 'TBD' } : task));
+      const nowTs = Date.now();
+      setDelegatedTasks(prev => prev.map(task => task.id === taskId ? { ...task, deadline: deadline.trim() || 'TBD', updatedAt: nowTs } : task));
     }, []);
     
     const handleConfirmPlan = useCallback(async () => {
@@ -5866,6 +5873,7 @@ ${reportJson}`;
             id: localId, assigneeId, assigneeName: assignee.name,
             text, deadline: deadlineString, completed: false,
             loggedAt,
+            updatedAt: loggedAt,
             status: 'not_started',
             remarks: '',
         };

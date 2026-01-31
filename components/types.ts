@@ -82,6 +82,7 @@ export interface DelegatedTaskItem {
   deadline: string;
   completed: boolean;
   googleTaskId?: string;
+  updatedAt?: number;
   loggedAt?: number;
   status?: 'not_started' | 'in_progress' | 'completed';
   remarks?: string;

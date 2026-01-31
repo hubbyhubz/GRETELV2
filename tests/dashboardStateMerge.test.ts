@@ -38,7 +38,7 @@ describe('mergeDashboardStateForCrossDeviceSync', () => {
       scheduleItems: [],
       reminders: [{ id: 'r1', text: 'local', completed: false }],
       briefingInputs: [],
-      delegatedTasks: [],
+      delegatedTasks: [{ id: 'd1', assigneeId: 'a', assigneeName: 'A', text: 't', deadline: 'x', completed: false, remarks: 'local', updatedAt: 2 }],
       staffPerformanceLog: [],
       dismissedDelegatedReminderTaskIds: [],
     };
@@ -46,11 +46,12 @@ describe('mergeDashboardStateForCrossDeviceSync', () => {
       scheduleItems: [],
       reminders: [{ id: 'r1', text: 'remote', completed: true }],
       briefingInputs: [],
-      delegatedTasks: [],
+      delegatedTasks: [{ id: 'd1', assigneeId: 'a', assigneeName: 'A', text: 't', deadline: 'x', completed: false, remarks: 'remote', updatedAt: 1 }],
       staffPerformanceLog: [],
       dismissedDelegatedReminderTaskIds: [],
     };
     const merged = mergeDashboardStateForCrossDeviceSync(local as any, remote as any, { prefer: 'local' });
     expect(merged.reminders.find(r => r.id === 'r1')?.text).toBe('local');
+    expect(merged.delegatedTasks.find(d => d.id === 'd1')?.remarks).toBe('local');
   });
 });

@@ -14,6 +14,40 @@ const mergeById = <T extends { id: string }>(local: T[] = [], remote: T[] = []) 
   return Array.from(byId.values());
 };
 
+const mergeByIdPreferLatestUpdatedAt = <T extends { id: string; updatedAt?: number }>(first: T[] = [], second: T[] = []) => {
+  const byId = new Map<string, T>();
+  const upsert = (item: T) => {
+    const prev = byId.get(item.id);
+    if (!prev) {
+      byId.set(item.id, item);
+      return;
+    }
+    const prevTs = typeof prev.updatedAt === 'number' ? prev.updatedAt : 0;
+    const nextTs = typeof item.updatedAt === 'number' ? item.updatedAt : 0;
+    if (nextTs > prevTs) {
+      byId.set(item.id, item);
+      return;
+    }
+    if (nextTs === prevTs) {
+      byId.set(item.id, item);
+    }
+  };
+
+  for (const item of first) upsert(item);
+  for (const item of second) upsert(item);
+
+  const secondOrder = second.map(i => i.id);
+  const out: T[] = [];
+  for (const id of secondOrder) {
+    const item = byId.get(id);
+    if (item) out.push(item);
+  }
+  for (const item of Array.from(byId.values())) {
+    if (!secondOrder.includes(item.id)) out.push(item);
+  }
+  return out;
+};
+
 const mergeScheduleItems = (first: ScheduleItem[] = [], second: ScheduleItem[] = []) => {
   const byId = new Map<string, ScheduleItem>();
   const upsert = (item: ScheduleItem) => {
@@ -60,7 +94,7 @@ export const mergeDashboardStateForCrossDeviceSync = (
     scheduleItems: mergeScheduleItems(first.scheduleItems, second.scheduleItems),
     reminders: mergeById<ReminderItem>(first.reminders, second.reminders),
     briefingInputs: mergeById<BriefingInputItem>(first.briefingInputs, second.briefingInputs),
-    delegatedTasks: mergeById<DelegatedTaskItem>(first.delegatedTasks, second.delegatedTasks),
+    delegatedTasks: mergeByIdPreferLatestUpdatedAt<DelegatedTaskItem>(first.delegatedTasks, second.delegatedTasks),
     staffPerformanceLog: mergeById<StaffPerformanceLogEntry>(first.staffPerformanceLog || [], second.staffPerformanceLog || []),
     dismissedDelegatedReminderTaskIds: Array.from(
       new Set<string>([
