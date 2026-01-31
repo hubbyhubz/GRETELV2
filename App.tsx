@@ -407,7 +407,8 @@ function App() {
         setRequiresGoogleConnect(true);
         return;
       }
-      const identities = ((data?.user as any)?.identities ?? []) as any[];
+      const user = data?.user as any;
+      const identities = (user?.identities ?? []) as any[];
       const hasLinkedGoogle = identities.some((i: any) => i?.provider === 'google');
       if (!hasLinkedGoogle) {
         setRequiresGoogleConnect(true);
@@ -421,7 +422,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [session?.access_token, userProfile?.setup_complete, isLocked]);
+  }, [session?.access_token, userProfile?.setup_complete, isLocked, requiresGoogleConnect, requiresGoogleRefresh]);
 
   const renderView = () => {
     if (currentView === 'test') {
@@ -493,11 +494,11 @@ function App() {
       />;
     }
 
-    if (requiresGoogleRefresh) {
-      return <GoogleRefreshPage />;
-    }
     if (requiresGoogleConnect) {
-      return <GoogleRefreshPage />;
+      return <GoogleRefreshPage mode="connect" />;
+    }
+    if (requiresGoogleRefresh) {
+      return <GoogleRefreshPage mode="refresh" />;
     }
 
     if (session && !userProfile && currentView === 'twoFactor') {

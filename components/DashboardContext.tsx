@@ -14,9 +14,15 @@ import { fetchOkrSnapshot, formatOkrSnapshotForPrompt } from './OKR/okrSnapshot'
 import { applyPriorityOps as applyPriorityOpsUtil, applyProjectOps as applyProjectOpsUtil, applyReminderOps as applyReminderOpsUtil, applyScheduleOps as applyScheduleOpsUtil, buildEventOpsBlocksForToday, detectEventOpsScheduleClarification, normalizeNeedle as normalizeNeedleUtil, parseDeadlineFromText as parseDeadlineFromTextUtil, parseScheduleRangeToMinutes, cascadeReschedule } from './assistantActionUtils';
 import { bestFuzzyMatch, inferFinalizePlan, inferFreeStyle } from './freeStyleNlu';
 import { buildWeeklyDashboardSummary } from '../lib/weeklyDashboard';
+import { fetchGoogleUserInfo, getGoogleEmailStorageKey } from '../lib/googleUserInfo';
 
 // Version for the dashboard state structure. Increment this to trigger migrations.
 const DASHBOARD_STATE_VERSION = "1.1.0";
+
+function localIsoDateKey(now = new Date()): string {
+  const offsetMs = now.getTimezoneOffset() * 60 * 1000;
+  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+}
 
 const knownErrorMessages = [
   "I'm sorry, the connection to the AI service is not configured. This feature is currently unavailable.",
@@ -1126,6 +1132,51 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
     const [completedGCalEventIds, setCompletedGCalEventIds] = useState<Set<string>>(new Set());
 
+    const lastGoogleTokenRef = useRef<string | null>(null);
+    const lastGoogleUserIdRef = useRef<string | null>(null);
+
+    useEffect(() => {
+      const userId = session?.user?.id || null;
+      const token = (session as any)?.provider_token ? String((session as any).provider_token) : null;
+      const tokenChanged = token !== lastGoogleTokenRef.current;
+      const userChanged = userId !== lastGoogleUserIdRef.current;
+
+      if (!tokenChanged && !userChanged) return;
+
+      lastGoogleTokenRef.current = token;
+      lastGoogleUserIdRef.current = userId;
+      setGoogleCalendarEvents([]);
+      setCompletedGCalEventIds(new Set());
+    }, [session?.user?.id, (session as any)?.provider_token]);
+
+    const verifyGoogleAccount = useCallback(async (accessToken: string) => {
+      const userId = session?.user?.id;
+      if (!userId) return true;
+
+      const info = await fetchGoogleUserInfo(accessToken);
+      if (!info.email) return true;
+
+      const key = getGoogleEmailStorageKey(userId);
+      const expected = window.localStorage.getItem(key);
+      if (expected && expected.toLowerCase() !== info.email.toLowerCase()) {
+        setNotificationModal({
+          isOpen: true,
+          title: 'Google Account Mismatch',
+          message: `You're connected to ${info.email}, but this account previously used ${expected}. Please reconnect Google and select the correct account.`,
+        });
+        setGoogleCalendarEvents([]);
+        setCompletedGCalEventIds(new Set());
+        onGoogleAuthError();
+        return false;
+      }
+
+      if (!expected) {
+        window.localStorage.setItem(key, info.email);
+      }
+
+      return true;
+    }, [session?.user?.id, onGoogleAuthError]);
+
 
     const desktopTextareaRef = useRef<HTMLTextAreaElement>(null);
     const mobileTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1443,7 +1494,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     useEffect(() => {
       if (isCloudLoading) return;
       const applyDailyReset = () => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = localIsoDateKey();
         if (lastResetDate === today) return;
         setScheduleItems([]);
         setTop3Items([]);
@@ -1474,7 +1525,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setIsScheduleConfirmed(false);
       setPriorityForTomorrow('');
       setDelegatedTasks(prev => prev.filter(task => !task.completed));
-      const today = new Date().toISOString().split('T')[0];
+      const today = localIsoDateKey();
       setLastResetDate(today);
       setNotifiedEventIds(new Set()); 
       setNudgedTaskIds(new Set()); 
@@ -1484,7 +1535,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     
     useEffect(() => {
       if (!isCloudLoading) {
-        const today = new Date().toISOString().split('T')[0];
+        const today = localIsoDateKey();
         if (lastResetDate !== today) {
           console.log("New day detected. Resetting daily dashboard state.");
           resetDailyState();
@@ -2719,7 +2770,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             await onProfileUpdate({ ...userProfile, assistantMemory: updatedMemory });
           }
           if (response.weeklyLogUpdates) {
-            const todayStr = new Date().toISOString().split('T')[0];
+            const todayStr = localIsoDateKey();
             const newLogs = response.weeklyLogUpdates.map((log: WeeklyLogUpdatePayload, index: number) => ({
                 ...log,
                 id: `log-${Date.now()}-${index}`,
@@ -4391,6 +4442,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             return;
         }
 
+        const ok = await verifyGoogleAccount(token);
+        if (!ok) return;
+
         try {
             const events = await getTodaysEvents(token);
             setGoogleCalendarEvents(events);
@@ -4402,7 +4456,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             }
             setCloudError(`Failed to fetch Google Calendar events: ${error?.message || error}`);
         }
-    }, [session, onGoogleAuthError]);
+    }, [session, onGoogleAuthError, verifyGoogleAccount]);
 
     const syncScheduleToGoogleCalendar = useCallback(async (scheduleOverride?: ScheduleItem[]) => {
         const token = session?.provider_token;
@@ -4414,6 +4468,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             });
             return false;
         }
+
+        const ok = await verifyGoogleAccount(token);
+        if (!ok) return false;
 
         const scheduleToSync = (scheduleOverride ?? scheduleItems).filter(item => !item.isGoogleEvent);
         if (scheduleToSync.length === 0) {
@@ -4446,7 +4503,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         } finally {
             setIsSyncing(false);
         }
-    }, [session, scheduleItems, onGoogleAuthError]);
+    }, [session, scheduleItems, onGoogleAuthError, verifyGoogleAccount]);
 
     const clearGoogleCalendarEvents = useCallback(() => {
         setGoogleCalendarEvents([]);
@@ -4983,7 +5040,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, []);
 
     const submitEndOfDayReview = useCallback(async () => {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = localIsoDateKey();
       const morale = typeof endOfDayDraft.morale === 'number' ? Math.min(5, Math.max(1, endOfDayDraft.morale)) : null;
       const attendanceIssues = String(endOfDayDraft.attendance || '').trim();
       const coachingNotes = String(endOfDayDraft.coachingNotes || '').trim();

@@ -468,7 +468,29 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
     }
   };
     
-  const handleGoogleConnect = async () => { setIntegrationError(''); const { error } = await supabase.auth.linkIdentity({ provider: 'google', options: { scopes: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send', }, }); if (error) setIntegrationError(`Google Connection Error: ${error.message}`); };
+  const handleGoogleConnect = async () => {
+    setIntegrationError('');
+    const scopes = [
+      'openid',
+      'email',
+      'profile',
+      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/tasks',
+      'https://www.googleapis.com/auth/drive.file',
+      'https://www.googleapis.com/auth/gmail.send',
+    ].join(' ');
+    const { error } = await supabase.auth.linkIdentity({
+      provider: 'google',
+      options: { scopes, queryParams: { prompt: 'select_account consent' } },
+    });
+    if (error) {
+      const rawMessage = error.message || 'Unknown error';
+      const friendly = rawMessage.toLowerCase().includes('manual linking is disabled')
+        ? 'Linking is disabled in Supabase. Enable "Manual linking" in Auth settings, then try again.'
+        : rawMessage;
+      setIntegrationError(`Google Connection Error: ${friendly}`);
+    }
+  };
   const confirmGoogleUnlink = async () => { setShowUnlinkConfirm(false); setIsUnlinking(true); setIntegrationError(''); const { data: { session } } = await supabase.auth.getSession(); if (!session) { setIntegrationError("Could not get user session."); setIsUnlinking(false); return; } const googleIdentity = session.user.identities?.find(i => i.provider === 'google'); if (!googleIdentity) { setIntegrationError("No Google identity found."); setIsGoogleConnected(false); setIsUnlinking(false); return; } const { error } = await supabase.auth.unlinkIdentity(googleIdentity); if (error) { const rawMessage = error.message || 'Unknown error'; const friendly = rawMessage.toLowerCase().includes('manual linking is disabled') ? 'Unlinking is disabled in Supabase. Enable "Manual linking" in Auth settings, then try again.' : rawMessage; setIntegrationError(`Failed to unlink: ${friendly}`); } else { setIsGoogleConnected(false); setSuccessModalInfo({ title: 'Account Unlinked', message: 'Your Google account has been successfully unlinked.' }); setShowSuccessModal(true); } setIsUnlinking(false); };
   const isValidEmail = (email: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const generateTeamMemberId = (): string => `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
