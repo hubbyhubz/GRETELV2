@@ -1,5 +1,7 @@
 import { supabase } from '../components/supabaseClient';
 
+let subscribeInFlight: Promise<PushSubscription | null> | null = null;
+
 const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding)
@@ -18,7 +20,7 @@ const urlBase64ToUint8Array = (base64String: string) => {
 export const registerServiceWorker = async () => {
   if ('serviceWorker' in navigator && 'PushManager' in window) {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js');
+      const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
       console.log('Service Worker registered:', registration);
       return registration;
     } catch (error) {
@@ -30,12 +32,28 @@ export const registerServiceWorker = async () => {
 };
 
 export const subscribeUserToPush = async () => {
-  const registration = await navigator.serviceWorker.ready;
-  const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+  if (subscribeInFlight) return subscribeInFlight;
 
-  if (!vapidPublicKey) {
+  subscribeInFlight = (async () => {
+    if (typeof window === 'undefined') return null;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+    if (window.isSecureContext !== true && window.location.hostname !== 'localhost') {
+      console.warn('PushManager: Push requires a secure context (HTTPS).');
+      return null;
+    }
+
+    const permission = 'Notification' in window ? Notification.permission : 'denied';
+    if (permission !== 'granted') return null;
+
+    const registration = await navigator.serviceWorker.ready;
+    const vapidPublicKey = String(import.meta.env.VITE_VAPID_PUBLIC_KEY || '')
+      .trim()
+      .replace(/^\"|\"$/g, '')
+      .replace(/^'|'$/g, '')
+      .replace(/\s+/g, '');
+
+    if (!vapidPublicKey) {
     console.error('VITE_VAPID_PUBLIC_KEY is missing');
-    alert('CRITICAL ERROR: VITE_VAPID_PUBLIC_KEY is missing in the build. Push notifications cannot work.');
     return null;
   }
   
@@ -52,11 +70,15 @@ export const subscribeUserToPush = async () => {
       // But let's rely on the error handling to be surgical.
     }
 
-    try {
-      subscription = await registration.pushManager.subscribe({
+    const subscribeWithKey = async () => {
+      return registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
       });
+    };
+
+    try {
+      subscription = await subscribeWithKey();
     } catch (err: any) {
       // Check for the specific error about different applicationServerKey
       if (err.message && (err.message.includes('applicationServerKey') || err.message.includes('gcm_sender_id'))) {
@@ -69,10 +91,19 @@ export const subscribeUserToPush = async () => {
         }
 
         // Try again with the new key
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-        });
+        subscription = await subscribeWithKey();
+      } else if (String(err?.message || '').includes('Registration failed')) {
+        console.warn('Push subscription failed with push service error. Retrying once...');
+        const existingSub = await registration.pushManager.getSubscription();
+        if (existingSub) {
+          try {
+            await existingSub.unsubscribe();
+          } catch {
+            // ignore
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, 800));
+        subscription = await subscribeWithKey();
       } else {
         throw err; // Re-throw other errors
       }
@@ -111,7 +142,11 @@ export const subscribeUserToPush = async () => {
     return subscription;
   } catch (error: any) {
     console.error('Failed to subscribe the user: ', error);
-    alert(`Failed to subscribe: ${error.message || error}`);
-    return null;
+    throw error;
+  } finally {
+    subscribeInFlight = null;
   }
+  })();
+
+  return subscribeInFlight;
 };

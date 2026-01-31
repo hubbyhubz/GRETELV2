@@ -17,7 +17,7 @@ import { syncAssistantBrainProfile } from './components/assistantBrainService';
 import { useAuthListener } from './hooks/useAuthListener';
 import { useProfileData } from './hooks/useProfileData';
 import { useInactivityLock } from './hooks/useInactivityLock';
-import { registerServiceWorker, subscribeUserToPush } from './lib/pushManager';
+import { registerServiceWorker } from './lib/pushManager';
 
 // Lazy load components to improve performance
 const CreateAccountPage = lazy(() => import('./components/CreateAccountPage'));
@@ -97,9 +97,6 @@ function App() {
   useEffect(() => {
     if (!session) return;
     registerServiceWorker();
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      subscribeUserToPush();
-    }
   }, [session]);
 
   // Restore patch notes closed state from sessionStorage on mount

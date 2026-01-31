@@ -17,22 +17,50 @@ export const NotificationManager: React.FC = () => {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [userId, setUserId] = useState<string | null>(null);
+  const [requiresIosInstallForPush, setRequiresIosInstallForPush] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+
+  const attemptPushSubscribe = useCallback(async () => {
+    try {
+      await subscribeUserToPush();
+      setPushError(null);
+    } catch (e: any) {
+      const msg = String(e?.message || e || 'Unknown error');
+      setPushError(msg);
+    }
+  }, []);
 
   useEffect(() => {
-    if ('Notification' in window) {
+    let cancelled = false;
+    (async () => {
+      await registerServiceWorker();
+      if (cancelled) return;
+      if (!('Notification' in window)) {
+        console.warn('NotificationManager: Notifications not supported in this browser.');
+        return;
+      }
+
+      const ua = navigator.userAgent || '';
+      const isIos = /iPad|iPhone|iPod/i.test(ua) || (ua.includes('Mac') && 'ontouchend' in document);
+      const isStandalone =
+        window.matchMedia?.('(display-mode: standalone)')?.matches === true ||
+        (typeof (navigator as any).standalone === 'boolean' && (navigator as any).standalone === true);
+
+      setRequiresIosInstallForPush(isIos && !isStandalone);
+
       const currentPermission = Notification.permission;
       setPermission(currentPermission);
       console.log('NotificationManager: Permission state:', currentPermission);
-      
-      // Auto-subscribe if already granted to ensure keys are synced
-      if (currentPermission === 'granted') {
-        subscribeUserToPush();
+
+      // iOS Web Push requires an installed web app (standalone mode). Don't auto-subscribe from a browser tab.
+      if (currentPermission === 'granted' && !(isIos && !isStandalone)) {
+        attemptPushSubscribe();
       }
-    } else {
-      console.warn('NotificationManager: Notifications not supported in this browser.');
-    }
-    registerServiceWorker();
-  }, []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [attemptPushSubscribe]);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,7 +115,7 @@ export const NotificationManager: React.FC = () => {
     const result = await Notification.requestPermission();
     setPermission(result);
     if (result === 'granted') {
-      subscribeUserToPush();
+      attemptPushSubscribe();
     }
   };
 
@@ -123,7 +151,9 @@ export const NotificationManager: React.FC = () => {
       {permission === 'default' && (
         <div className="fixed bottom-4 left-4 z-50 max-w-sm bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 animate-in slide-in-from-bottom-5">
           <p className="text-sm text-gray-800 dark:text-gray-200 mb-3">
-            Enable notifications to get reminders from your Assistant?
+            {requiresIosInstallForPush
+              ? 'On iPhone/iPad, install this app (Add to Home Screen) to enable push notifications.'
+              : 'Enable notifications to get reminders from your Assistant?'}
           </p>
           <div className="flex gap-2">
             <button
@@ -137,6 +167,31 @@ export const NotificationManager: React.FC = () => {
               className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-bold rounded-md hover:bg-gray-300"
             >
               Later
+            </button>
+          </div>
+        </div>
+      )}
+
+      {permission === 'granted' && pushError && (
+        <div className="fixed bottom-4 left-4 z-50 max-w-sm bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 animate-in slide-in-from-bottom-5">
+          <p className="text-xs text-gray-700 dark:text-gray-200">
+            Push setup failed on this device. Tap retry, or check browser notification settings.
+          </p>
+          <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400 break-words">
+            {pushError}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={attemptPushSubscribe}
+              className="px-3 py-1.5 bg-primary-600 text-white text-xs font-bold rounded-md hover:bg-primary-700"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => setPushError(null)}
+              className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-bold rounded-md hover:bg-gray-300"
+            >
+              Dismiss
             </button>
           </div>
         </div>
