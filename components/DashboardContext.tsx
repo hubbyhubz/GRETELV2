@@ -1184,6 +1184,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const saveTimeoutRef = useRef<number | null>(null);
     const forceSaveRef = useRef<boolean>(false);
     const isApplyingRemoteStateRef = useRef<boolean>(false);
+    const lastRemoteApplyAtRef = useRef<number>(0);
+    const dashboardSyncChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+    const dashboardSyncBroadcastTimeoutRef = useRef<number | null>(null);
     const latestCrossDeviceSlicesRef = useRef<{
       reminders: ReminderItem[];
       briefingInputs: BriefingInputItem[];
@@ -1584,6 +1587,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   
     useEffect(() => {
       if (isApplyingRemoteStateRef.current) return;
+      if (Date.now() - lastRemoteApplyAtRef.current < 1500) return;
       if (isCloudLoading || cloudError) return;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       // Use shorter delay if force save is requested (e.g., after finalization)
@@ -1611,7 +1615,20 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               pendingDelegation: pendingDelegation ?? undefined,
               pendingScheduleClarification: pendingScheduleClarification ?? undefined
           };
-          saveDashboardState(userProfile.id, currentState).catch((err: any) => console.error("Failed to save state to Supabase:", err));
+          (async () => {
+            try {
+              await saveDashboardState(userProfile.id, currentState);
+            } finally {
+              if (dashboardSyncBroadcastTimeoutRef.current) window.clearTimeout(dashboardSyncBroadcastTimeoutRef.current);
+              dashboardSyncBroadcastTimeoutRef.current = window.setTimeout(() => {
+                dashboardSyncChannelRef.current?.send({
+                  type: 'broadcast',
+                  event: 'dashboard_state_updated',
+                  payload: { userId: userProfile.id, ts: Date.now() },
+                });
+              }, 150);
+            }
+          })().catch((err: any) => console.error("Failed to save state to Supabase:", err));
       }, saveDelay);
       return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
     }, [chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, dismissedDelegatedReminderTaskIds, userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt, suppressCalendarFetch, lastEventOpsNudgeDate, pendingDelegation, pendingScheduleClarification]);
@@ -1619,6 +1636,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     useEffect(() => {
       if (isCloudLoading || cloudError) return;
       if (isApplyingRemoteStateRef.current) return;
+      if (Date.now() - lastRemoteApplyAtRef.current < 1500) return;
       forceSaveRef.current = true;
     }, [reminders, briefingInputs, delegatedTasks, staffPerformanceLog, isCloudLoading, cloudError]);
 
@@ -1635,6 +1653,49 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     useEffect(() => {
       if (!userProfile?.id) return;
       if (isCloudLoading) return;
+
+      dashboardSyncChannelRef.current?.unsubscribe();
+      const syncChannel = supabase
+        .channel(`dashboard_sync:${userProfile.id}`)
+        .on('broadcast', { event: 'dashboard_state_updated' }, async (payload) => {
+          const incomingUserId = String((payload as any)?.payload?.userId || '');
+          if (!incomingUserId || incomingUserId !== userProfile.id) return;
+          try {
+            const remote = await getDashboardState(userProfile.id);
+            if (!remote) return;
+            isApplyingRemoteStateRef.current = true;
+            lastRemoteApplyAtRef.current = Date.now();
+            const localSlices = latestCrossDeviceSlicesRef.current;
+            const merged = mergeDashboardStateForCrossDeviceSync(
+              {
+                reminders: localSlices.reminders,
+                briefingInputs: localSlices.briefingInputs,
+                delegatedTasks: localSlices.delegatedTasks,
+                staffPerformanceLog: localSlices.staffPerformanceLog,
+                dismissedDelegatedReminderTaskIds: localSlices.dismissedDelegatedReminderTaskIds,
+              },
+              {
+                reminders: remote.reminders,
+                briefingInputs: remote.briefingInputs,
+                delegatedTasks: remote.delegatedTasks,
+                staffPerformanceLog: remote.staffPerformanceLog,
+                dismissedDelegatedReminderTaskIds: remote.dismissedDelegatedReminderTaskIds,
+              },
+            );
+
+            setReminders(merged.reminders);
+            setBriefingInputs(merged.briefingInputs);
+            setDelegatedTasks(merged.delegatedTasks);
+            setStaffPerformanceLog(merged.staffPerformanceLog);
+            setDismissedDelegatedReminderTaskIds(merged.dismissedDelegatedReminderTaskIds);
+          } finally {
+            isApplyingRemoteStateRef.current = false;
+          }
+        })
+        .subscribe();
+
+      dashboardSyncChannelRef.current = syncChannel;
+
       const channel = supabase
         .channel(`dashboard_states:${userProfile.id}`)
         .on(
@@ -1645,6 +1706,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               const remote = await getDashboardState(userProfile.id);
               if (!remote) return;
               isApplyingRemoteStateRef.current = true;
+              lastRemoteApplyAtRef.current = Date.now();
               const localSlices = latestCrossDeviceSlicesRef.current;
               const merged = mergeDashboardStateForCrossDeviceSync(
                 {
@@ -1675,7 +1737,63 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         )
         .subscribe();
 
+      const pollTimer = window.setInterval(async () => {
+        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+        try {
+          const remote = await getDashboardState(userProfile.id);
+          if (!remote) return;
+          const remoteHash = JSON.stringify({
+            reminders: remote.reminders,
+            briefingInputs: remote.briefingInputs,
+            delegatedTasks: remote.delegatedTasks,
+            staffPerformanceLog: remote.staffPerformanceLog,
+            dismissedDelegatedReminderTaskIds: remote.dismissedDelegatedReminderTaskIds,
+          });
+          const localSlices = latestCrossDeviceSlicesRef.current;
+          const localHash = JSON.stringify({
+            reminders: localSlices.reminders,
+            briefingInputs: localSlices.briefingInputs,
+            delegatedTasks: localSlices.delegatedTasks,
+            staffPerformanceLog: localSlices.staffPerformanceLog,
+            dismissedDelegatedReminderTaskIds: localSlices.dismissedDelegatedReminderTaskIds,
+          });
+          if (remoteHash === localHash) return;
+          isApplyingRemoteStateRef.current = true;
+          lastRemoteApplyAtRef.current = Date.now();
+          const merged = mergeDashboardStateForCrossDeviceSync(
+            {
+              reminders: localSlices.reminders,
+              briefingInputs: localSlices.briefingInputs,
+              delegatedTasks: localSlices.delegatedTasks,
+              staffPerformanceLog: localSlices.staffPerformanceLog,
+              dismissedDelegatedReminderTaskIds: localSlices.dismissedDelegatedReminderTaskIds,
+            },
+            {
+              reminders: remote.reminders,
+              briefingInputs: remote.briefingInputs,
+              delegatedTasks: remote.delegatedTasks,
+              staffPerformanceLog: remote.staffPerformanceLog,
+              dismissedDelegatedReminderTaskIds: remote.dismissedDelegatedReminderTaskIds,
+            },
+          );
+          setReminders(merged.reminders);
+          setBriefingInputs(merged.briefingInputs);
+          setDelegatedTasks(merged.delegatedTasks);
+          setStaffPerformanceLog(merged.staffPerformanceLog);
+          setDismissedDelegatedReminderTaskIds(merged.dismissedDelegatedReminderTaskIds);
+        } finally {
+          isApplyingRemoteStateRef.current = false;
+        }
+      }, 5000);
+
       return () => {
+        if (dashboardSyncBroadcastTimeoutRef.current) window.clearTimeout(dashboardSyncBroadcastTimeoutRef.current);
+        dashboardSyncBroadcastTimeoutRef.current = null;
+        if (dashboardSyncChannelRef.current) {
+          dashboardSyncChannelRef.current.unsubscribe();
+          dashboardSyncChannelRef.current = null;
+        }
+        window.clearInterval(pollTimer);
         supabase.removeChannel(channel);
       };
     }, [userProfile?.id, isCloudLoading]);

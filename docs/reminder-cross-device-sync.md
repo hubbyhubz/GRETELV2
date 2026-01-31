@@ -50,7 +50,10 @@ File:
 - [DashboardContext.tsx](file:///e:/GRETEL/components/DashboardContext.tsx)
 
 ### D) Cross-device live updates (desktop receives mobile changes)
-Desktop now listens for Supabase Realtime `UPDATE` events on `dashboard_states` for the current user and merges the relevant arrays by id.
+Desktop now listens for Supabase Realtime in two layers:
+- A lightweight **broadcast** signal (`dashboard_state_updated`) to trigger immediate refetch/merge.
+- A best-effort `postgres_changes` subscription on `dashboard_states` when replication is enabled.
+- A 5s polling fallback while the app is visible.
 
 Merge logic:
 - [dashboardStateMerge.ts](file:///e:/GRETEL/lib/dashboardStateMerge.ts)
@@ -68,4 +71,3 @@ Merge logic:
 
 ## Notes
 - “Briefing Pointer”, “Log Information”, and “Coaching Note” are stored in `briefingInputs` / `staffPerformanceLog` (not `reminders`). They are now synced cross-device the same way.
-
