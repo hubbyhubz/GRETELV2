@@ -83,15 +83,23 @@ const mergeScheduleItems = (first: ScheduleItem[] = [], second: ScheduleItem[] =
 };
 
 export const mergeDashboardStateForCrossDeviceSync = (
-  local: Pick<DashboardState, 'scheduleItems' | 'reminders' | 'briefingInputs' | 'delegatedTasks' | 'staffPerformanceLog' | 'dismissedDelegatedReminderTaskIds'>,
-  remote: Pick<DashboardState, 'scheduleItems' | 'reminders' | 'briefingInputs' | 'delegatedTasks' | 'staffPerformanceLog' | 'dismissedDelegatedReminderTaskIds'>,
+  local: Pick<DashboardState, 'scheduleItems' | 'scheduleUpdatedAt' | 'reminders' | 'briefingInputs' | 'delegatedTasks' | 'staffPerformanceLog' | 'dismissedDelegatedReminderTaskIds'>,
+  remote: Pick<DashboardState, 'scheduleItems' | 'scheduleUpdatedAt' | 'reminders' | 'briefingInputs' | 'delegatedTasks' | 'staffPerformanceLog' | 'dismissedDelegatedReminderTaskIds'>,
   opts?: { prefer?: 'local' | 'remote' },
 ) => {
   const prefer = opts?.prefer ?? 'remote';
   const first = prefer === 'remote' ? local : remote;
   const second = prefer === 'remote' ? remote : local;
+  const firstScheduleTs = typeof first.scheduleUpdatedAt === 'number' ? first.scheduleUpdatedAt : 0;
+  const secondScheduleTs = typeof second.scheduleUpdatedAt === 'number' ? second.scheduleUpdatedAt : 0;
+  const scheduleUpdatedAt = Math.max(firstScheduleTs, secondScheduleTs);
+  const scheduleItems =
+    firstScheduleTs !== secondScheduleTs
+      ? (firstScheduleTs > secondScheduleTs ? (first.scheduleItems || []) : (second.scheduleItems || []))
+      : mergeScheduleItems(first.scheduleItems, second.scheduleItems);
   return {
-    scheduleItems: mergeScheduleItems(first.scheduleItems, second.scheduleItems),
+    scheduleItems,
+    scheduleUpdatedAt,
     reminders: mergeById<ReminderItem>(first.reminders, second.reminders),
     briefingInputs: mergeById<BriefingInputItem>(first.briefingInputs, second.briefingInputs),
     delegatedTasks: mergeByIdPreferLatestUpdatedAt<DelegatedTaskItem>(first.delegatedTasks, second.delegatedTasks),

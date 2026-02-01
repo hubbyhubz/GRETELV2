@@ -104,6 +104,7 @@ export const saveDashboardState = async (userId: string, state: DashboardState):
       const merged = mergeDashboardStateForCrossDeviceSync(
         {
           scheduleItems: remoteState.scheduleItems,
+          scheduleUpdatedAt: typeof (remoteState as any).scheduleUpdatedAt === 'number' ? (remoteState as any).scheduleUpdatedAt : 0,
           reminders: remoteState.reminders,
           briefingInputs: remoteState.briefingInputs,
           delegatedTasks: remoteState.delegatedTasks,
@@ -112,6 +113,7 @@ export const saveDashboardState = async (userId: string, state: DashboardState):
         },
         {
           scheduleItems: state.scheduleItems,
+          scheduleUpdatedAt: typeof (state as any).scheduleUpdatedAt === 'number' ? (state as any).scheduleUpdatedAt : 0,
           reminders: state.reminders,
           briefingInputs: state.briefingInputs,
           delegatedTasks: state.delegatedTasks,
@@ -124,6 +126,7 @@ export const saveDashboardState = async (userId: string, state: DashboardState):
       stateToPersist = {
         ...state,
         scheduleItems: merged.scheduleItems,
+        scheduleUpdatedAt: typeof (merged as any).scheduleUpdatedAt === 'number' ? (merged as any).scheduleUpdatedAt : state.scheduleUpdatedAt,
         reminders: merged.reminders,
         briefingInputs: merged.briefingInputs,
         delegatedTasks: merged.delegatedTasks,

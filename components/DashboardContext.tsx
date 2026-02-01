@@ -861,6 +861,7 @@ const parseScheduleArray = (scheduleArray: string[]): ScheduleItem[] => {
     const timePatternWithColon = /^((?:\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)\s*(?:-|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)|all\s*day|All\s*Day))\s*:?\s*-\s*(.*)/i;
     const timePatternWithSpace = /^((?:\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)\s*(?:-|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)|all\s*day|All\s*Day))\s+(.*)/i;
 
+    const nowTs = Date.now();
     return scheduleArray
         .filter((line: string) => line.trim() !== '')
         .map((line: string, index: number) => {
@@ -899,7 +900,7 @@ const parseScheduleArray = (scheduleArray: string[]): ScheduleItem[] => {
                 const timeHash = time.replace(/[:\s-]/g, '').toLowerCase();
                 const titleHash = title.substring(0, 30).replace(/[^\w\s]/g, '').replace(/\s+/g, '-').toLowerCase();
                 const stableId = `sched-${timeHash}-${titleHash}-${index}`;
-                return { id: stableId, time, title, completed: false };
+                return { id: stableId, time, title, completed: false, updatedAt: nowTs };
             }
             return null;
         })
@@ -935,6 +936,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
     const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
+    const [scheduleUpdatedAt, setScheduleUpdatedAt] = useState<number>(0);
     const [top3Items, setTop3Items] = useState<Top3Item[]>([]);
     const [reminders, setReminders] = useState<ReminderItem[]>([]);
     const [dismissedDelegatedReminderTaskIds, setDismissedDelegatedReminderTaskIds] = useState<string[]>([]);
@@ -1190,6 +1192,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const dashboardSyncBroadcastTimeoutRef = useRef<number | null>(null);
     const latestCrossDeviceSlicesRef = useRef<{
       scheduleItems: ScheduleItem[];
+      scheduleUpdatedAt: number;
       reminders: ReminderItem[];
       briefingInputs: BriefingInputItem[];
       delegatedTasks: DelegatedTaskItem[];
@@ -1197,6 +1200,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       dismissedDelegatedReminderTaskIds: string[] | undefined;
     }>({
       scheduleItems: [],
+      scheduleUpdatedAt: 0,
       reminders: [],
       briefingInputs: [],
       delegatedTasks: [],
@@ -1372,6 +1376,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           if (state.stateVersion !== DASHBOARD_STATE_VERSION) {
             console.warn(`Old state version detected. Migrating from ${state.stateVersion || 'undefined'} to ${DASHBOARD_STATE_VERSION}. Chat history will be cleared.`);
             setScheduleItems(Array.isArray(state.scheduleItems) ? state.scheduleItems : []);
+            setScheduleUpdatedAt(typeof (state as any).scheduleUpdatedAt === 'number' ? (state as any).scheduleUpdatedAt : 0);
             setTop3Items(Array.isArray(state.top3Items) ? state.top3Items : []);
             setReminders(normalizeReminders(Array.isArray(state.reminders) ? state.reminders : []));
             setDismissedDelegatedReminderTaskIds(
@@ -1420,6 +1425,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             setChatMessages(prunedMessages);
             setChatHistory(prunedHistory);
             setScheduleItems(Array.isArray(state.scheduleItems) ? state.scheduleItems : []);
+            setScheduleUpdatedAt(typeof (state as any).scheduleUpdatedAt === 'number' ? (state as any).scheduleUpdatedAt : 0);
             setTop3Items(Array.isArray(state.top3Items) ? state.top3Items : []);
             setReminders(normalizeReminders(Array.isArray(state.reminders) ? state.reminders : []));
             setDismissedDelegatedReminderTaskIds(
@@ -1542,6 +1548,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         const today = localIsoDateKey();
         if (lastResetDate === today) return;
         setScheduleItems([]);
+        setScheduleUpdatedAt(Date.now());
         setTop3Items([]);
         setDraftedSchedule(null); // Clear drafted schedule on daily reset
         setDraftedPriorities(null); // Clear drafted priorities on daily reset
@@ -1560,6 +1567,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     
     const resetDailyState = useCallback(() => {
       setScheduleItems([]); 
+      setScheduleUpdatedAt(Date.now());
       setTop3Items([]); 
       setDraftedSchedule(null); // Clear drafted schedule on daily reset
       setDraftedPriorities(null); // Clear drafted priorities on daily reset
@@ -1599,7 +1607,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       
       saveTimeoutRef.current = window.setTimeout(() => {
           const currentState: DashboardState = {
-              chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks,
+              chatMessages, chatHistory, scheduleItems, scheduleUpdatedAt, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks,
               dismissedDelegatedReminderTaskIds,
               team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState,
               collapsedCards, weeklyLog, priorityForTomorrow, stateVersion: DASHBOARD_STATE_VERSION,
@@ -1634,7 +1642,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           })().catch((err: any) => console.error("Failed to save state to Supabase:", err));
       }, saveDelay);
       return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-    }, [chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, dismissedDelegatedReminderTaskIds, userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt, suppressCalendarFetch, lastEventOpsNudgeDate, pendingDelegation, pendingScheduleClarification]);
+    }, [chatMessages, chatHistory, scheduleItems, scheduleUpdatedAt, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, dismissedDelegatedReminderTaskIds, userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt, suppressCalendarFetch, lastEventOpsNudgeDate, pendingDelegation, pendingScheduleClarification]);
 
     useEffect(() => {
       if (isCloudLoading || cloudError) return;
@@ -1646,13 +1654,14 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     useEffect(() => {
       latestCrossDeviceSlicesRef.current = {
         scheduleItems,
+        scheduleUpdatedAt,
         reminders,
         briefingInputs,
         delegatedTasks,
         staffPerformanceLog,
         dismissedDelegatedReminderTaskIds,
       };
-    }, [scheduleItems, reminders, briefingInputs, delegatedTasks, staffPerformanceLog, dismissedDelegatedReminderTaskIds]);
+    }, [scheduleItems, scheduleUpdatedAt, reminders, briefingInputs, delegatedTasks, staffPerformanceLog, dismissedDelegatedReminderTaskIds]);
 
     useEffect(() => {
       if (!userProfile?.id) return;
@@ -1673,6 +1682,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             const merged = mergeDashboardStateForCrossDeviceSync(
               {
                 scheduleItems: localSlices.scheduleItems,
+                scheduleUpdatedAt: localSlices.scheduleUpdatedAt,
                 reminders: localSlices.reminders,
                 briefingInputs: localSlices.briefingInputs,
                 delegatedTasks: localSlices.delegatedTasks,
@@ -1681,6 +1691,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               },
               {
                 scheduleItems: remote.scheduleItems,
+                scheduleUpdatedAt: typeof (remote as any).scheduleUpdatedAt === 'number' ? (remote as any).scheduleUpdatedAt : 0,
                 reminders: remote.reminders,
                 briefingInputs: remote.briefingInputs,
                 delegatedTasks: remote.delegatedTasks,
@@ -1690,6 +1701,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             );
 
             setScheduleItems(merged.scheduleItems);
+            setScheduleUpdatedAt(typeof (merged as any).scheduleUpdatedAt === 'number' ? (merged as any).scheduleUpdatedAt : 0);
             setReminders(merged.reminders);
             setBriefingInputs(merged.briefingInputs);
             setDelegatedTasks(merged.delegatedTasks);
@@ -1718,6 +1730,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               const merged = mergeDashboardStateForCrossDeviceSync(
                 {
                   scheduleItems: localSlices.scheduleItems,
+                  scheduleUpdatedAt: localSlices.scheduleUpdatedAt,
                   reminders: localSlices.reminders,
                   briefingInputs: localSlices.briefingInputs,
                   delegatedTasks: localSlices.delegatedTasks,
@@ -1726,6 +1739,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 },
                 {
                   scheduleItems: remote.scheduleItems,
+                  scheduleUpdatedAt: typeof (remote as any).scheduleUpdatedAt === 'number' ? (remote as any).scheduleUpdatedAt : 0,
                   reminders: remote.reminders,
                   briefingInputs: remote.briefingInputs,
                   delegatedTasks: remote.delegatedTasks,
@@ -1735,6 +1749,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               );
 
               setScheduleItems(merged.scheduleItems);
+              setScheduleUpdatedAt(typeof (merged as any).scheduleUpdatedAt === 'number' ? (merged as any).scheduleUpdatedAt : 0);
               setReminders(merged.reminders);
               setBriefingInputs(merged.briefingInputs);
               setDelegatedTasks(merged.delegatedTasks);
@@ -1754,6 +1769,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           if (!remote) return;
           const remoteHash = JSON.stringify({
             scheduleItems: remote.scheduleItems,
+            scheduleUpdatedAt: typeof (remote as any).scheduleUpdatedAt === 'number' ? (remote as any).scheduleUpdatedAt : 0,
             reminders: remote.reminders,
             briefingInputs: remote.briefingInputs,
             delegatedTasks: remote.delegatedTasks,
@@ -1763,6 +1779,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           const localSlices = latestCrossDeviceSlicesRef.current;
           const localHash = JSON.stringify({
             scheduleItems: localSlices.scheduleItems,
+            scheduleUpdatedAt: localSlices.scheduleUpdatedAt,
             reminders: localSlices.reminders,
             briefingInputs: localSlices.briefingInputs,
             delegatedTasks: localSlices.delegatedTasks,
@@ -1775,6 +1792,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           const merged = mergeDashboardStateForCrossDeviceSync(
             {
               scheduleItems: localSlices.scheduleItems,
+              scheduleUpdatedAt: localSlices.scheduleUpdatedAt,
               reminders: localSlices.reminders,
               briefingInputs: localSlices.briefingInputs,
               delegatedTasks: localSlices.delegatedTasks,
@@ -1783,6 +1801,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             },
             {
               scheduleItems: remote.scheduleItems,
+              scheduleUpdatedAt: typeof (remote as any).scheduleUpdatedAt === 'number' ? (remote as any).scheduleUpdatedAt : 0,
               reminders: remote.reminders,
               briefingInputs: remote.briefingInputs,
               delegatedTasks: remote.delegatedTasks,
@@ -1791,6 +1810,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             },
           );
           setScheduleItems(merged.scheduleItems);
+          setScheduleUpdatedAt(typeof (merged as any).scheduleUpdatedAt === 'number' ? (merged as any).scheduleUpdatedAt : 0);
           setReminders(merged.reminders);
           setBriefingInputs(merged.briefingInputs);
           setDelegatedTasks(merged.delegatedTasks);
@@ -3376,7 +3396,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   // So we ignore this client-side check and proceed to show the draft.
                   
                   if (shouldAutoFinalizeKickoffPlan) {
-                    if (scheduleCandidate.length > 0) setScheduleItems(scheduleCandidate);
+                    if (scheduleCandidate.length > 0) {
+                      const nowTs = Date.now();
+                      const stamped = scheduleCandidate.map((it) => ({ ...it, updatedAt: typeof it.updatedAt === 'number' ? it.updatedAt : nowTs }));
+                      setScheduleItems(stamped);
+                      setScheduleUpdatedAt(nowTs);
+                    }
                     if (prioritiesCandidate.length > 0) setTop3Items(prioritiesCandidate);
                     setDraftedSchedule(null);
                     setDraftedPriorities(null);
@@ -3389,7 +3414,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   if (pendingScheduleClarification) shouldClearPendingScheduleClarification = true;
               } else {
                   if (shouldAutoFinalizeKickoffPlan) {
-                    if (scheduleCandidate.length > 0) setScheduleItems(scheduleCandidate);
+                    if (scheduleCandidate.length > 0) {
+                      const nowTs = Date.now();
+                      const stamped = scheduleCandidate.map((it) => ({ ...it, updatedAt: typeof it.updatedAt === 'number' ? it.updatedAt : nowTs }));
+                      setScheduleItems(stamped);
+                      setScheduleUpdatedAt(nowTs);
+                    }
                     if (prioritiesCandidate.length > 0) setTop3Items(prioritiesCandidate);
                     setDraftedSchedule(null);
                     setDraftedPriorities(null);
@@ -4251,6 +4281,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           return updated;
       });
 
+      setScheduleUpdatedAt(nowTs);
+
       setTop3Items(prev => {
           let updated: Top3Item[];
           if (isPriorityToggle) {
@@ -4406,11 +4438,17 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       // Use ONLY the drafted items from the AI's JSON response - no text parsing fallback
       // The draftedSchedule and draftedPriorities are already correctly parsed from the AI's response
       // Store them in local variables before clearing state
+      const nowTs = Date.now();
       const scheduleToFinalize = draftedSchedule && draftedSchedule.length > 0 ? draftedSchedule : null;
       const prioritiesToFinalize = draftedPriorities && draftedPriorities.length > 0 ? draftedPriorities : null;
+
+      const finalizedSchedule = scheduleToFinalize
+        ? scheduleToFinalize.map((it) => ({ ...it, updatedAt: typeof it.updatedAt === 'number' ? it.updatedAt : nowTs }))
+        : null;
       
-      if (scheduleToFinalize) {
-        setScheduleItems(scheduleToFinalize);
+      if (finalizedSchedule) {
+        setScheduleItems(finalizedSchedule);
+        setScheduleUpdatedAt(nowTs);
       }
       if (prioritiesToFinalize) {
         setTop3Items(prioritiesToFinalize);
@@ -4426,7 +4464,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       // Save immediately with the finalized data to ensure persistence on refresh
       const stateToSave: DashboardState = {
         chatMessages, chatHistory, 
-        scheduleItems: scheduleToFinalize || scheduleItems, 
+        scheduleItems: finalizedSchedule || scheduleItems,
+        scheduleUpdatedAt: finalizedSchedule ? nowTs : scheduleUpdatedAt,
         top3Items: prioritiesToFinalize || top3Items, 
         reminders, projects, completedProjects, keepNotes, delegatedTasks,
         dismissedDelegatedReminderTaskIds,
@@ -4638,6 +4677,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
     const handleClearSchedule = useCallback(() => {
         setScheduleItems([]);
+        setScheduleUpdatedAt(Date.now());
         setDraftedSchedule(null);
         setTop3Items([]);
         setDraftedPriorities(null);
@@ -4654,24 +4694,30 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         if (!title) return;
         const time = item.time.trim() || 'All Day';
         const id = `sched-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        setScheduleItems(prev => [...prev, { id, time, title, completed: false }]);
+        const nowTs = Date.now();
+        setScheduleItems(prev => [...prev, { id, time, title, completed: false, updatedAt: nowTs }]);
+        setScheduleUpdatedAt(nowTs);
         setIsScheduleConfirmed(false);
     }, []);
 
     const updateScheduleItem = useCallback((id: string, updates: Partial<Pick<ScheduleItem, 'time' | 'title' | 'completed'>>) => {
+        const nowTs = Date.now();
         setScheduleItems(prev =>
             prev.map(item => {
                 if (item.id !== id) return item;
                 const nextTime = typeof updates.time === 'string' ? updates.time.trim() : item.time;
                 const nextTitle = typeof updates.title === 'string' ? updates.title.trim() : item.title;
-                return { ...item, ...updates, time: nextTime || 'All Day', title: nextTitle || item.title };
+                return { ...item, ...updates, time: nextTime || 'All Day', title: nextTitle || item.title, updatedAt: nowTs };
             })
         );
+        setScheduleUpdatedAt(nowTs);
         setIsScheduleConfirmed(false);
     }, []);
 
     const deleteScheduleItem = useCallback((id: string) => {
+        const nowTs = Date.now();
         setScheduleItems(prev => prev.filter(item => item.id !== id));
+        setScheduleUpdatedAt(nowTs);
         setIsScheduleConfirmed(false);
     }, []);
 

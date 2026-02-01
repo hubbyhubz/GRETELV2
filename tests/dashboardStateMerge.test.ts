@@ -5,6 +5,7 @@ describe('mergeDashboardStateForCrossDeviceSync', () => {
   it('merges by id and unions dismissed ids', () => {
     const local = {
       scheduleItems: [{ id: 's1', time: '9:00', title: 'Local', completed: false, updatedAt: 1 }],
+      scheduleUpdatedAt: 1,
       reminders: [{ id: 'r1', text: 'local', completed: false }],
       briefingInputs: [{ id: 'b1', type: 'Briefing Pointer', text: 'local', loggedAt: 1 }],
       delegatedTasks: [{ id: 'd1', assigneeId: 'a', assigneeName: 'A', text: 'task', deadline: 'x', completed: false }],
@@ -14,6 +15,7 @@ describe('mergeDashboardStateForCrossDeviceSync', () => {
 
     const remote = {
       scheduleItems: [{ id: 's1', time: '9:00', title: 'Remote', completed: true, updatedAt: 2 }, { id: 's2', time: '10:00', title: 'New', completed: false, updatedAt: 2 }],
+      scheduleUpdatedAt: 2,
       reminders: [{ id: 'r1', text: 'remote', completed: true }, { id: 'r2', text: 'new', completed: false }],
       briefingInputs: [{ id: 'b2', type: 'Log Information', text: 'remote', loggedAt: 2 }],
       delegatedTasks: [{ id: 'd1', assigneeId: 'a', assigneeName: 'A', text: 'task2', deadline: 'y', completed: true }],
@@ -31,11 +33,37 @@ describe('mergeDashboardStateForCrossDeviceSync', () => {
     expect(merged.delegatedTasks.find(d => d.id === 'd1')?.text).toBe('task2');
     expect(merged.staffPerformanceLog?.map(s => s.id).sort()).toEqual(['s1', 's2']);
     expect(merged.dismissedDelegatedReminderTaskIds.sort()).toEqual(['x', 'y']);
+    expect(merged.scheduleUpdatedAt).toBe(2);
+  });
+
+  it('lets a newer empty schedule overwrite an older non-empty schedule', () => {
+    const local = {
+      scheduleItems: [],
+      scheduleUpdatedAt: 200,
+      reminders: [],
+      briefingInputs: [],
+      delegatedTasks: [],
+      staffPerformanceLog: [],
+      dismissedDelegatedReminderTaskIds: [],
+    };
+    const remote = {
+      scheduleItems: [{ id: 's1', time: '9:00', title: 'Old', completed: false, updatedAt: 100 }],
+      scheduleUpdatedAt: 100,
+      reminders: [],
+      briefingInputs: [],
+      delegatedTasks: [],
+      staffPerformanceLog: [],
+      dismissedDelegatedReminderTaskIds: [],
+    };
+    const merged = mergeDashboardStateForCrossDeviceSync(local as any, remote as any);
+    expect(merged.scheduleItems).toEqual([]);
+    expect(merged.scheduleUpdatedAt).toBe(200);
   });
 
   it('can prefer local values on id conflicts', () => {
     const local = {
       scheduleItems: [],
+      scheduleUpdatedAt: 0,
       reminders: [{ id: 'r1', text: 'local', completed: false }],
       briefingInputs: [],
       delegatedTasks: [{ id: 'd1', assigneeId: 'a', assigneeName: 'A', text: 't', deadline: 'x', completed: false, remarks: 'local', updatedAt: 2 }],
@@ -44,6 +72,7 @@ describe('mergeDashboardStateForCrossDeviceSync', () => {
     };
     const remote = {
       scheduleItems: [],
+      scheduleUpdatedAt: 0,
       reminders: [{ id: 'r1', text: 'remote', completed: true }],
       briefingInputs: [],
       delegatedTasks: [{ id: 'd1', assigneeId: 'a', assigneeName: 'A', text: 't', deadline: 'x', completed: false, remarks: 'remote', updatedAt: 1 }],

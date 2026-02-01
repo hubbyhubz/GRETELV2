@@ -133,6 +133,7 @@ export interface DashboardState {
     chatMessages: ChatMessage[];
     chatHistory: ChatHistoryItem[];
     scheduleItems: ScheduleItem[];
+    scheduleUpdatedAt?: number;
     top3Items: Top3Item[];
     reminders: ReminderItem[];
     dismissedDelegatedReminderTaskIds?: string[];
