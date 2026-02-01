@@ -1,4 +1,12 @@
 // Service Worker for Push Notifications
+self.addEventListener('install', function(event) {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', function(event) {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener('push', function(event) {
   let data = { title: 'New Message', body: 'You have a new message from G.R.E.T.E.L', url: '/' };
   
