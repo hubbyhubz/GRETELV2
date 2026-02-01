@@ -28,6 +28,10 @@ export function getTabKeyFromTopLevelView(view: View | "test", dashboardView?: D
       return "reset password";
     case "twoFactor":
       return "two-factor";
+    case "superLogin":
+      return "super user login";
+    case "superConsole":
+      return "super user";
     case "test":
       return "test";
     default:

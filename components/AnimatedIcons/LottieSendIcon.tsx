@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import sendIconAnimation from './Send icon v2.json';
 

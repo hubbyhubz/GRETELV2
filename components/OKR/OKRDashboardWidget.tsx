@@ -1,4 +1,3 @@
-import React from 'react';
 import type { OkrSnapshot } from './okrSnapshot';
 
 export function OKRDashboardWidget(props: {
@@ -61,4 +60,3 @@ export function OKRDashboardWidget(props: {
     </div>
   );
 }
-

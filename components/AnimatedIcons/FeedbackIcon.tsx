@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
-import type { HTMLAttributes } from "react";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { forwardRef, useState } from "react";
 import { cn } from "../../lib/utils";
 
-interface FeedbackIconProps extends HTMLAttributes<HTMLDivElement> {
+interface FeedbackIconProps extends HTMLMotionProps<"div"> {
   size?: number;
   isHovered?: boolean;
 }

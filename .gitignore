@@ -20,3 +20,7 @@ Thumbs.db
 .env*.local
 
 .vercel
+
+supabase/.temp/
+test-results/
+playwright-report/

@@ -8,7 +8,6 @@ export { LucideSettingsIcon } from './LucideSettingsIcon';
 export { LucideTrashIcon } from './LucideTrashIcon';
 export { LucideCheckIcon } from './LucideCheckIcon';
 export { CircleCheckIcon } from './CircleCheckIcon';
-export type { CircleCheckIconHandle } from './CircleCheckIcon';
 export { CircleCheckboxIcon } from './CircleCheckboxIcon';
 export { CircleHelpIcon } from './CircleHelpIcon';
 export type { CircleHelpIconHandle } from './CircleHelpIcon';

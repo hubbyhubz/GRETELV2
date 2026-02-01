@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useLayoutEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect, lazy, Suspense } from 'react';
 import LoginPage from './components/LoginPage';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import { isSupabaseConfigured, supabase, supabaseConfigError } from './components/supabaseClient';
@@ -16,8 +16,7 @@ import { applyTabTitle, getTabKeyFromTopLevelView } from './lib/tabTitle.ts';
 import { syncAssistantBrainProfile } from './components/assistantBrainService';
 import { useAuthListener } from './hooks/useAuthListener';
 import { useProfileData } from './hooks/useProfileData';
-import { useInactivityLock } from './hooks/useInactivityLock';
-import { registerServiceWorker } from './lib/pushManager';
+import { useIsSuperUser } from './hooks/useIsSuperUser';
 
 // Lazy load components to improve performance
 const CreateAccountPage = lazy(() => import('./components/CreateAccountPage'));
@@ -28,12 +27,15 @@ const MainDashboardPage = lazy(() => import('./components/MainDashboardPage').th
 const PrivacyPolicyPage = lazy(() => import('./components/PrivacyPolicyPage'));
 const TermsOfServicePage = lazy(() => import('./components/TermsOfServicePage'));
 const SimulationIntroPage = lazy(() => import('./components/SimulationIntroPage'));
-const LockScreenPage = lazy(() => import('./components/LockScreenPage'));
 const TwoFactorAuthPage = lazy(() => import('./components/TwoFactorAuthPage'));
 const GoogleRefreshPage = lazy(() => import('./components/GoogleRefreshPage'));
 const TestPage = lazy(() => import('./components/TestPage'));
+const SuperUserLoginPage = lazy(() => import('./components/SuperUserLoginPage'));
+const SuperUserConsolePage = lazy(() => import('./components/SuperUserConsolePage'));
 
-const APP_VERSION = "1.5.5"; // Version for patch notes
+import { AlertTriangle, ShieldAlert } from 'lucide-react';
+
+const APP_VERSION = "1.5.4"; // Version for patch notes
 
 // Extend the View type locally to include 'test'
 type ExtendedView = View | 'test';
@@ -51,10 +53,59 @@ function App() {
   const [legalPageSource, setLegalPageSource] = useState<LegalPageSource>('login');
   const [activeDashboard, setActiveDashboard] = useState<DashboardView>('main');
 
+  const [superUserPreferredView, setSuperUserPreferredView] = useState<'admin' | 'employee'>(() => {
+    const raw = localStorage.getItem('gretel_super_view');
+    return raw === 'employee' ? 'employee' : 'admin';
+  });
+
   // Custom Hooks
   const { session, isLoading: authLoading, setSession } = useAuthListener();
   const { userProfile, isFetching: profileLoading, error: profileError, updateProfileLocal } = useProfileData(session);
-  const { isLocked, setIsLocked, handleUnlock, resetInactivityTimer, lockNow } = useInactivityLock(session, userProfile);
+  const { isSuperUser } = useIsSuperUser(session?.user?.id);
+  const isImpersonating = !!sessionStorage.getItem('impersonating_user_id');
+
+  useEffect(() => {
+    const applyHash = () => {
+      const hash = window.location.hash || '';
+      if (hash === '#admin') {
+        if (!session || !userProfile?.setup_complete) return;
+        setCurrentView('superConsole');
+        return;
+      }
+      if (hash === '#super') {
+        setCurrentView('superLogin');
+        return;
+      }
+      if (hash === '#employee') {
+        if (!session || !userProfile?.setup_complete) return;
+        setCurrentView('dashboard');
+      }
+    };
+
+    applyHash();
+    window.addEventListener('hashchange', applyHash);
+    return () => window.removeEventListener('hashchange', applyHash);
+  }, [session, userProfile?.setup_complete]);
+
+  useEffect(() => {
+    if (currentView === 'superConsole') {
+      if (window.location.hash !== '#admin') {
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#admin`);
+      }
+      return;
+    }
+    if (currentView === 'superLogin') {
+      if (window.location.hash !== '#super') {
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#super`);
+      }
+      return;
+    }
+    if (currentView === 'dashboard') {
+      if (window.location.hash !== '#') {
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#`);
+      }
+    }
+  }, [currentView]);
 
   const isLoading = authLoading || (!!session && profileLoading && !userProfile);
   const [showLoadingHint, setShowLoadingHint] = useState(false);
@@ -69,7 +120,6 @@ function App() {
   const [requiresGoogleRefresh, setRequiresGoogleRefresh] = useState(false);
   const [requiresGoogleConnect, setRequiresGoogleConnect] = useState(false);
   const [shouldShowPatchNotes, setShouldShowPatchNotes] = useState(false);
-  const [pendingGoogleReconnect, setPendingGoogleReconnect] = useState(false);
   const [createAccountFormData, setCreateAccountFormData] = useState<CreateAccountFormData>({
     name: '',
     email: '',
@@ -95,9 +145,8 @@ function App() {
   }, [currentView]);
 
   useEffect(() => {
-    if (!session) return;
-    registerServiceWorker();
-  }, [session]);
+    localStorage.setItem('gretel_super_view', superUserPreferredView);
+  }, [superUserPreferredView]);
 
   // Restore patch notes closed state from sessionStorage on mount
   useEffect(() => {
@@ -126,14 +175,6 @@ function App() {
     applyTabTitle(getTabKeyFromTopLevelView(currentView, activeDashboard));
   }, [currentView, requiresGoogleRefresh, userProfile?.setup_complete, activeDashboard]);
 
-  const handleUnlockWithTokenRefresh = useCallback(async () => {
-    await handleUnlock();
-    if (pendingGoogleReconnect) {
-      setPendingGoogleReconnect(false);
-      setRequiresGoogleRefresh(true);
-    }
-  }, [handleUnlock, pendingGoogleReconnect]);
-
   if (!isSupabaseConfigured) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-gray-100 text-gray-900 p-6">
@@ -150,8 +191,6 @@ function App() {
     );
   }
 
-  // Inactivity logic is handled by useInactivityLock hook
-
   // Removed old fetchUserProfile function - replaced with useEffect-based profile loading
 
   // FIXED: Consolidated auth state logic into a single onAuthStateChange listener
@@ -164,15 +203,16 @@ function App() {
   // FIXED: Add safety timeout to break loading loops
   useEffect(() => {
     const timeout = setTimeout(() => {
-      if (!isLoading) return;
-      if (session) return;
-      console.warn('⚠️ Loading timeout reached - breaking loop and resetting to login');
-      setAuthError("Login timed out. Please try again.");
-      setCurrentView('login');
-    }, 15000);
+      if (isLoading) {
+        console.warn('⚠️ Loading timeout reached - breaking loop and resetting to login');
+        // setIsLoading is not available here, handled by authListener
+        setAuthError("Login timed out. Please try again.");
+        setCurrentView('login');
+      }
+    }, 10000); // 10 second timeout (reduced from 15s)
 
     return () => clearTimeout(timeout);
-  }, [isLoading, session]);
+  }, [isLoading]);
 
   // Check for OAuth callback errors
   useEffect(() => {
@@ -202,11 +242,13 @@ function App() {
   };
 
   const navigateToLogin = () => {
+    sessionStorage.removeItem('impersonating_user_id');
     setCurrentView('login');
     resetCreateAccountForm();
   };
 
   const navigateToForgotPassword = () => setCurrentView('forgotPassword');
+  const navigateToSuperUserLogin = () => setCurrentView('superLogin');
 
   const navigateToPrivacyPolicy = (source: LegalPageSource) => {
     console.log('🔗 Navigating to Privacy Policy from:', source);
@@ -235,6 +277,22 @@ function App() {
   const handleAccountCreated = () => {
     setCurrentView('login');
     resetCreateAccountForm();
+  };
+
+  const handleStopImpersonating = async () => {
+    try {
+      // Audit log for stopping impersonation
+      await supabase.rpc('log_admin_action', {
+        p_action_type: 'impersonation_stop',
+        p_target_resource: 'profiles',
+        p_details: { target_user_id: sessionStorage.getItem('impersonating_user_id') }
+      });
+    } catch (e) {
+      console.error('Failed to log impersonation stop:', e);
+    } finally {
+      sessionStorage.removeItem('impersonating_user_id');
+      window.location.reload();
+    }
   };
 
   const handleCreateAccountFormChange = (updatedData: Partial<CreateAccountFormData>) => {
@@ -297,20 +355,20 @@ function App() {
 
   const handleLoginSuccess = (_nextSession: Session | null) => {
     setAuthError(null);
-    resetInactivityTimer();
-    setRequiresGoogleConnect(false);
+    setRequiresGoogleConnect(true);
     setRequiresGoogleRefresh(false);
   };
 
   const handleLogout = async () => {
     // Optimistically reset UI so logout feels immediate.
-    setIsLocked(false);
-    localStorage.removeItem('gretel_is_locked');
-    localStorage.removeItem('gretel_last_activity');
     setSession(null);
     setCurrentView('login');
     setRequiresGoogleRefresh(false);
     setRequiresGoogleConnect(false);
+
+    // Termination of impersonation on logout
+    sessionStorage.removeItem('impersonating_user_id');
+
     try {
       const { error } = await supabase.auth.signOut();
       if (error) {
@@ -325,10 +383,6 @@ function App() {
 
   const handleGoogleAuthError = () => {
     console.warn('⚠️ Google Auth Error detected, prompting for refresh.');
-    if (isLocked) {
-      setPendingGoogleReconnect(true);
-      return;
-    }
     setRequiresGoogleRefresh(true);
   };
 
@@ -403,40 +457,39 @@ function App() {
 
   useEffect(() => {
     if (!session || !userProfile?.setup_complete) return;
-    if (isLocked) return;
     let cancelled = false;
-
-    const resolveHasLinkedGoogle = (user: any) => {
-      const identities = (user?.identities ?? []) as any[];
-      if (Array.isArray(identities) && identities.some((i: any) => i?.provider === 'google')) return true;
-      const providers = user?.app_metadata?.providers;
-      if (Array.isArray(providers) && providers.includes('google')) return true;
-      const provider = user?.app_metadata?.provider;
-      if (provider === 'google') return true;
-      return false;
-    };
-
     (async () => {
       const { data, error } = await supabase.auth.getUser();
       if (cancelled) return;
       if (error) {
-        // Transient network / auth API errors should not force a hard "Connect Google" gate.
-        // Keep current state and let subsequent successful auth checks correct the UI.
+        setRequiresGoogleConnect(true);
         return;
       }
-      const user = data?.user as any;
-      const hasLinkedGoogle = resolveHasLinkedGoogle(user);
+      const identities = ((data?.user as any)?.identities ?? []) as any[];
+      const hasLinkedGoogle = identities.some((i: any) => i?.provider === 'google');
       if (!hasLinkedGoogle) {
         setRequiresGoogleConnect(true);
         setRequiresGoogleRefresh(false);
         return;
       }
       if (requiresGoogleConnect) setRequiresGoogleConnect(false);
+      const hasProviderToken = Boolean((session as any)?.provider_token);
+      setRequiresGoogleRefresh(!hasProviderToken);
     })();
     return () => {
       cancelled = true;
     };
-  }, [session?.access_token, userProfile?.setup_complete, isLocked, requiresGoogleConnect, requiresGoogleRefresh]);
+  }, [session?.access_token, userProfile?.setup_complete]);
+
+  useEffect(() => {
+    if (!session || !userProfile?.setup_complete) return;
+    if (!isSuperUser) return;
+    if (isImpersonating) return; // Don't force admin view if impersonating
+    if (superUserPreferredView !== 'admin') return;
+    if (currentView === 'dashboard' || currentView === 'login') {
+      setCurrentView('superConsole');
+    }
+  }, [session, userProfile?.setup_complete, isSuperUser, superUserPreferredView, currentView, isImpersonating]);
 
   const renderView = () => {
     if (currentView === 'test') {
@@ -490,29 +543,11 @@ function App() {
       );
     }
 
-    if (isLocked && session && userProfile) {
-      return <MainDashboardPage
-        onLogout={handleLogout}
-        onLock={lockNow}
-        userProfile={userProfile}
-        onProfileUpdate={handleProfileUpdate}
-        onNavigateToPrivacy={() => navigateToPrivacyPolicy('dashboard')}
-        onNavigateToTerms={() => navigateToTermsOfService('dashboard')}
-        activeDashboard={activeDashboard}
-        setActiveDashboard={setActiveDashboard}
-        appVersion={APP_VERSION}
-        onGoogleAuthError={handleGoogleAuthError}
-        shouldShowPatchNotes={shouldShowPatchNotes}
-        onPatchNotesViewed={handlePatchNotesViewed}
-        session={session}
-      />;
-    }
-
-    if (requiresGoogleConnect) {
-      return <GoogleRefreshPage mode="connect" />;
-    }
     if (requiresGoogleRefresh) {
-      return <GoogleRefreshPage mode="refresh" />;
+      return <GoogleRefreshPage />;
+    }
+    if (requiresGoogleConnect) {
+      return <GoogleRefreshPage />;
     }
 
     if (session && !userProfile && currentView === 'twoFactor') {
@@ -521,6 +556,15 @@ function App() {
 
     if (currentView === 'resetPassword') {
       return <ResetPasswordPage onResetSuccess={navigateToLogin} />;
+    }
+
+    if (currentView === 'superLogin') {
+      return (
+        <SuperUserLoginPage
+          onBackToLogin={navigateToLogin}
+          onLoginApproved={() => setCurrentView('superConsole')}
+        />
+      );
     }
 
     if (!session || !userProfile) {
@@ -549,6 +593,7 @@ function App() {
           return <LoginPage
             onCreateAccountClick={navigateToCreateAccount}
             onForgotPasswordClick={navigateToForgotPassword}
+            onSuperUserLoginClick={navigateToSuperUserLogin}
             onLoginSuccess={handleLoginSuccess}
             onNavigateToPrivacy={() => navigateToPrivacyPolicy('login')}
             onNavigateToTerms={() => navigateToTermsOfService('login')}
@@ -558,7 +603,7 @@ function App() {
       }
     }
 
-    if (!userProfile.setup_complete) {
+    if (!userProfile.setup_complete && currentView !== 'superConsole') {
       return <SetupWizardPage onSetupComplete={handleSetupComplete} />;
     }
 
@@ -568,7 +613,6 @@ function App() {
       case 'setupWizard':
         return <MainDashboardPage
           onLogout={handleLogout}
-          onLock={lockNow}
           userProfile={userProfile}
           onProfileUpdate={handleProfileUpdate}
           onNavigateToPrivacy={() => navigateToPrivacyPolicy('dashboard')}
@@ -580,7 +624,24 @@ function App() {
           shouldShowPatchNotes={shouldShowPatchNotes}
           onPatchNotesViewed={handlePatchNotesViewed}
           session={session}
+          isSuperUser={isSuperUser}
+          onStopImpersonating={handleStopImpersonating}
+          onOpenAdminConsole={() => {
+            setSuperUserPreferredView('admin');
+            setCurrentView('superConsole');
+          }}
         />;
+      case 'superConsole':
+        return (
+          <SuperUserConsolePage
+            userProfile={userProfile}
+            onBackToDashboard={() => {
+              setSuperUserPreferredView('employee');
+              setCurrentView('dashboard');
+            }}
+            onBackToSuperLogin={() => setCurrentView('superLogin')}
+          />
+        );
       case 'privacyPolicy':
         return <PrivacyPolicyPage onBack={handleBackFromLegal} source="dashboard" />;
       case 'termsOfService':
@@ -588,7 +649,6 @@ function App() {
       default:
         return <MainDashboardPage
           onLogout={handleLogout}
-          onLock={lockNow}
           userProfile={userProfile}
           onProfileUpdate={handleProfileUpdate}
           onNavigateToPrivacy={() => navigateToPrivacyPolicy('dashboard')}
@@ -600,6 +660,12 @@ function App() {
           shouldShowPatchNotes={shouldShowPatchNotes}
           onPatchNotesViewed={handlePatchNotesViewed}
           session={session}
+          isSuperUser={isSuperUser}
+          onStopImpersonating={handleStopImpersonating}
+          onOpenAdminConsole={() => {
+            setSuperUserPreferredView('admin');
+            setCurrentView('superConsole');
+          }}
         />;
     }
   };
@@ -616,8 +682,34 @@ function App() {
   }
 
   return (
-    <div className={!isDashboardView && currentView !== 'test' ? 'min-h-screen flex items-center justify-center p-4 sm:p-6' : ''}>
-      {!isLocked && !isDashboardView && currentView !== 'resetPassword' && currentView !== 'test' && <ThemeToggleButton />}
+    <div className={(isImpersonating ? 'pt-14 sm:pt-12 ' : '') + (!isDashboardView && currentView !== 'test' ? 'min-h-screen flex items-center justify-center p-4 sm:p-6' : '')}>
+      {isImpersonating && (
+        <div className="fixed top-0 left-0 right-0 z-[9999] bg-orange-600 text-white px-4 py-2 h-12 flex items-center justify-between shadow-lg animate-in slide-in-from-top duration-300">
+          <div className="flex items-center gap-3">
+            <ShieldAlert size={18} className="animate-pulse" />
+            <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
+              <span className="text-xs font-black uppercase tracking-widest">Impersonation Mode Active</span>
+              <span className="hidden sm:inline text-[10px] opacity-90 font-medium">| Viewing as: <span className="underline">{userProfile?.name}</span> ({userProfile?.id?.slice(0, 8)})</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentView('superConsole')}
+              className="text-[10px] font-bold bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded-full transition-colors hidden md:block border border-white/20"
+            >
+              ADMIN CONSOLE
+            </button>
+            <button
+              onClick={handleStopImpersonating}
+              className="text-xs font-black bg-white text-orange-600 px-4 py-1.5 rounded-full hover:bg-orange-50 transition-all transform active:scale-95 shadow-md flex items-center gap-2"
+            >
+              <AlertTriangle size={14} />
+              EXIT IMPERSONATION
+            </button>
+          </div>
+        </div>
+      )}
+      {!isDashboardView && currentView !== 'resetPassword' && currentView !== 'test' && <ThemeToggleButton />}
       <Suspense fallback={
         <div className="flex items-center justify-center min-h-screen">
           <div className="custom-loader-lg"></div>
@@ -626,15 +718,6 @@ function App() {
         {renderView()}
       </Suspense>
       {isDashboardView && <NotificationManager />}
-      {isLocked && session && userProfile && (
-        <Suspense fallback={null}>
-          <LockScreenPage
-            userProfile={userProfile}
-            onUnlock={handleUnlockWithTokenRefresh}
-            onSessionExpired={handleLogout}
-          />
-        </Suspense>
-      )}
     </div>
   );
 }

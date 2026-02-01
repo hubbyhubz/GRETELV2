@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { AlarmClock } from "lucide-react";
-import type { HTMLAttributes } from "react";
 import { forwardRef } from "react";
 
-interface LucideAlarmIconProps extends HTMLAttributes<HTMLDivElement> {
+interface LucideAlarmIconProps extends HTMLMotionProps<"div"> {
   size?: number;
 }
 

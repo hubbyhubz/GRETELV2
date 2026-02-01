@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { Briefcase } from "lucide-react";
-import type { HTMLAttributes } from "react";
 import { forwardRef } from "react";
 
-interface LucideBriefcaseIconProps extends HTMLAttributes<HTMLDivElement> {
+interface LucideBriefcaseIconProps extends HTMLMotionProps<"div"> {
   size?: number;
 }
 

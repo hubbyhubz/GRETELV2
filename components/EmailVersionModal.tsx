@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import AppIcon from './AppIcon';
-import { normalizeEmailPlainText } from '../lib/emailPlainText';
 
 interface EmailVersionModalProps {
   isOpen: boolean;
@@ -11,7 +10,6 @@ interface EmailVersionModalProps {
 const EmailVersionModal: React.FC<EmailVersionModalProps> = ({ isOpen, emailContent, onClose }) => {
   const [copied, setCopied] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
-  const normalizedEmailContent = normalizeEmailPlainText(emailContent);
 
   useEffect(() => {
     if (copied) {
@@ -33,16 +31,15 @@ const EmailVersionModal: React.FC<EmailVersionModalProps> = ({ isOpen, emailCont
   };
 
   useEffect(() => {
-    if (!isOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') handleClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen]);
+  }, []);
 
   const handleCopyToClipboard = () => {
-    navigator.clipboard.writeText(normalizedEmailContent).then(() => {
+    navigator.clipboard.writeText(emailContent).then(() => {
       setCopied(true);
     }).catch(err => {
       console.error('Failed to copy:', err);
@@ -50,7 +47,7 @@ const EmailVersionModal: React.FC<EmailVersionModalProps> = ({ isOpen, emailCont
   };
 
   const handleDownload = () => {
-    const blob = new Blob([normalizedEmailContent], { type: 'text/plain' });
+    const blob = new Blob([emailContent], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -76,13 +73,6 @@ const EmailVersionModal: React.FC<EmailVersionModalProps> = ({ isOpen, emailCont
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Ready to send</p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleClose}
-              className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-red-100 dark:bg-gray-700 dark:hover:bg-red-900/20 text-gray-800 dark:text-gray-200 text-sm font-semibold flex items-center gap-2"
-              title="Go back"
-            >
-              ← Go Back
-            </button>
             <button
               onClick={handleCopyToClipboard}
               className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-red-100 dark:bg-gray-700 dark:hover:bg-red-900/20 text-gray-800 dark:text-gray-200 text-sm font-semibold flex items-center gap-2"
@@ -115,7 +105,7 @@ const EmailVersionModal: React.FC<EmailVersionModalProps> = ({ isOpen, emailCont
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
             <pre className="whitespace-pre-wrap font-sans text-sm text-gray-800 dark:text-gray-200 leading-relaxed">
-              {normalizedEmailContent}
+              {emailContent}
             </pre>
           </div>
         </div>

@@ -1,8 +1,8 @@
 import type { Content } from '@google/genai';
 
-export type View = 'login' | 'createAccount' | 'forgotPassword' | 'setupWizard' | 'dashboard' | 'privacyPolicy' | 'termsOfService' | 'resetPassword' | 'twoFactor';
+export type View = 'login' | 'createAccount' | 'forgotPassword' | 'setupWizard' | 'dashboard' | 'privacyPolicy' | 'termsOfService' | 'resetPassword' | 'twoFactor' | 'superLogin' | 'superConsole';
 export type LegalPageSource = 'login' | 'dashboard' | 'createAccount';
-export type DashboardView = 'main' | 'analytics' | 'events' | 'okr';
+export type DashboardView = 'main' | 'analytics' | 'events' | 'okr' | 'dutyRoster';
 export type UserMood = 'neutral' | 'positive' | 'negative' | 'stressed' | 'excited' | 'tired';
 
 export interface WizardData {
@@ -54,7 +54,7 @@ export interface CreateAccountFormData {
   agreedToTerms: boolean;
 }
 
-export type ScheduleItem = { id: string; time: string; title: string; completed: boolean; isGoogleEvent?: boolean; updatedAt?: number; };
+export type ScheduleItem = { id: string; time: string; title: string; completed: boolean; isGoogleEvent?: boolean; };
 export type Top3Item = { id:string; text: string; completed: boolean; };
 export type ReminderBriefingPreference = 'none' | 'morning' | 'afternoon' | 'both';
 export type ReminderItem = { id: string; text: string; completed: boolean; loggedAt?: number; includeInBriefing?: ReminderBriefingPreference; linkedTaskId?: string; };
@@ -82,7 +82,6 @@ export interface DelegatedTaskItem {
   deadline: string;
   completed: boolean;
   googleTaskId?: string;
-  updatedAt?: number;
   loggedAt?: number;
   status?: 'not_started' | 'in_progress' | 'completed';
   remarks?: string;
@@ -95,6 +94,39 @@ export type BriefingState = 'idle' | 'draft' | 'finalized';
 export type WeeklyLogItem = { id: string; date: string; type: 'accomplishment' | 'challenge'; text: string; };
 export type AssistantMode = 'crisis' | 'strategic' | 'red-day' | null;
 export type ModeHistoryEntry = { mode: 'crisis' | 'strategic' | 'red-day'; activatedAt: number; deactivatedAt?: number; };
+
+export type DepartmentRole = 'director' | 'manager' | 'assistant_manager' | 'supervisor' | 'rank_and_file';
+
+export type Department = {
+  id: string;
+  company_id: string;
+  code: string;
+  name: string;
+  is_active: boolean;
+  created_at?: string;
+};
+
+export type DepartmentMembership = {
+  id: string;
+  user_id: string;
+  department_id: string;
+  role: DepartmentRole;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type AuditEvent = {
+  id: string;
+  action_type: string;
+  actor_user_id: string;
+  target_user_id: string | null;
+  source_department_id: string | null;
+  destination_department_id: string | null;
+  before_state: unknown;
+  after_state: unknown;
+  reason: string;
+  created_at: string;
+};
 export type DailyOpsMetricEntry = {
   id: string;
   date: string;
@@ -133,7 +165,6 @@ export interface DashboardState {
     chatMessages: ChatMessage[];
     chatHistory: ChatHistoryItem[];
     scheduleItems: ScheduleItem[];
-    scheduleUpdatedAt?: number;
     top3Items: Top3Item[];
     reminders: ReminderItem[];
     dismissedDelegatedReminderTaskIds?: string[];

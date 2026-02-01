@@ -1,10 +1,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import type { UserProfile, TeamMember } from './types';
+import type { DepartmentRole, UserProfile, TeamMember } from './types';
 import SuccessNotification from './SuccessNotification';
 import ConfirmationModal from './ConfirmationModal';
 import { supabase } from './supabaseClient';
-import AppIcon from './AppIcon';
 import { ArrowLeftIcon } from './AnimatedIcons/ArrowLeftIcon';
 import { UserIcon } from './AnimatedIcons/UserIcon';
 import { UsersIcon } from './AnimatedIcons/UsersIcon';
@@ -348,7 +347,7 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
       relationalMemory: (userProfile as any).relationalMemory || { nodes: [], edges: [] },
     };
   }, [userProfile]);
-  
+
   // Now all hooks must be called before any conditional returns
   const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'team'>(initialTab);
   const [isGoogleConnected, setIsGoogleConnected] = useState(false); const [integrationError, setIntegrationError] = useState(''); const [isUnlinking, setIsUnlinking] = useState(false); const [showUnlinkConfirm, setShowUnlinkConfirm] = useState(false);
@@ -366,6 +365,22 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
   const [assistantNameError, setAssistantNameError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [isBackToDashboardHovered, setIsBackToDashboardHovered] = useState(false);
+
+  const [myDepartmentInfo, setMyDepartmentInfo] = useState<{ departmentId: string; departmentName: string; departmentCode: string; role: DepartmentRole } | null>(null);
+  const [departmentRoster, setDepartmentRoster] = useState<Array<{ userId: string; name: string; email: string; role: string }>>([]);
+  const [departmentRosterLoading, setDepartmentRosterLoading] = useState(false);
+  const [departmentRosterError, setDepartmentRosterError] = useState<string | null>(null);
+
+  const formatDepartmentRoleLabel = (role: string) => {
+    switch (role) {
+      case 'director': return 'Director';
+      case 'manager': return 'Manager';
+      case 'assistant_manager': return 'Assistant Manager';
+      case 'supervisor': return 'Supervisor';
+      case 'rank_and_file': return 'Rank and File';
+      default: return role;
+    }
+  };
   
   // Now we can check if userProfile is missing and return early (after all hooks)
   if (!userProfile) {
@@ -404,6 +419,88 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
       console.error('Error updating profile data:', error);
     }
   }, [userProfile]);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadRoster = async () => {
+      if (!userProfile?.id) return;
+      if (activeTab !== 'team') return;
+
+      setDepartmentRosterLoading(true);
+      setDepartmentRosterError(null);
+
+      try {
+        const { data: myMembership, error: membershipError } = await supabase
+          .from('department_memberships')
+          .select('department_id, role, departments ( id, code, name )')
+          .eq('user_id', userProfile.id)
+          .maybeSingle();
+
+        if (membershipError) throw membershipError;
+        if (!myMembership || !myMembership.department_id) {
+          if (!mounted) return;
+          setMyDepartmentInfo(null);
+          setDepartmentRoster([]);
+          return;
+        }
+
+        const deptAny = (myMembership as any).departments;
+        const deptName = deptAny?.name || '';
+        const deptCode = deptAny?.code || '';
+        const deptId = myMembership.department_id as string;
+        const myRole = (myMembership as any).role as DepartmentRole;
+
+        if (!mounted) return;
+        setMyDepartmentInfo({ departmentId: deptId, departmentName: deptName, departmentCode: deptCode, role: myRole });
+
+        const { data: members, error: membersError } = await supabase
+          .from('department_memberships')
+          .select('user_id, role')
+          .eq('department_id', deptId);
+
+        if (membersError) throw membersError;
+        const userIds = (members || []).map((m: any) => m.user_id as string);
+        if (userIds.length === 0) {
+          if (!mounted) return;
+          setDepartmentRoster([]);
+          return;
+        }
+
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', userIds);
+
+        if (profilesError) throw profilesError;
+        const profileMap = new Map<string, any>((profiles || []).map((p: any) => [p.id, p]));
+
+        const roster = (members || []).map((m: any) => {
+          const p = profileMap.get(m.user_id);
+          return {
+            userId: m.user_id,
+            name: p?.full_name || 'Unnamed User',
+            email: p?.email || '',
+            role: m.role,
+          };
+        }).sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+
+        if (!mounted) return;
+        setDepartmentRoster(roster);
+      } catch (e: any) {
+        if (!mounted) return;
+        const msg = e?.message || 'Failed to load department roster.';
+        setDepartmentRosterError(msg);
+        setMyDepartmentInfo(null);
+        setDepartmentRoster([]);
+      } finally {
+        if (!mounted) return;
+        setDepartmentRosterLoading(false);
+      }
+    };
+
+    loadRoster();
+    return () => { mounted = false; };
+  }, [activeTab, userProfile?.id]);
   useEffect(() => { 
     setIsCompanyIdValid(!profileData.companyId || profileData.companyId.startsWith('CRM')); 
   }, [profileData.companyId]);
@@ -468,29 +565,7 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
     }
   };
     
-  const handleGoogleConnect = async () => {
-    setIntegrationError('');
-    const scopes = [
-      'openid',
-      'email',
-      'profile',
-      'https://www.googleapis.com/auth/calendar.events',
-      'https://www.googleapis.com/auth/tasks',
-      'https://www.googleapis.com/auth/drive.file',
-      'https://www.googleapis.com/auth/gmail.send',
-    ].join(' ');
-    const { error } = await supabase.auth.linkIdentity({
-      provider: 'google',
-      options: { scopes, queryParams: { prompt: 'select_account consent' } },
-    });
-    if (error) {
-      const rawMessage = error.message || 'Unknown error';
-      const friendly = rawMessage.toLowerCase().includes('manual linking is disabled')
-        ? 'Linking is disabled in Supabase. Enable "Manual linking" in Auth settings, then try again.'
-        : rawMessage;
-      setIntegrationError(`Google Connection Error: ${friendly}`);
-    }
-  };
+  const handleGoogleConnect = async () => { setIntegrationError(''); const { error } = await supabase.auth.linkIdentity({ provider: 'google', options: { scopes: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send', }, }); if (error) setIntegrationError(`Google Connection Error: ${error.message}`); };
   const confirmGoogleUnlink = async () => { setShowUnlinkConfirm(false); setIsUnlinking(true); setIntegrationError(''); const { data: { session } } = await supabase.auth.getSession(); if (!session) { setIntegrationError("Could not get user session."); setIsUnlinking(false); return; } const googleIdentity = session.user.identities?.find(i => i.provider === 'google'); if (!googleIdentity) { setIntegrationError("No Google identity found."); setIsGoogleConnected(false); setIsUnlinking(false); return; } const { error } = await supabase.auth.unlinkIdentity(googleIdentity); if (error) { const rawMessage = error.message || 'Unknown error'; const friendly = rawMessage.toLowerCase().includes('manual linking is disabled') ? 'Unlinking is disabled in Supabase. Enable "Manual linking" in Auth settings, then try again.' : rawMessage; setIntegrationError(`Failed to unlink: ${friendly}`); } else { setIsGoogleConnected(false); setSuccessModalInfo({ title: 'Account Unlinked', message: 'Your Google account has been successfully unlinked.' }); setShowSuccessModal(true); } setIsUnlinking(false); };
   const isValidEmail = (email: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const generateTeamMemberId = (): string => `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -563,7 +638,7 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
                   <nav className="space-y-1">
                     <NavItem icon={UserIcon} label="Profile" isActive={activeTab === 'profile'} onClick={(e) => { e.preventDefault(); setActiveTab('profile'); }} />
                     <NavItem icon={SecurityIcon} label="Security & Integrations" isActive={activeTab === 'security'} onClick={(e) => { e.preventDefault(); setActiveTab('security'); }} />
-                    <NavItem icon={UsersIcon} label="Team Management" isActive={activeTab === 'team'} onClick={(e) => { e.preventDefault(); setActiveTab('team'); }} />
+                    <NavItem icon={UsersIcon} label="Team Members" isActive={activeTab === 'team'} onClick={(e) => { e.preventDefault(); setActiveTab('team'); }} />
                   </nav>
                 </aside>
                 <div className="flex-1 overflow-y-auto py-6 sm:py-8 space-y-6 sm:px-6 lg:px-0">
@@ -689,7 +764,92 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
                         </div>
                       </div>
                     )}
-                    {activeTab === 'team' && ( <div className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-sm sm:shadow p-4 sm:p-6 border border-gray-200 dark:border-gray-700"><div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold">Manage Your Team</h3>{!isAddingMember && <button onClick={() => setIsAddingMember(true)} className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Add Member</button>}</div>{isAddingMember && (<div className="p-4 border rounded-lg bg-gray-50 dark:bg-gray-700/50 space-y-3 mb-4"><h4 className="font-semibold">New Team Member</h4><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><input type="text" placeholder="Full Name" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" /><input type="text" placeholder="Role / Position" value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" /><input type="email" placeholder="Email Address" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" /></div>{teamError && <p className="text-sm text-red-600">{teamError}</p>}<div className="flex justify-end space-x-2"><button onClick={handleCancelAddMember} className="bg-gray-200 hover:bg-gray-300 font-bold py-2 px-4 rounded-lg text-sm">Cancel</button><button onClick={handleAddTeamMember} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Add Member</button></div></div>)}<div className="space-y-3">{profileData.team.length > 0 ? profileData.team.map(member => (<div key={member.id} className="flex justify-between items-center p-3 border rounded-lg"><div><p className="font-semibold">{member.name} <span className="text-sm font-normal text-gray-500">- {member.role}</span></p><p className="text-sm text-gray-500">{member.email}</p></div><button onClick={() => setShowRemoveConfirm(member)} className="text-red-500 hover:text-red-700 text-sm font-semibold">Remove</button></div>)) : <p className="text-center text-gray-500 py-4">No team members added yet.</p>}</div></div> )}
+                    {activeTab === 'team' && (
+                      <div className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-sm sm:shadow p-4 sm:p-6 border border-gray-200 dark:border-gray-700">
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="text-lg font-bold">Team Members</h3>
+                        </div>
+
+                        {departmentRosterLoading && <p className="text-sm text-gray-500">Loading department roster…</p>}
+
+                        {departmentRosterError && (
+                          <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">
+                            {departmentRosterError}
+                            <div className="mt-2 text-xs text-red-700">
+                              If this mentions a missing table, run `supabase/migrations/0001_super_user_departments.sql` in your Supabase SQL editor.
+                            </div>
+                          </div>
+                        )}
+
+                        {!departmentRosterLoading && !departmentRosterError && !myDepartmentInfo && (
+                          <div className="p-3 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 dark:text-gray-200 dark:bg-gray-700/40 dark:border-gray-600">
+                            You are not assigned to a department yet. A Super User must assign you to one.
+                          </div>
+                        )}
+
+                        {!departmentRosterLoading && !departmentRosterError && myDepartmentInfo && (
+                          <div className="space-y-3">
+                            <div className="p-3 rounded-lg border border-gray-200 bg-gray-50 dark:bg-gray-700/40 dark:border-gray-600">
+                              <p className="text-sm"><span className="font-semibold">Department:</span> {myDepartmentInfo.departmentName || '—'} {myDepartmentInfo.departmentCode ? '(' + myDepartmentInfo.departmentCode + ')' : ''}</p>
+                              <p className="text-sm"><span className="font-semibold">Your Role:</span> {formatDepartmentRoleLabel(myDepartmentInfo.role)}</p>
+                              {myDepartmentInfo.role === 'rank_and_file' && <p className="text-xs text-gray-500 mt-1">View-only access.</p>}
+                            </div>
+
+                            <div className="space-y-2">
+                              {departmentRoster.length === 0 ? (
+                                <p className="text-sm text-gray-500">No members found.</p>
+                              ) : (
+                                departmentRoster.map((m) => (
+                                  <div key={m.userId} className="flex justify-between items-center p-3 border rounded-lg border-gray-200 dark:border-gray-700">
+                                    <div>
+                                      <p className="font-semibold">{m.name} <span className="text-sm font-normal text-gray-500">- {formatDepartmentRoleLabel(m.role)}</span></p>
+                                      <p className="text-sm text-gray-500">{m.email}</p>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {!departmentRosterLoading && departmentRosterError && (
+                          <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+                            <div className="flex justify-between items-center mb-4">
+                              <h4 className="text-md font-bold">Legacy Team List</h4>
+                              {!isAddingMember && <button onClick={() => setIsAddingMember(true)} className="bg-primary-600 hover:bg-primary-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Add Member</button>}
+                            </div>
+                            {isAddingMember && (
+                              <div className="p-4 border rounded-lg bg-gray-50 dark:bg-gray-700/50 space-y-3 mb-4">
+                                <h4 className="font-semibold">New Team Member</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                  <input type="text" placeholder="Full Name" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" />
+                                  <input type="text" placeholder="Role / Position" value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" />
+                                  <input type="email" placeholder="Email Address" value={newMemberEmail} onChange={(e) => setNewMemberEmail(e.target.value)} className="w-full p-2 bg-white dark:bg-gray-700 border rounded-md" />
+                                </div>
+                                {teamError && <p className="text-sm text-red-600">{teamError}</p>}
+                                <div className="flex justify-end space-x-2">
+                                  <button onClick={handleCancelAddMember} className="bg-gray-200 hover:bg-gray-300 font-bold py-2 px-4 rounded-lg text-sm">Cancel</button>
+                                  <button onClick={handleAddTeamMember} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Add Member</button>
+                                </div>
+                              </div>
+                            )}
+                            <div className="space-y-3">
+                              {profileData.team.length > 0 ? profileData.team.map(member => (
+                                <div key={member.id} className="flex justify-between items-center p-3 border rounded-lg">
+                                  <div>
+                                    <p className="font-semibold">{member.name} <span className="text-sm font-normal text-gray-500">- {member.role}</span></p>
+                                    <p className="text-sm text-gray-500">{member.email}</p>
+                                  </div>
+                                  <button onClick={() => setShowRemoveConfirm(member)} className="text-red-500 hover:text-red-700 text-sm font-semibold">Remove</button>
+                                </div>
+                              )) : <p className="text-center text-gray-500 py-4">No team members added yet.</p>}
+                            </div>
+                          </div>
+                        )}
+
+                      </div>
+                    )}
+
                 </div>
             </div></div></main>
             {showSuccessModal && <SuccessNotification title={successModalInfo.title} message={successModalInfo.message} onConfirm={() => setShowSuccessModal(false)} />}

@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
-import type { HTMLAttributes } from "react";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { forwardRef } from "react";
 import { cn } from "../../lib/utils";
 
-interface AnalyticsIconProps extends HTMLAttributes<HTMLDivElement> {
+interface AnalyticsIconProps extends HTMLMotionProps<"div"> {
   size?: number;
   isHovered?: boolean;
 }

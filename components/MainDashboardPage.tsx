@@ -5,6 +5,7 @@ import '../styles/dashboard.css';
 import '../styles/checkbox.css';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSwipe } from '../hooks/useSwipe.ts';
+import { useDashboardVisibility } from '../hooks/useDashboardVisibility';
 import { DashboardProvider, useDashboardContext } from './DashboardContext';
 import OKRPage from './OKR/OKRPage';
 // Lazy load heavy components
@@ -36,7 +37,7 @@ import {
   ProjectIcon,
   RadioIcon,
   UsersIcon,
-  LockKeyholeOpenIcon,
+  SecurityIcon,
   FilePenLineIcon,
   LucidePaperclipIcon,
   LucideCommandIcon,
@@ -51,8 +52,6 @@ import { PlusIcon } from './AnimatedIcons/PlusIcon.tsx';
 import { GripHorizontalIcon } from './AnimatedIcons/GripHorizontalIcon.tsx';
 import { MessageCircleMoreIcon } from './AnimatedIcons/MessageCircleMoreIcon.tsx';
 import { CalendarDaysIcon } from './AnimatedIcons/CalendarDaysIcon.tsx';
-import { OKRDashboardWidget } from './OKR/OKRDashboardWidget';
-import { useOkrSnapshot } from './OKR/useOkrSnapshot';
 
 // Lazy load Modals
 const FeedbackModal = lazy(() => import('./FeedbackModal'));
@@ -78,10 +77,10 @@ import type { Session } from '@supabase/supabase-js';
 const OnboardingTour = lazy(() => import('./OnboardingTour').then(m => ({ default: m.OnboardingTour })));
 import { AIMessage } from './ui/ai-message';
 import { generateKickoffQuestions } from './kickoffQuestionGenerator';
+const DutyRosterTabPage = lazy(() => import('./DutyRosterTabPage'));
 
 interface MainDashboardPageProps {
     onLogout: () => void;
-    onLock: () => void;
     userProfile: UserProfile;
     onProfileUpdate: (updatedProfile: UserProfile) => Promise<void>;
     onNavigateToPrivacy: () => void;
@@ -93,6 +92,9 @@ interface MainDashboardPageProps {
     shouldShowPatchNotes: boolean;
     onPatchNotesViewed: () => void;
     session: Session | null;
+    isSuperUser?: boolean;
+    onStopImpersonating?: () => void;
+    onOpenAdminConsole?: () => void;
 }
 
 class SettingsErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -663,7 +665,7 @@ interface ChatMessageProps {
     msg: any;
     index: number;
     userProfile: any;
-    normalizeChatText: (text: string) => string;
+    formatChatText: (text: string) => string;
     handleMakeChanges: () => void;
     handleMakeProjectChanges: () => void;
     handleConfirmProjectDraft: () => void;
@@ -680,7 +682,7 @@ interface ChatMessageProps {
 }
 
 const ChatMessage = React.memo<ChatMessageProps>(({
-    msg, index, userProfile, normalizeChatText, handleMakeChanges,
+    msg, index, userProfile, formatChatText, handleMakeChanges,
     handleMakeProjectChanges, handleConfirmProjectDraft,
     draftedProject, draftedProjectTasks, weeklyReport, lastWeeklyReportIndex,
     emailVersion, setIsWeeklyReportModalOpen, setIsEmailVersionModalOpen,
@@ -711,7 +713,7 @@ const ChatMessage = React.memo<ChatMessageProps>(({
                 )}
                 {msg.role === 'user' ? (
                     <div className="rounded-lg sm:rounded-2xl px-3 py-2.5 sm:p-4 shadow-none sm:shadow-sm bg-primary-600 text-white sm:rounded-tr-none sm:ml-auto">
-                        <div className="text-sm whitespace-pre-wrap break-words">{normalizeChatText(String(msg.text || ''))}</div>
+                        <div className="prose prose-sm max-[360px]:prose-xs dark:prose-invert max-w-none whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: formatChatText(msg.text) }}></div>
                         {msg.imageUrl && <img src={msg.imageUrl} alt="Uploaded" className="mt-2 rounded-lg max-w-full h-auto border border-gray-200 dark:border-gray-700" />}
                     </div>
                 ) : (
@@ -879,7 +881,7 @@ const SidebarNav = React.memo<{
                                         }}
                                         onMouseEnter={() => setHoveredItemId(item.id)}
                                         onMouseLeave={() => setHoveredItemId(null)}
-                                        className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'px-3'} h-[48px] w-full text-sm font-medium rounded-lg group focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600 ${activeDashboard === item.view ? 'bg-primary-50 dark:bg-primary-950/30 text-primary-600' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                                        className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'px-3'} h-[48px] w-full text-sm font-medium rounded-lg group focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600 ${item.view && activeDashboard === item.view ? 'bg-primary-50 dark:bg-primary-950/30 text-primary-600' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                                         style={{
                                             transition: 'background-color 150ms cubic-bezier(0.4, 0, 0.2, 1)',
                                         }}
@@ -961,9 +963,11 @@ const MobileSidebarItem = ({ item, activeDashboard, handleSendMessage, setIsMobi
 const DashboardContent: React.FC<{ 
     setShowConfettiRef: React.MutableRefObject<((value: boolean) => void) | null>;
     setShowScheduleAnimationRef: React.MutableRefObject<((value: boolean) => void) | null>;
-}> = ({ setShowConfettiRef, setShowScheduleAnimationRef }) => {
+    isSuperUser?: boolean;
+    onStopImpersonating?: () => void;
+}> = ({ setShowConfettiRef, setShowScheduleAnimationRef, isSuperUser: isSuperUserProp, onStopImpersonating }) => {
     const {
-        userProfile, onLogout, onLock, activeDashboard, setActiveDashboard, appVersion,
+        userProfile, onLogout, activeDashboard, setActiveDashboard, appVersion, onOpenAdminConsole,
         currentView, setCurrentView, isMobileMenuOpen, setIsMobileMenuOpen, mobileView, setMobileView,
         chatInput, handleChatInput, handleSendMessage, isSending,
         chatMessages, desktopTextareaRef, mobileTextareaRef, desktopFileInputRef, mobileFileInputRef,
@@ -1010,7 +1014,18 @@ const DashboardContent: React.FC<{
         isInterviewModalOpen, interviewModalMode, interviewDrafts, smartEodQuestions, isSmartEodLoading, setSmartEodAnswer, endOfDayDraft, setEndOfDayDraft, submitEndOfDayReview, endOfDaySummary, endOfDayCompletedDate, endOfDayIntro, carryOverTasks, carryOverDecision, openInterviewModal, closeInterviewModal, setInterviewAnswer, setInterviewOtherNotes, handleGenerateInterview,
     } = useDashboardContext();
 
-    const okrSnapshotState = useOkrSnapshot({ userId: userProfile?.id || null });
+    const openAdminConsole = React.useCallback(() => {
+        if (typeof onOpenAdminConsole === 'function') {
+            onOpenAdminConsole();
+            return;
+        }
+        window.location.hash = '#admin';
+    }, [onOpenAdminConsole]);
+
+    const isImpersonating = !!sessionStorage.getItem('impersonating_user_id');
+    const isSuperUser = isSuperUserProp;
+
+    const { visibility } = useDashboardVisibility(userProfile?.id);
 
     const [kickoffQuestions, setKickoffQuestions] = React.useState<string[]>(() => generateKickoffQuestions(userProfile));
 
@@ -1210,66 +1225,81 @@ const DashboardContent: React.FC<{
     }, [handleSendMessage]);
     
     // Memos
-    const sidebarSections = React.useMemo(() => [
-        {
-            title: 'Overview',
-            items: [
-                { id: 'dash', name: 'Dashboard', description: 'Go to your main dashboard', icon: <HomeIcon size={20} />, view: 'main' as DashboardView, action: () => setActiveDashboard('main') },
-                { id: 'events', name: 'Event Ops', description: 'Manage events and schedules', icon: <CalendarIcon size={20} />, view: 'events' as DashboardView, action: () => setActiveDashboard('events') },
-                { id: 'okr', name: 'OKR', description: 'Personal improvement OKRs', icon: <LucideTargetIcon size={20} />, view: 'okr' as DashboardView, action: () => setActiveDashboard('okr' as DashboardView) },
-            ]
-        },
-        {
-            title: 'Daily Flow',
-            items: [
-                { id: 'daily-kickoff', name: 'Daily Kick-off', description: 'Start your daily kickoff flow', icon: <PlayIcon size={20} />, action: () => openInterviewModal('kickoff') },
-                { id: 'edit-schedule', name: 'Edit Schedule', description: 'Manually adjust time blocks', icon: <FilePenLineIcon size={20} />, action: handleMakeChanges },
-                { id: 'morning-briefing', name: 'Morning Briefing', description: 'Collect inputs and draft AM briefing', icon: <BriefingIcon size={20} />, action: () => openInterviewModal('morning-briefing') },
-                { id: 'afternoon-briefing', name: 'Afternoon Briefing', description: 'Collect inputs and draft PM briefing', icon: <BriefingIcon size={20} />, action: () => openInterviewModal('afternoon-briefing') },
-                { id: 'end-of-day', name: 'End-of-Day Review', description: 'Run your end-of-day review', icon: <MoonIcon size={20} />, action: () => openInterviewModal('end-of-day') },
-                { id: 'reset-daily', name: 'Reset Daily State', description: 'Clear schedule and priorities', icon: <StopIcon size={20} />, action: () => { (window as any).stopGretelTour?.(); setShowResetConfirm(true); } },
-            ]
-        },
-        {
-            title: 'Quick Actions',
-            items: [
-                { id: 'new-reminder', name: 'Create New Reminder', description: 'Add a reminder to your list', icon: <ReminderIcon size={20} />, action: () => openQuickActionModal('Create New Reminder') },
-                { id: 'briefing-pointer', name: 'Briefing Pointer', description: 'Capture a briefing pointer', icon: <BriefingIcon size={20} />, action: () => openQuickActionModal('Briefing Pointer') },
-                { id: 'coaching-note', name: 'Coaching Note', description: 'Log a coaching note', icon: <UsersIcon size={20} />, action: () => openQuickActionModal('Coaching Note') },
-                { id: 'log-information', name: 'Log Information', description: 'Store a quick note', icon: <FilePenLineIcon size={20} />, action: () => openQuickActionModal('Log Information') },
-                { id: 'clear-errors', name: 'Clear Cached AI Errors', description: 'Reset cached AI error state', icon: <TrashIcon size={20} />, action: handleClearErrors },
-            ]
-        },
-        {
-            title: 'Content Creation',
-            items: [
-                { id: 'draft-communication', name: 'Draft a communication.', description: 'Start a draft with assistant', icon: <RadioIcon size={20} />, action: () => openQuickActionModal('Draft a communication') },
-            ]
-        },
-        {
-            title: 'Project Management',
-            items: [
-                { id: 'create-project', name: 'Create a new project.', description: 'Set up a new project', icon: <ProjectIcon size={20} />, action: () => setIsProjectPlanningOpen(true) },
-            ]
-        },
-        {
-            title: 'Reporting',
-            items: [
-                { id: 'weekly-report', name: 'Create my Weekly Report', description: 'Generate weekly status report', icon: <LucideClipboardListIcon size={20} />, action: handleCreateWeeklyReport },
-            ]
-        },
-        {
-            title: 'Mode Switching',
-            items: [
-                { id: 'crisis-mode', name: 'Crisis Mode', description: 'For urgent issues requiring immediate action', icon: <AlertIcon size={20} />, action: () => handleActivateMode('crisis') },
-                { id: 'strategic-mode', name: 'Strategic Mode', description: 'For planning and long-term decision making', icon: <LucideTargetIcon size={20} />, action: () => handleActivateMode('strategic') },
-                { id: 'red-day', name: 'Red Day', description: 'When overwhelmed and need to prioritize', icon: <WarningIcon size={20} />, action: () => handleActivateMode('red-day') },
-            ]
+    const sidebarSections = React.useMemo(() => {
+        const sections = [
+            {
+                title: 'Overview',
+                items: [
+                    { id: 'dash', name: 'Dashboard', description: 'Go to your main dashboard', icon: <HomeIcon size={20} />, view: 'main' as DashboardView, action: () => setActiveDashboard('main') },
+                    { id: 'events', name: 'Event Ops', description: 'Manage events and schedules', icon: <CalendarIcon size={20} />, view: 'events' as DashboardView, action: () => setActiveDashboard('events') },
+                    { id: 'duty-roster', name: 'Duty Roster', description: 'Weekly roster for your department', icon: <CalendarDaysIcon size={20} className="text-[#DC143C]" />, view: 'dutyRoster' as DashboardView, action: () => setActiveDashboard('dutyRoster' as DashboardView) },
+                    { id: 'okr', name: 'OKR', description: 'Personal improvement OKRs', icon: <LucideTargetIcon size={20} />, view: 'okr' as DashboardView, action: () => setActiveDashboard('okr' as DashboardView) },
+                ]
+            },
+            {
+                title: 'Daily Flow',
+                items: [
+                    { id: 'daily-kickoff', name: 'Daily Kick-off', description: 'Start your daily kickoff flow', icon: <PlayIcon size={20} />, action: () => openInterviewModal('kickoff') },
+                    { id: 'edit-schedule', name: 'Edit Schedule', description: 'Manually adjust time blocks', icon: <FilePenLineIcon size={20} />, action: handleMakeChanges },
+                    visibility.morning_briefing_nav ? { id: 'morning-briefing', name: 'Morning Briefing', description: 'Collect inputs and draft AM briefing', icon: <BriefingIcon size={20} />, action: () => openInterviewModal('morning-briefing') } : null,
+                    visibility.afternoon_briefing_nav ? { id: 'afternoon-briefing', name: 'Afternoon Briefing', description: 'Collect inputs and draft PM briefing', icon: <BriefingIcon size={20} />, action: () => openInterviewModal('afternoon-briefing') } : null,
+                    { id: 'end-of-day', name: 'End-of-Day Review', description: 'Run your end-of-day review', icon: <MoonIcon size={20} />, action: () => openInterviewModal('end-of-day') },
+                    { id: 'reset-daily', name: 'Reset Daily State', description: 'Clear schedule and priorities', icon: <StopIcon size={20} />, action: () => { (window as any).stopGretelTour?.(); setShowResetConfirm(true); } },
+                ].filter(Boolean) as any
+            },
+            {
+                title: 'Quick Actions',
+                items: [
+                    { id: 'new-reminder', name: 'Create New Reminder', description: 'Add a reminder to your list', icon: <ReminderIcon size={20} />, action: () => openQuickActionModal('Create New Reminder') },
+                    visibility.briefing_pointers ? { id: 'briefing-pointer', name: 'Briefing Pointer', description: 'Capture a briefing pointer', icon: <BriefingIcon size={20} />, action: () => openQuickActionModal('Briefing Pointer') } : null,
+                    visibility.coaching_note ? { id: 'coaching-note', name: 'Coaching Note', description: 'Log a coaching note', icon: <UsersIcon size={20} />, action: () => openQuickActionModal('Coaching Note') } : null,
+                    visibility.log_information ? { id: 'log-information', name: 'Log Information', description: 'Store a quick note', icon: <FilePenLineIcon size={20} />, action: () => openQuickActionModal('Log Information') } : null,
+                    { id: 'clear-errors', name: 'Clear Cached AI Errors', description: 'Reset cached AI error state', icon: <TrashIcon size={20} />, action: handleClearErrors },
+                ].filter(Boolean) as any
+            },
+            {
+                title: 'Content Creation',
+                items: [
+                    { id: 'draft-communication', name: 'Draft a communication.', description: 'Start a draft with assistant', icon: <RadioIcon size={20} />, action: () => openQuickActionModal('Draft a communication') },
+                ]
+            },
+            {
+                title: 'Project Management',
+                items: [
+                    { id: 'create-project', name: 'Create a new project.', description: 'Set up a new project', icon: <ProjectIcon size={20} />, action: () => setIsProjectPlanningOpen(true) },
+                ]
+            },
+            {
+                title: 'Reporting',
+                items: [
+                    { id: 'weekly-report', name: 'Create my Weekly Report', description: 'Generate weekly status report', icon: <LucideClipboardListIcon size={20} />, action: handleCreateWeeklyReport },
+                ]
+            },
+            {
+                title: 'Mode Switching',
+                items: [
+                    { id: 'crisis-mode', name: 'Crisis Mode', description: 'For urgent issues requiring immediate action', icon: <AlertIcon size={20} />, action: () => handleActivateMode('crisis') },
+                    { id: 'strategic-mode', name: 'Strategic Mode', description: 'For planning and long-term decision making', icon: <LucideTargetIcon size={20} />, action: () => handleActivateMode('strategic') },
+                    { id: 'red-day', name: 'Red Day', description: 'When overwhelmed and need to prioritize', icon: <WarningIcon size={20} />, action: () => handleActivateMode('red-day') },
+                ]
+            }
+        ] as Array<{
+            title: string;
+            items: Array<{ id: string; name: string; description?: string; icon: React.ReactNode; action: () => void; view?: DashboardView }>;
+        }>;
+
+        if (isSuperUser) {
+            sections.unshift({
+                title: 'Admin',
+                items: [
+                    { id: 'admin-console', name: 'Admin Console', description: 'Switch to the Admin Console', icon: <SecurityIcon size={20} />, action: openAdminConsole },
+                    ...(isImpersonating ? [{ id: 'stop-impersonating', name: 'Stop Impersonation', description: 'Return to your admin account', icon: <AlertIcon size={20} className="text-orange-600" />, action: () => onStopImpersonating?.() }] : []),
+                ]
+            });
         }
-    ] as Array<{
-        title: string;
-        items: Array<{ id: string; name: string; description?: string; icon: React.ReactNode; action: () => void; view?: DashboardView }>;
-    }>, [openInterviewModal, handleMakeChanges, handleSendMessage, openQuickActionModal, handleClearErrors, handleCreateWeeklyReport, handleActivateMode, setIsProjectPlanningOpen]);
+
+        return sections;
+    }, [openInterviewModal, handleMakeChanges, handleSendMessage, openQuickActionModal, handleClearErrors, handleCreateWeeklyReport, handleActivateMode, setIsProjectPlanningOpen, openAdminConsole, isSuperUser, isImpersonating, onStopImpersonating, setActiveDashboard]);
     
     // Effects
     React.useEffect(() => {
@@ -1485,10 +1515,16 @@ const DashboardContent: React.FC<{
     );
 
     const welcomeName = userProfile.nickname || userProfile.name.split(' ')[0];
-    
-    const normalizeChatText = (text: string) => {
+
+    const formatChatText = (text: string) => {
+        // Handle literal \n from AI (fix for jumbled text issue)
         const fixedEscapes = text.replace(/\\n/g, '\n');
-        return fixedEscapes.replace(/\r\n/g, '\n');
+
+        const normalized = fixedEscapes.replace(/\r\n/g, '\n');
+        const withBullets = normalized.replace(/^\s*[-*]\s+/gm, '• ');
+        const withLineBreaks = withBullets.replace(/\n/g, '<br />');
+        const withBold = withLineBreaks.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+        return withBold.replace(/\*(\S[^*]*\S)\*/g, '<i>$1</i>');
     };
 
     // Debounced menu toggle
@@ -1500,7 +1536,6 @@ const DashboardContent: React.FC<{
     const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const [isLogoutIconHovered, setIsLogoutIconHovered] = React.useState(false);
-    const [isLockIconHovered, setIsLockIconHovered] = React.useState(false);
     const [isMobileLogoutIconHovered, setIsMobileLogoutIconHovered] = React.useState(false);
 
     const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1562,6 +1597,19 @@ const DashboardContent: React.FC<{
                     >
                         <LucideCommandIcon size={20} />
                     </button>
+                    {isSuperUser && (
+                        <button
+                            onClick={() => {
+                                openAdminConsole();
+                                setIsMobileMenuOpen(false);
+                            }}
+                            className="h-9 w-9 rounded-full flex items-center justify-center text-[color:var(--primary-600)] hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800"
+                            aria-label="Admin Console"
+                            title="Admin Console"
+                        >
+                            <SecurityIcon size={20} />
+                        </button>
+                    )}
                     <div className="hidden md:block">
                         <button 
                           onClick={() => {
@@ -1829,7 +1877,7 @@ const DashboardContent: React.FC<{
                         msg={msg}
                         index={index}
                         userProfile={userProfile}
-                        normalizeChatText={normalizeChatText}
+                        formatChatText={formatChatText}
                         handleMakeChanges={handleMakeChanges}
                         handleMakeProjectChanges={handleMakeProjectChanges}
                         handleConfirmProjectDraft={handleConfirmProjectDraft}
@@ -1912,9 +1960,9 @@ const DashboardContent: React.FC<{
                     initial={{ x: '100%', opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: '-50%', opacity: 0 }}
-                    transition={{ 
-                        type: 'spring', 
-                        stiffness: 300, 
+                    transition={{
+                        type: 'spring',
+                        stiffness: 300,
                         damping: 30,
                         opacity: { duration: 0.2 }
                     }}
@@ -2082,18 +2130,17 @@ const DashboardContent: React.FC<{
                     </button>
                     <button onClick={() => setIsPatchNotesVisible(true)} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800" title="What's New"><GiftIcon size={20} /></button>
                     <button onClick={() => setIsFeedbackVisible(true)} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800" title="Submit Feedback"><FeedbackIcon size={20} /></button>
+                    {isSuperUser && (
+                      <button
+                        id="admin-console-button"
+                        onClick={openAdminConsole}
+                        className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800"
+                        title="Admin Console"
+                      >
+                        <SecurityIcon size={20} />
+                      </button>
+                    )}
                     <button id="settings-button" onClick={() => { setCurrentView('settings'); setInitialSettingsTab('profile'); }} className="h-9 w-9 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800" title="Settings"><SettingsIcon size={20} /></button>
-                    <button
-                      onClick={onLock}
-                      onMouseEnter={() => setIsLockIconHovered(true)}
-                      onMouseLeave={() => setIsLockIconHovered(false)}
-                      onFocus={() => setIsLockIconHovered(true)}
-                      onBlur={() => setIsLockIconHovered(false)}
-                      className="h-9 w-9 rounded-full flex items-center justify-center text-primary-600 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-600 dark:focus-visible:ring-offset-gray-800"
-                      title="Lock"
-                    >
-                      <LockKeyholeOpenIcon size={20} isHovered={isLockIconHovered} />
-                    </button>
                     <button 
                       onClick={onLogout} 
                       onMouseEnter={() => setIsLogoutIconHovered(true)}
@@ -2117,9 +2164,9 @@ const DashboardContent: React.FC<{
                     initial={{ x: '100%', opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: '-50%', opacity: 0 }}
-                    transition={{ 
-                        type: 'spring', 
-                        stiffness: 300, 
+                    transition={{
+                        type: 'spring',
+                        stiffness: 300,
                         damping: 30,
                         opacity: { duration: 0.2 }
                     }}
@@ -2135,9 +2182,9 @@ const DashboardContent: React.FC<{
                     initial={{ x: '100%', opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: '-50%', opacity: 0 }}
-                    transition={{ 
-                        type: 'spring', 
-                        stiffness: 300, 
+                    transition={{
+                        type: 'spring',
+                        stiffness: 300,
                         damping: 30,
                         opacity: { duration: 0.2 }
                     }}
@@ -2147,14 +2194,32 @@ const DashboardContent: React.FC<{
                     <OKRPage />
                 </Suspense>
                 </motion.div>
+            ) : activeDashboard === 'dutyRoster' ? (
+                <motion.div
+                    key="dutyRoster"
+                    initial={{ x: '100%', opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: '-50%', opacity: 0 }}
+                    transition={{
+                        type: 'spring',
+                        stiffness: 300,
+                        damping: 30,
+                        opacity: { duration: 0.2 }
+                    }}
+                    style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}
+                >
+                <Suspense fallback={<div className="flex h-full items-center justify-center"><div className="custom-loader-lg"></div></div>}>
+                    <DutyRosterTabPage />
+                </Suspense>
+                </motion.div>
             ) : (
                 <motion.div
                     key="main"
                     initial={{ x: '-50%', opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: '-50%', opacity: 0 }}
-                    transition={{ 
-                        type: 'spring', 
+                    transition={{
+                        type: 'spring',
                         stiffness: 300, 
                         damping: 30,
                         opacity: { duration: 0.2 }
@@ -2295,10 +2360,12 @@ const DashboardContent: React.FC<{
                                 </div>
                             </div>
                             <div className="mt-3 text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                                {reminders.length === 0 ? (
+                                {reminders.filter((r) => !r.completed).length === 0 ? (
                                     <p className="text-gray-500">No reminders.</p>
                                 ) : (
-                                    reminders.map((item, index) => (
+                                    reminders
+                                      .filter((item) => !item.completed)
+                                      .map((item, index) => (
                                         <div key={item.id} className={`flex items-start gap-3 animate__animated animate__bounceIn interactive-row`} style={{ animationDelay: `${index * 0.1}s` }}>
                                             <div className="checkbox-wrapper-12 mt-1">
                                                 <div className="cbx">
@@ -2335,14 +2402,6 @@ const DashboardContent: React.FC<{
                                 )}
                             </div>
                        </div>
-
-                       <OKRDashboardWidget
-                          snapshot={okrSnapshotState.snapshot}
-                          isLoading={okrSnapshotState.isLoading}
-                          error={okrSnapshotState.error}
-                          onRefresh={okrSnapshotState.refresh}
-                          onOpenOkrs={() => setActiveDashboard('okr')}
-                       />
                     </div>
 
                         {/* Center Pane: Chat */}
@@ -2462,6 +2521,7 @@ const DashboardContent: React.FC<{
                             </div>
                         </div>
 
+                        {visibility.delegated_tasks ? (
                         <div id="delegated-tasks" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-hover-animation">
                             <div className="flex items-center justify-between">
                                 <div className="flex-1">
@@ -2623,10 +2683,12 @@ const DashboardContent: React.FC<{
                                 </div>
                             </div>
                             <div className="mt-3 text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                                {delegatedTasks.length === 0 ? (
+                                {delegatedTasks.filter((t) => !t.completed && t.status !== 'completed').length === 0 ? (
                                     <p className="text-gray-500">No tasks delegated.</p>
                                 ) : (
-                                    delegatedTasks.map(item => (
+                                    delegatedTasks
+                                      .filter((item) => !item.completed && item.status !== 'completed')
+                                      .map(item => (
                                         <div key={item.id} className="flex flex-col gap-2 border border-gray-200 dark:border-gray-700 rounded-lg p-3 interactive-row">
                                             <div className="flex items-start gap-3">
                                                 <div className="checkbox-wrapper-12 mt-1">
@@ -2699,7 +2761,9 @@ const DashboardContent: React.FC<{
                                 )}
                             </div>
                         </div>
+                        ) : null}
 
+                        {visibility.briefing_notes ? (
                         <div id="briefing-notes" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-hover-animation">
                             <div className="flex items-center justify-between">
                                 <h2 className="text-sm font-bold text-primary-600 flex items-center"><BriefingIcon size={16} /><span className="ml-2">Briefing Notes</span></h2>
@@ -2765,9 +2829,11 @@ const DashboardContent: React.FC<{
                                     </button>
                                 </div>
                             </div>
-                            <button onClick={() => setIsBriefingPointersVisible(true)} className="mt-3 w-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-semibold py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
-                                View Pointers ({briefingInputs.length})
-                            </button>
+                            {visibility.briefing_pointers ? (
+                              <button onClick={() => setIsBriefingPointersVisible(true)} className="mt-3 w-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-semibold py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                                  View Pointers ({briefingInputs.length})
+                              </button>
+                            ) : null}
                             <textarea
                                 className="mt-3 w-full p-2 text-sm bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-300 resize-none"
                                 value={isEditingBriefingNotes ? briefingNotesDraft : keepNotes}
@@ -2779,31 +2845,32 @@ const DashboardContent: React.FC<{
                                 placeholder="Your compiled briefing notes will appear here after preparation..."
                                 readOnly={!isEditingBriefingNotes}
                             />
+                        </div>
+                        ) : null}
 
-                            <div id="end-of-day-review" className="mt-4 bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-hover-animation">
-                                <div className="flex items-center justify-between">
-                                    <h2 className="text-sm font-bold text-primary-600 flex items-center"><MoonIcon size={16} /><span className="ml-2">End-of-Day Review</span></h2>
-                                    <button
-                                        onClick={() => openInterviewModal('end-of-day')}
-                                        className="text-xs font-semibold text-white bg-primary-600 hover:bg-primary-700 px-2.5 py-1 rounded-md"
-                                        title="Open End-of-Day Review"
-                                    >
-                                        Open
-                                    </button>
-                                </div>
-                                <div className="mt-3 text-sm text-gray-600 dark:text-gray-300 space-y-2">
-                                    {endOfDaySummary ? (
-                                        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3">
-                                            <div className="text-xs text-gray-500 dark:text-gray-400">{endOfDayCompletedDate ? `Saved: ${endOfDayCompletedDate}` : 'Saved'}</div>
-                                            <div className="mt-1">{endOfDaySummary}</div>
-                                        </div>
-                                    ) : (
-                                        <div className="text-gray-500">No end-of-day review saved yet.</div>
-                                    )}
-                                    {endOfDayCompletedDate === new Date().toISOString().split('T')[0] && (
-                                        <div className="text-xs font-semibold text-green-600 dark:text-green-400">Completed today</div>
-                                    )}
-                                </div>
+                        <div id="end-of-day-review" className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl p-3 sm:p-4 shadow-none sm:shadow-sm border border-gray-200 dark:border-gray-700 card-hover-animation">
+                            <div className="flex items-center justify-between">
+                                <h2 className="text-sm font-bold text-primary-600 flex items-center"><MoonIcon size={16} /><span className="ml-2">End-of-Day Review</span></h2>
+                                <button
+                                    onClick={() => openInterviewModal('end-of-day')}
+                                    className="text-xs font-semibold text-white bg-primary-600 hover:bg-primary-700 px-2.5 py-1 rounded-md"
+                                    title="Open End-of-Day Review"
+                                >
+                                    Open
+                                </button>
+                            </div>
+                            <div className="mt-3 text-sm text-gray-600 dark:text-gray-300 space-y-2">
+                                {endOfDaySummary ? (
+                                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3">
+                                        <div className="text-xs text-gray-500 dark:text-gray-400">{endOfDayCompletedDate ? `Saved: ${endOfDayCompletedDate}` : 'Saved'}</div>
+                                        <div className="mt-1">{endOfDaySummary}</div>
+                                    </div>
+                                ) : (
+                                    <div className="text-gray-500">No end-of-day review saved yet.</div>
+                                )}
+                                {endOfDayCompletedDate === new Date().toISOString().split('T')[0] && (
+                                    <div className="text-xs font-semibold text-green-600 dark:text-green-400">Completed today</div>
+                                )}
                             </div>
                         </div>
                         </div>
@@ -2963,13 +3030,17 @@ const DashboardContent: React.FC<{
             onGenerateDraft={requestProjectDraft}
             onSaveDraft={saveProjectDraft}
           />
-          <BriefingNotesModal
-            isOpen={isBriefingNotesModalOpen}
-            onClose={() => setIsBriefingNotesModalOpen(false)}
-            value={keepNotes}
-            onChange={(value) => setKeepNotes(value)}
-          />
-          <BriefingPointersModal isOpen={isBriefingPointersVisible} onClose={() => setIsBriefingPointersVisible(false)} pointers={briefingInputs} onClear={handleClearBriefingPointers} />
+          {visibility.briefing_notes ? (
+            <BriefingNotesModal
+              isOpen={isBriefingNotesModalOpen}
+              onClose={() => setIsBriefingNotesModalOpen(false)}
+              value={keepNotes}
+              onChange={(value) => setKeepNotes(value)}
+            />
+          ) : null}
+          {visibility.briefing_pointers ? (
+            <BriefingPointersModal isOpen={isBriefingPointersVisible} onClose={() => setIsBriefingPointersVisible(false)} pointers={briefingInputs} onClear={handleClearBriefingPointers} />
+          ) : null}
           <ScheduleEditorModal
             isOpen={isScheduleEditorOpen}
             onClose={() => {
@@ -3052,10 +3123,7 @@ const DashboardContent: React.FC<{
           <EmailVersionModal 
             isOpen={isEmailVersionModalOpen}
             emailContent={emailVersion}
-            onClose={() => {
-              setIsEmailVersionModalOpen(false);
-              setIsWeeklyReportModalOpen(true);
-            }}
+            onClose={() => setIsEmailVersionModalOpen(false)}
           />
           {contextMenu.visible && <ActionContextMenu x={contextMenu.x} y={contextMenu.y} selectedText={contextMenu.text} flipped={contextMenu.flipped} onClose={() => setContextMenu({ ...contextMenu, visible: false })} onAddReminder={handleCreateReminderFromText} onAddBriefing={handleAddBriefingFromText} onExplain={(t) => handleSendMessage(undefined, `Explain this: "${t}"`)} onDelegate={(t) => { setQuickActionModal({ isOpen: true, title: 'Delegate Task', prefill: t }); }} />}
           
@@ -3146,7 +3214,7 @@ export const MainDashboardPage: React.FC<MainDashboardPageProps> = (props) => {
     const setShowScheduleAnimationRef = React.useRef<((value: boolean) => void) | null>(null);
     
     return (
-        <DashboardProvider 
+        <DashboardProvider
             {...props}
             onAllPrioritiesCompleted={() => {
                 // Trigger confetti immediately when all priorities are completed
@@ -3161,9 +3229,11 @@ export const MainDashboardPage: React.FC<MainDashboardPageProps> = (props) => {
                 }
             }}
         >
-            <DashboardContent 
+            <DashboardContent
                 setShowConfettiRef={setShowConfettiRef}
                 setShowScheduleAnimationRef={setShowScheduleAnimationRef}
+                isSuperUser={props.isSuperUser}
+                onStopImpersonating={props.onStopImpersonating}
             />
         </DashboardProvider>
     );

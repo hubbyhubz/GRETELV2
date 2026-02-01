@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import React, { useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { XIcon } from './AnimatedIcons';
 
 interface InAppNotificationProps {

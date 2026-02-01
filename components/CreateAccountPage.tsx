@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import SuccessNotification from './SuccessNotification';
 import type { CreateAccountFormData } from './types';
-import AppIcon from './AppIcon';
 import { EyeIcon } from './AnimatedIcons/EyeIcon';
 import { EyeOffIcon } from './AnimatedIcons/EyeOffIcon';
 

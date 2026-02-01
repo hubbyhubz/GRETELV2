@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { LogOut } from "lucide-react";
-import type { HTMLAttributes } from "react";
 import { forwardRef } from "react";
 
-interface LucideLogoutIconProps extends HTMLAttributes<HTMLDivElement> {
+interface LucideLogoutIconProps extends HTMLMotionProps<"div"> {
   size?: number;
 }
 

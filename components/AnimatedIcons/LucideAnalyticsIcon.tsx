@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { TrendingUp } from "lucide-react";
-import type { HTMLAttributes } from "react";
 import { forwardRef } from "react";
 
-interface LucideAnalyticsIconProps extends HTMLAttributes<HTMLDivElement> {
+interface LucideAnalyticsIconProps extends HTMLMotionProps<"div"> {
   size?: number;
 }
 

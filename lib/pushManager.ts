@@ -1,15 +1,13 @@
 import { supabase } from '../components/supabaseClient';
 
-let subscribeInFlight: Promise<PushSubscription | null> | null = null;
-
-const urlBase64ToUint8Array = (base64String: string): Uint8Array<ArrayBuffer> => {
+const urlBase64ToUint8Array = (base64String: string) => {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding)
     .replace(/\-/g, '+')
     .replace(/_/g, '/');
 
   const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(new ArrayBuffer(rawData.length));
+  const outputArray = new Uint8Array(rawData.length);
 
   for (let i = 0; i < rawData.length; ++i) {
     outputArray[i] = rawData.charCodeAt(i);
@@ -17,56 +15,11 @@ const urlBase64ToUint8Array = (base64String: string): Uint8Array<ArrayBuffer> =>
   return outputArray;
 };
 
-const getSanitizedVapidPublicKey = () => {
-  return String(import.meta.env.VITE_VAPID_PUBLIC_KEY || '')
-    .trim()
-    .replace(/^\"|\"$/g, '')
-    .replace(/^'|'$/g, '')
-    .replace(/\s+/g, '');
-};
-
-const isPushSecureContext = () => {
-  const host = window.location.hostname;
-  return window.isSecureContext === true || host === 'localhost' || host === '127.0.0.1';
-};
-
-const ensureServiceWorkerReady = async () => {
-  let registration = await navigator.serviceWorker.getRegistration('/');
-  if (!registration) registration = await navigator.serviceWorker.getRegistration();
-  if (!registration) {
-    registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-  }
-  try {
-    await registration.update();
-  } catch {
-    // ignore
-  }
-  return navigator.serviceWorker.ready;
-};
-
-const resetServiceWorkersForOrigin = async () => {
-  const regs = await navigator.serviceWorker.getRegistrations();
-  await Promise.all(
-    regs.map(async (r) => {
-      try {
-        await r.unregister();
-      } catch {
-        // ignore
-      }
-    })
-  );
-  try {
-    const cacheNames = await caches.keys();
-    await Promise.all(cacheNames.map((name) => caches.delete(name)));
-  } catch {
-    // ignore
-  }
-};
-
 export const registerServiceWorker = async () => {
   if ('serviceWorker' in navigator && 'PushManager' in window) {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      console.log('Service Worker registered:', registration);
       return registration;
     } catch (error) {
       console.error('Service Worker registration failed:', error);
@@ -77,34 +30,16 @@ export const registerServiceWorker = async () => {
 };
 
 export const subscribeUserToPush = async () => {
-  if (subscribeInFlight) return subscribeInFlight;
+  const registration = await navigator.serviceWorker.ready;
+  const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
-  subscribeInFlight = (async () => {
-    if (typeof window === 'undefined') return null;
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
-    if (!isPushSecureContext()) {
-      console.warn('PushManager: Push requires a secure context (HTTPS).');
-      return null;
-    }
+  if (!vapidPublicKey) {
+    console.error('VITE_VAPID_PUBLIC_KEY is missing');
+    alert('CRITICAL ERROR: VITE_VAPID_PUBLIC_KEY is missing in the build. Push notifications cannot work.');
+    return null;
+  }
 
-    const permission = 'Notification' in window ? Notification.permission : 'denied';
-    if (permission !== 'granted') return null;
-
-    const registration = await ensureServiceWorkerReady();
-    const vapidPublicKey = getSanitizedVapidPublicKey();
-    if (!vapidPublicKey) {
-      throw new Error('Push is misconfigured: missing VITE_VAPID_PUBLIC_KEY');
-    }
-
-    let applicationServerKey: Uint8Array;
-    try {
-      applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
-    } catch (e: any) {
-      throw new Error(`Invalid VAPID public key (base64 decode failed): ${String(e?.message || e)}`);
-    }
-    if (applicationServerKey.length !== 65) {
-      throw new Error(`Invalid VAPID public key (expected 65 bytes, got ${applicationServerKey.length})`);
-    }
+  console.log('PushManager: Using VAPID Key:', vapidPublicKey.slice(0, 10) + '...');
 
   try {
     let subscription = await registration.pushManager.getSubscription();
@@ -117,15 +52,11 @@ export const subscribeUserToPush = async () => {
       // But let's rely on the error handling to be surgical.
     }
 
-    const subscribeWithKey = async () => {
-      return registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey,
-      });
-    };
-
     try {
-      subscription = await subscribeWithKey();
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+      });
     } catch (err: any) {
       // Check for the specific error about different applicationServerKey
       if (err.message && (err.message.includes('applicationServerKey') || err.message.includes('gcm_sender_id'))) {
@@ -138,28 +69,16 @@ export const subscribeUserToPush = async () => {
         }
 
         // Try again with the new key
-        subscription = await subscribeWithKey();
-      } else if (String(err?.message || '').includes('Registration failed')) {
-        const existingSub = await registration.pushManager.getSubscription();
-        if (existingSub) {
-          try {
-            await existingSub.unsubscribe();
-          } catch {
-            // ignore
-          }
-        }
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        try {
-          subscription = await subscribeWithKey();
-        } catch (err2: any) {
-          await resetServiceWorkersForOrigin();
-          await ensureServiceWorkerReady();
-          subscription = await subscribeWithKey();
-        }
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+        });
       } else {
         throw err; // Re-throw other errors
       }
     }
+
+    console.log('Push Subscription:', JSON.stringify(subscription));
     
     // Save to Supabase
     const { data: { user } } = await supabase.auth.getUser();
@@ -184,7 +103,7 @@ export const subscribeUserToPush = async () => {
 
         if (error) {
             console.error('Error saving subscription to Supabase:', error);
-            throw new Error(`Error saving subscription: ${error.message}`);
+            alert(`Error saving subscription: ${error.message}`);
         }
       }
     }
@@ -192,11 +111,7 @@ export const subscribeUserToPush = async () => {
     return subscription;
   } catch (error: any) {
     console.error('Failed to subscribe the user: ', error);
-    throw error;
-  } finally {
-    subscribeInFlight = null;
+    alert(`Failed to subscribe: ${error.message || error}`);
+    return null;
   }
-  })();
-
-  return subscribeInFlight;
 };

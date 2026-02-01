@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode, useLayoutEffect, useMemo } from 'react';
 // FIX: The sendMessageToGemini function was missing an export in geminiService.ts; it has been added, making this import correct.
 import { sendMessageToGemini } from './geminiService';
-import { getDashboardState, saveDashboardState, flushQueuedDashboardState } from './googleDriveService';
+import { getDashboardState, saveDashboardState } from './googleDriveService';
 import { batchAddEventsToCalendar, getTodaysEvents } from './googleCalendarService';
 import { createTask, findOrCreateTaskList, updateTask, deleteTask } from './googleTasksService';
 import type { Session } from '@supabase/supabase-js';
@@ -10,20 +10,11 @@ import type { Content } from '@google/genai';
 // FIX: All type imports were pointing to App.tsx which doesn't export them. Changed to import from the correct types.ts file.
 import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, UserMood, EventOpsItem, DailyOpsMetricEntry, StaffPerformanceLogEntry, CarryOverTaskEntry } from './types';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
-import { fetchOkrSnapshot, formatOkrSnapshotForPrompt } from './OKR/okrSnapshot';
 import { applyPriorityOps as applyPriorityOpsUtil, applyProjectOps as applyProjectOpsUtil, applyReminderOps as applyReminderOpsUtil, applyScheduleOps as applyScheduleOpsUtil, buildEventOpsBlocksForToday, detectEventOpsScheduleClarification, normalizeNeedle as normalizeNeedleUtil, parseDeadlineFromText as parseDeadlineFromTextUtil, parseScheduleRangeToMinutes, cascadeReschedule } from './assistantActionUtils';
 import { bestFuzzyMatch, inferFinalizePlan, inferFreeStyle } from './freeStyleNlu';
-import { buildWeeklyDashboardSummary } from '../lib/weeklyDashboard';
-import { fetchGoogleUserInfo, getGoogleEmailStorageKey } from '../lib/googleUserInfo';
-import { mergeDashboardStateForCrossDeviceSync } from '../lib/dashboardStateMerge';
 
 // Version for the dashboard state structure. Increment this to trigger migrations.
 const DASHBOARD_STATE_VERSION = "1.1.0";
-
-function localIsoDateKey(now = new Date()): string {
-  const offsetMs = now.getTimezoneOffset() * 60 * 1000;
-  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
-}
 
 const knownErrorMessages = [
   "I'm sorry, the connection to the AI service is not configured. This feature is currently unavailable.",
@@ -515,7 +506,6 @@ const normalizeDelegatedTasks = (items: DelegatedTaskItem[]): DelegatedTaskItem[
     items.map(item => ({
       ...item,
       loggedAt: resolveLoggedAt(item.loggedAt),
-      updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : resolveLoggedAt(item.loggedAt),
       status: resolveDelegatedStatus(item.status, item.completed),
       remarks: item.remarks ?? '',
     }))
@@ -603,7 +593,6 @@ type WeeklyLogUpdatePayload = {
 interface DashboardProviderProps {
   children: ReactNode;
   onLogout: () => void;
-  onLock: () => void;
   userProfile: UserProfile;
   onProfileUpdate: (updatedProfile: UserProfile) => Promise<void>;
   onNavigateToPrivacy: () => void;
@@ -615,6 +604,7 @@ interface DashboardProviderProps {
   shouldShowPatchNotes: boolean;
   onPatchNotesViewed: () => void;
   session: Session | null;
+  onOpenAdminConsole?: () => void;
   onAllPrioritiesCompleted?: () => void;
   onAllScheduleCompleted?: () => void;
 }
@@ -861,7 +851,6 @@ const parseScheduleArray = (scheduleArray: string[]): ScheduleItem[] => {
     const timePatternWithColon = /^((?:\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)\s*(?:-|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)|all\s*day|All\s*Day))\s*:?\s*-\s*(.*)/i;
     const timePatternWithSpace = /^((?:\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)\s*(?:-|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)|all\s*day|All\s*Day))\s+(.*)/i;
 
-    const nowTs = Date.now();
     return scheduleArray
         .filter((line: string) => line.trim() !== '')
         .map((line: string, index: number) => {
@@ -900,7 +889,7 @@ const parseScheduleArray = (scheduleArray: string[]): ScheduleItem[] => {
                 const timeHash = time.replace(/[:\s-]/g, '').toLowerCase();
                 const titleHash = title.substring(0, 30).replace(/[^\w\s]/g, '').replace(/\s+/g, '-').toLowerCase();
                 const stableId = `sched-${timeHash}-${titleHash}-${index}`;
-                return { id: stableId, time, title, completed: false, updatedAt: nowTs };
+                return { id: stableId, time, title, completed: false };
             }
             return null;
         })
@@ -936,7 +925,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
     const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
-    const [scheduleUpdatedAt, setScheduleUpdatedAt] = useState<number>(0);
     const [top3Items, setTop3Items] = useState<Top3Item[]>([]);
     const [reminders, setReminders] = useState<ReminderItem[]>([]);
     const [dismissedDelegatedReminderTaskIds, setDismissedDelegatedReminderTaskIds] = useState<string[]>([]);
@@ -995,11 +983,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const eventOpsFetchCacheRef = useRef<{ at: number; items: EventOpsItem[]; error: string | null }>({
       at: 0,
       items: [],
-      error: null,
-    });
-    const okrSnapshotFetchCacheRef = useRef<{ at: number; text: string; error: string | null }>({
-      at: 0,
-      text: '',
       error: null,
     });
     
@@ -1136,77 +1119,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
     const [completedGCalEventIds, setCompletedGCalEventIds] = useState<Set<string>>(new Set());
 
-    const lastGoogleTokenRef = useRef<string | null>(null);
-    const lastGoogleUserIdRef = useRef<string | null>(null);
-
-    useEffect(() => {
-      const userId = session?.user?.id || null;
-      const token = (session as any)?.provider_token ? String((session as any).provider_token) : null;
-      const tokenChanged = token !== lastGoogleTokenRef.current;
-      const userChanged = userId !== lastGoogleUserIdRef.current;
-
-      if (!tokenChanged && !userChanged) return;
-
-      lastGoogleTokenRef.current = token;
-      lastGoogleUserIdRef.current = userId;
-      setGoogleCalendarEvents([]);
-      setCompletedGCalEventIds(new Set());
-    }, [session?.user?.id, (session as any)?.provider_token]);
-
-    const verifyGoogleAccount = useCallback(async (accessToken: string) => {
-      const userId = session?.user?.id;
-      if (!userId) return true;
-
-      const info = await fetchGoogleUserInfo(accessToken);
-      if (!info.email) return true;
-
-      const key = getGoogleEmailStorageKey(userId);
-      const expected = window.localStorage.getItem(key);
-      if (expected && expected.toLowerCase() !== info.email.toLowerCase()) {
-        setNotificationModal({
-          isOpen: true,
-          title: 'Google Account Mismatch',
-          message: `You're connected to ${info.email}, but this account previously used ${expected}. Please reconnect Google and select the correct account.`,
-        });
-        setGoogleCalendarEvents([]);
-        setCompletedGCalEventIds(new Set());
-        onGoogleAuthError();
-        return false;
-      }
-
-      if (!expected) {
-        window.localStorage.setItem(key, info.email);
-      }
-
-      return true;
-    }, [session?.user?.id, onGoogleAuthError]);
-
 
     const desktopTextareaRef = useRef<HTMLTextAreaElement>(null);
     const mobileTextareaRef = useRef<HTMLTextAreaElement>(null);
     const saveTimeoutRef = useRef<number | null>(null);
     const forceSaveRef = useRef<boolean>(false);
-    const isApplyingRemoteStateRef = useRef<boolean>(false);
-    const lastRemoteApplyAtRef = useRef<number>(0);
-    const dashboardSyncChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-    const dashboardSyncBroadcastTimeoutRef = useRef<number | null>(null);
-    const latestCrossDeviceSlicesRef = useRef<{
-      scheduleItems: ScheduleItem[];
-      scheduleUpdatedAt: number;
-      reminders: ReminderItem[];
-      briefingInputs: BriefingInputItem[];
-      delegatedTasks: DelegatedTaskItem[];
-      staffPerformanceLog: StaffPerformanceLogEntry[] | undefined;
-      dismissedDelegatedReminderTaskIds: string[] | undefined;
-    }>({
-      scheduleItems: [],
-      scheduleUpdatedAt: 0,
-      reminders: [],
-      briefingInputs: [],
-      delegatedTasks: [],
-      staffPerformanceLog: undefined,
-      dismissedDelegatedReminderTaskIds: undefined,
-    });
     const assistantMemoryRef = useRef<string>(String(userProfile.assistantMemory || ''));
     const desktopFileInputRef = useRef<HTMLInputElement>(null);
     const mobileFileInputRef = useRef<HTMLInputElement>(null);
@@ -1376,7 +1293,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           if (state.stateVersion !== DASHBOARD_STATE_VERSION) {
             console.warn(`Old state version detected. Migrating from ${state.stateVersion || 'undefined'} to ${DASHBOARD_STATE_VERSION}. Chat history will be cleared.`);
             setScheduleItems(Array.isArray(state.scheduleItems) ? state.scheduleItems : []);
-            setScheduleUpdatedAt(typeof (state as any).scheduleUpdatedAt === 'number' ? (state as any).scheduleUpdatedAt : 0);
             setTop3Items(Array.isArray(state.top3Items) ? state.top3Items : []);
             setReminders(normalizeReminders(Array.isArray(state.reminders) ? state.reminders : []));
             setDismissedDelegatedReminderTaskIds(
@@ -1425,7 +1341,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             setChatMessages(prunedMessages);
             setChatHistory(prunedHistory);
             setScheduleItems(Array.isArray(state.scheduleItems) ? state.scheduleItems : []);
-            setScheduleUpdatedAt(typeof (state as any).scheduleUpdatedAt === 'number' ? (state as any).scheduleUpdatedAt : 0);
             setTop3Items(Array.isArray(state.top3Items) ? state.top3Items : []);
             setReminders(normalizeReminders(Array.isArray(state.reminders) ? state.reminders : []));
             setDismissedDelegatedReminderTaskIds(
@@ -1502,30 +1417,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
   
     useEffect(() => { loadState(); }, [loadState]); 
 
-    useEffect(() => {
-      if (!userProfile?.id) return;
-      flushQueuedDashboardState(userProfile.id).catch(() => {});
-
-      const handleOnline = () => {
-        flushQueuedDashboardState(userProfile.id).catch(() => {});
-      };
-
-      const handleVisible = () => {
-        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-        flushQueuedDashboardState(userProfile.id).catch(() => {});
-      };
-
-      window.addEventListener('online', handleOnline);
-      window.addEventListener('focus', handleVisible);
-      document.addEventListener('visibilitychange', handleVisible);
-
-      return () => {
-        window.removeEventListener('online', handleOnline);
-        window.removeEventListener('focus', handleVisible);
-        document.removeEventListener('visibilitychange', handleVisible);
-      };
-    }, [userProfile?.id]);
-
     // Auto-resize textarea when chatInput changes (including when cleared programmatically)
     useEffect(() => {
         const textarea = desktopTextareaRef.current || mobileTextareaRef.current;
@@ -1545,10 +1436,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     useEffect(() => {
       if (isCloudLoading) return;
       const applyDailyReset = () => {
-        const today = localIsoDateKey();
+        const today = new Date().toISOString().split('T')[0];
         if (lastResetDate === today) return;
         setScheduleItems([]);
-        setScheduleUpdatedAt(Date.now());
         setTop3Items([]);
         setDraftedSchedule(null); // Clear drafted schedule on daily reset
         setDraftedPriorities(null); // Clear drafted priorities on daily reset
@@ -1567,7 +1457,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     
     const resetDailyState = useCallback(() => {
       setScheduleItems([]); 
-      setScheduleUpdatedAt(Date.now());
       setTop3Items([]); 
       setDraftedSchedule(null); // Clear drafted schedule on daily reset
       setDraftedPriorities(null); // Clear drafted priorities on daily reset
@@ -1577,8 +1466,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setBriefingState('idle'); 
       setIsScheduleConfirmed(false);
       setPriorityForTomorrow('');
+      setReminders(prev => prev.filter(item => !item.completed));
       setDelegatedTasks(prev => prev.filter(task => !task.completed));
-      const today = localIsoDateKey();
+      const today = new Date().toISOString().split('T')[0];
       setLastResetDate(today);
       setNotifiedEventIds(new Set()); 
       setNudgedTaskIds(new Set()); 
@@ -1588,7 +1478,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     
     useEffect(() => {
       if (!isCloudLoading) {
-        const today = localIsoDateKey();
+        const today = new Date().toISOString().split('T')[0];
         if (lastResetDate !== today) {
           console.log("New day detected. Resetting daily dashboard state.");
           resetDailyState();
@@ -1597,8 +1487,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, [isCloudLoading, lastResetDate, resetDailyState]);
   
     useEffect(() => {
-      if (isApplyingRemoteStateRef.current) return;
-      if (Date.now() - lastRemoteApplyAtRef.current < 1500) return;
       if (isCloudLoading || cloudError) return;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       // Use shorter delay if force save is requested (e.g., after finalization)
@@ -1607,7 +1495,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       
       saveTimeoutRef.current = window.setTimeout(() => {
           const currentState: DashboardState = {
-              chatMessages, chatHistory, scheduleItems, scheduleUpdatedAt, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks,
+              chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks,
               dismissedDelegatedReminderTaskIds,
               team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState,
               collapsedCards, weeklyLog, priorityForTomorrow, stateVersion: DASHBOARD_STATE_VERSION,
@@ -1626,212 +1514,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               pendingDelegation: pendingDelegation ?? undefined,
               pendingScheduleClarification: pendingScheduleClarification ?? undefined
           };
-          (async () => {
-            try {
-              await saveDashboardState(userProfile.id, currentState);
-            } finally {
-              if (dashboardSyncBroadcastTimeoutRef.current) window.clearTimeout(dashboardSyncBroadcastTimeoutRef.current);
-              dashboardSyncBroadcastTimeoutRef.current = window.setTimeout(() => {
-                dashboardSyncChannelRef.current?.send({
-                  type: 'broadcast',
-                  event: 'dashboard_state_updated',
-                  payload: { userId: userProfile.id, ts: Date.now() },
-                });
-              }, 150);
-            }
-          })().catch((err: any) => console.error("Failed to save state to Supabase:", err));
+          saveDashboardState(userProfile.id, currentState).catch((err: any) => console.error("Failed to save state to Supabase:", err));
       }, saveDelay);
       return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-    }, [chatMessages, chatHistory, scheduleItems, scheduleUpdatedAt, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, dismissedDelegatedReminderTaskIds, userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt, suppressCalendarFetch, lastEventOpsNudgeDate, pendingDelegation, pendingScheduleClarification]);
-
-    useEffect(() => {
-      if (isCloudLoading || cloudError) return;
-      if (isApplyingRemoteStateRef.current) return;
-      if (Date.now() - lastRemoteApplyAtRef.current < 1500) return;
-      forceSaveRef.current = true;
-    }, [scheduleItems, reminders, briefingInputs, delegatedTasks, staffPerformanceLog, isCloudLoading, cloudError]);
-
-    useEffect(() => {
-      latestCrossDeviceSlicesRef.current = {
-        scheduleItems,
-        scheduleUpdatedAt,
-        reminders,
-        briefingInputs,
-        delegatedTasks,
-        staffPerformanceLog,
-        dismissedDelegatedReminderTaskIds,
-      };
-    }, [scheduleItems, scheduleUpdatedAt, reminders, briefingInputs, delegatedTasks, staffPerformanceLog, dismissedDelegatedReminderTaskIds]);
-
-    useEffect(() => {
-      if (!userProfile?.id) return;
-      if (isCloudLoading) return;
-
-      dashboardSyncChannelRef.current?.unsubscribe();
-      const syncChannel = supabase
-        .channel(`dashboard_sync:${userProfile.id}`)
-        .on('broadcast', { event: 'dashboard_state_updated' }, async (payload) => {
-          const incomingUserId = String((payload as any)?.payload?.userId || '');
-          if (!incomingUserId || incomingUserId !== userProfile.id) return;
-          try {
-            const remote = await getDashboardState(userProfile.id);
-            if (!remote) return;
-            isApplyingRemoteStateRef.current = true;
-            lastRemoteApplyAtRef.current = Date.now();
-            const localSlices = latestCrossDeviceSlicesRef.current;
-            const merged = mergeDashboardStateForCrossDeviceSync(
-              {
-                scheduleItems: localSlices.scheduleItems,
-                scheduleUpdatedAt: localSlices.scheduleUpdatedAt,
-                reminders: localSlices.reminders,
-                briefingInputs: localSlices.briefingInputs,
-                delegatedTasks: localSlices.delegatedTasks,
-                staffPerformanceLog: localSlices.staffPerformanceLog,
-                dismissedDelegatedReminderTaskIds: localSlices.dismissedDelegatedReminderTaskIds,
-              },
-              {
-                scheduleItems: remote.scheduleItems,
-                scheduleUpdatedAt: typeof (remote as any).scheduleUpdatedAt === 'number' ? (remote as any).scheduleUpdatedAt : 0,
-                reminders: remote.reminders,
-                briefingInputs: remote.briefingInputs,
-                delegatedTasks: remote.delegatedTasks,
-                staffPerformanceLog: remote.staffPerformanceLog,
-                dismissedDelegatedReminderTaskIds: remote.dismissedDelegatedReminderTaskIds,
-              },
-            );
-
-            setScheduleItems(merged.scheduleItems);
-            setScheduleUpdatedAt(typeof (merged as any).scheduleUpdatedAt === 'number' ? (merged as any).scheduleUpdatedAt : 0);
-            setReminders(merged.reminders);
-            setBriefingInputs(merged.briefingInputs);
-            setDelegatedTasks(merged.delegatedTasks);
-            setStaffPerformanceLog(merged.staffPerformanceLog);
-            setDismissedDelegatedReminderTaskIds(merged.dismissedDelegatedReminderTaskIds);
-          } finally {
-            isApplyingRemoteStateRef.current = false;
-          }
-        })
-        .subscribe();
-
-      dashboardSyncChannelRef.current = syncChannel;
-
-      const channel = supabase
-        .channel(`dashboard_states:${userProfile.id}`)
-        .on(
-          'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'dashboard_states', filter: `user_id=eq.${userProfile.id}` },
-          async () => {
-            try {
-              const remote = await getDashboardState(userProfile.id);
-              if (!remote) return;
-              isApplyingRemoteStateRef.current = true;
-              lastRemoteApplyAtRef.current = Date.now();
-              const localSlices = latestCrossDeviceSlicesRef.current;
-              const merged = mergeDashboardStateForCrossDeviceSync(
-                {
-                  scheduleItems: localSlices.scheduleItems,
-                  scheduleUpdatedAt: localSlices.scheduleUpdatedAt,
-                  reminders: localSlices.reminders,
-                  briefingInputs: localSlices.briefingInputs,
-                  delegatedTasks: localSlices.delegatedTasks,
-                  staffPerformanceLog: localSlices.staffPerformanceLog,
-                  dismissedDelegatedReminderTaskIds: localSlices.dismissedDelegatedReminderTaskIds,
-                },
-                {
-                  scheduleItems: remote.scheduleItems,
-                  scheduleUpdatedAt: typeof (remote as any).scheduleUpdatedAt === 'number' ? (remote as any).scheduleUpdatedAt : 0,
-                  reminders: remote.reminders,
-                  briefingInputs: remote.briefingInputs,
-                  delegatedTasks: remote.delegatedTasks,
-                  staffPerformanceLog: remote.staffPerformanceLog,
-                  dismissedDelegatedReminderTaskIds: remote.dismissedDelegatedReminderTaskIds,
-                },
-              );
-
-              setScheduleItems(merged.scheduleItems);
-              setScheduleUpdatedAt(typeof (merged as any).scheduleUpdatedAt === 'number' ? (merged as any).scheduleUpdatedAt : 0);
-              setReminders(merged.reminders);
-              setBriefingInputs(merged.briefingInputs);
-              setDelegatedTasks(merged.delegatedTasks);
-              setStaffPerformanceLog(merged.staffPerformanceLog);
-              setDismissedDelegatedReminderTaskIds(merged.dismissedDelegatedReminderTaskIds);
-            } finally {
-              isApplyingRemoteStateRef.current = false;
-            }
-          },
-        )
-        .subscribe();
-
-      const pollTimer = window.setInterval(async () => {
-        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-        try {
-          const remote = await getDashboardState(userProfile.id);
-          if (!remote) return;
-          const remoteHash = JSON.stringify({
-            scheduleItems: remote.scheduleItems,
-            scheduleUpdatedAt: typeof (remote as any).scheduleUpdatedAt === 'number' ? (remote as any).scheduleUpdatedAt : 0,
-            reminders: remote.reminders,
-            briefingInputs: remote.briefingInputs,
-            delegatedTasks: remote.delegatedTasks,
-            staffPerformanceLog: remote.staffPerformanceLog,
-            dismissedDelegatedReminderTaskIds: remote.dismissedDelegatedReminderTaskIds,
-          });
-          const localSlices = latestCrossDeviceSlicesRef.current;
-          const localHash = JSON.stringify({
-            scheduleItems: localSlices.scheduleItems,
-            scheduleUpdatedAt: localSlices.scheduleUpdatedAt,
-            reminders: localSlices.reminders,
-            briefingInputs: localSlices.briefingInputs,
-            delegatedTasks: localSlices.delegatedTasks,
-            staffPerformanceLog: localSlices.staffPerformanceLog,
-            dismissedDelegatedReminderTaskIds: localSlices.dismissedDelegatedReminderTaskIds,
-          });
-          if (remoteHash === localHash) return;
-          isApplyingRemoteStateRef.current = true;
-          lastRemoteApplyAtRef.current = Date.now();
-          const merged = mergeDashboardStateForCrossDeviceSync(
-            {
-              scheduleItems: localSlices.scheduleItems,
-              scheduleUpdatedAt: localSlices.scheduleUpdatedAt,
-              reminders: localSlices.reminders,
-              briefingInputs: localSlices.briefingInputs,
-              delegatedTasks: localSlices.delegatedTasks,
-              staffPerformanceLog: localSlices.staffPerformanceLog,
-              dismissedDelegatedReminderTaskIds: localSlices.dismissedDelegatedReminderTaskIds,
-            },
-            {
-              scheduleItems: remote.scheduleItems,
-              scheduleUpdatedAt: typeof (remote as any).scheduleUpdatedAt === 'number' ? (remote as any).scheduleUpdatedAt : 0,
-              reminders: remote.reminders,
-              briefingInputs: remote.briefingInputs,
-              delegatedTasks: remote.delegatedTasks,
-              staffPerformanceLog: remote.staffPerformanceLog,
-              dismissedDelegatedReminderTaskIds: remote.dismissedDelegatedReminderTaskIds,
-            },
-          );
-          setScheduleItems(merged.scheduleItems);
-          setScheduleUpdatedAt(typeof (merged as any).scheduleUpdatedAt === 'number' ? (merged as any).scheduleUpdatedAt : 0);
-          setReminders(merged.reminders);
-          setBriefingInputs(merged.briefingInputs);
-          setDelegatedTasks(merged.delegatedTasks);
-          setStaffPerformanceLog(merged.staffPerformanceLog);
-          setDismissedDelegatedReminderTaskIds(merged.dismissedDelegatedReminderTaskIds);
-        } finally {
-          isApplyingRemoteStateRef.current = false;
-        }
-      }, 5000);
-
-      return () => {
-        if (dashboardSyncBroadcastTimeoutRef.current) window.clearTimeout(dashboardSyncBroadcastTimeoutRef.current);
-        dashboardSyncBroadcastTimeoutRef.current = null;
-        if (dashboardSyncChannelRef.current) {
-          dashboardSyncChannelRef.current.unsubscribe();
-          dashboardSyncChannelRef.current = null;
-        }
-        window.clearInterval(pollTimer);
-        supabase.removeChannel(channel);
-      };
-    }, [userProfile?.id, isCloudLoading]);
+    }, [chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, dismissedDelegatedReminderTaskIds, userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt, suppressCalendarFetch, lastEventOpsNudgeDate, pendingDelegation, pendingScheduleClarification]);
 
     const toYmdLocal = useCallback((date: Date) => {
       const y = date.getFullYear();
@@ -1979,28 +1665,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       }
     }, [isCloudLoading, cloudError, userProfile.id, toYmdLocal]);
 
-    const fetchOkrSnapshotForAI = useCallback(async (force = false): Promise<string> => {
-      const nowMs = Date.now();
-      const cached = okrSnapshotFetchCacheRef.current;
-      const ttlMs = 60_000;
-      if (!force && cached.at > 0 && nowMs - cached.at < ttlMs) return cached.text;
-      if (!isSupabaseConfigured || isCloudLoading || cloudError || !userProfile.id) return cached.text;
-
-      try {
-        const res = await fetchOkrSnapshot({ userId: userProfile.id, now: new Date(), maxDueItems: 6 });
-        if (!res.ok) {
-          okrSnapshotFetchCacheRef.current = { at: nowMs, text: '', error: res.error };
-          return '';
-        }
-        const text = formatOkrSnapshotForPrompt(res.snapshot);
-        okrSnapshotFetchCacheRef.current = { at: nowMs, text, error: null };
-        return text;
-      } catch (err: any) {
-        okrSnapshotFetchCacheRef.current = { at: nowMs, text: '', error: 'fetch_failed' };
-        return '';
-      }
-    }, [isCloudLoading, cloudError, userProfile.id]);
-
     useEffect(() => {
       if (!isSupabaseConfigured) return;
       if (isCloudLoading || cloudError) return;
@@ -2126,7 +1790,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                         deadline: deadline || 'TBD',
                         completed: false,
                         loggedAt: baseTs,
-                        updatedAt: baseTs,
                         status: 'not_started',
                         remarks: '',
                     };
@@ -2391,7 +2054,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         deadline: parsed.deadline,
         completed: false,
         loggedAt,
-        updatedAt: loggedAt,
         status: 'not_started',
         remarks: '',
       };
@@ -3001,7 +2663,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           const currentAccessToken = session?.provider_token || null;
           const freshEventOpsItems = isBriefingFinalizeRequest ? [] : await fetchEventOpsItemsForAI(14, true);
           if (freshEventOpsItems.length > 0) setEventOpsItems(freshEventOpsItems);
-          const okrSnapshotText = isBriefingFinalizeRequest ? '' : await fetchOkrSnapshotForAI(true);
           const response = await sendMessageToGemini(
             newHistory,
             { ...userProfile, team: userProfile.team },
@@ -3010,7 +2671,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             new Date(),
             currentAccessToken,
             freshEventOpsItems,
-            isBriefingFinalizeRequest ? { mode: 'briefing_finalize' } : { okrSnapshot: okrSnapshotText || undefined }
+            isBriefingFinalizeRequest ? { mode: 'briefing_finalize' } : undefined
           );
           let overrideChatText: string | null = null;
           let overrideIsPlanDraft: boolean | null = null;
@@ -3029,7 +2690,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             await onProfileUpdate({ ...userProfile, assistantMemory: updatedMemory });
           }
           if (response.weeklyLogUpdates) {
-            const todayStr = localIsoDateKey();
+            const todayStr = new Date().toISOString().split('T')[0];
             const newLogs = response.weeklyLogUpdates.map((log: WeeklyLogUpdatePayload, index: number) => ({
                 ...log,
                 id: `log-${Date.now()}-${index}`,
@@ -3125,7 +2786,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                     deadline: deadline,
                     completed: false,
                     loggedAt,
-                    updatedAt: loggedAt,
                     status: 'not_started',
                     remarks: '',
                   };
@@ -3396,12 +3056,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   // So we ignore this client-side check and proceed to show the draft.
                   
                   if (shouldAutoFinalizeKickoffPlan) {
-                    if (scheduleCandidate.length > 0) {
-                      const nowTs = Date.now();
-                      const stamped = scheduleCandidate.map((it) => ({ ...it, updatedAt: typeof it.updatedAt === 'number' ? it.updatedAt : nowTs }));
-                      setScheduleItems(stamped);
-                      setScheduleUpdatedAt(nowTs);
-                    }
+                    if (scheduleCandidate.length > 0) setScheduleItems(scheduleCandidate);
                     if (prioritiesCandidate.length > 0) setTop3Items(prioritiesCandidate);
                     setDraftedSchedule(null);
                     setDraftedPriorities(null);
@@ -3414,12 +3069,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   if (pendingScheduleClarification) shouldClearPendingScheduleClarification = true;
               } else {
                   if (shouldAutoFinalizeKickoffPlan) {
-                    if (scheduleCandidate.length > 0) {
-                      const nowTs = Date.now();
-                      const stamped = scheduleCandidate.map((it) => ({ ...it, updatedAt: typeof it.updatedAt === 'number' ? it.updatedAt : nowTs }));
-                      setScheduleItems(stamped);
-                      setScheduleUpdatedAt(nowTs);
-                    }
+                    if (scheduleCandidate.length > 0) setScheduleItems(scheduleCandidate);
                     if (prioritiesCandidate.length > 0) setTop3Items(prioritiesCandidate);
                     setDraftedSchedule(null);
                     setDraftedPriorities(null);
@@ -4197,7 +3847,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
     const handleLinkedToggle = useCallback((itemId: string, isGCal: boolean, itemTitle: string, isCompleted: boolean) => {
       const newStatus = !isCompleted;
-      const nowTs = Date.now();
 
       const normalize = (str: string) =>
           str
@@ -4260,12 +3909,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           let updated: ScheduleItem[];
           if (!isPriorityToggle) {
               updated = prev.map(item =>
-                  (item.id === itemId && !isGCal) ? { ...item, completed: newStatus, updatedAt: nowTs } : item
+                  (item.id === itemId && !isGCal) ? { ...item, completed: newStatus } : item
               );
           } else {
               const bestIds = matchingIds(prev.map(item => ({ id: item.id, title: item.title })));
               if (bestIds.length === 0) return prev;
-              updated = prev.map(item => bestIds.includes(item.id) ? { ...item, completed: newStatus, updatedAt: nowTs } : item);
+              updated = prev.map(item => bestIds.includes(item.id) ? { ...item, completed: newStatus } : item);
           }
           
           // Check if all schedule items are now completed - trigger animation immediately
@@ -4280,8 +3929,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           
           return updated;
       });
-
-      setScheduleUpdatedAt(nowTs);
 
       setTop3Items(prev => {
           let updated: Top3Item[];
@@ -4401,8 +4048,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       if (completed && !taskToUpdate.completed) {
         handleProactiveAIMessage(`SYSTEM_ALERT:USER_COMPLETED_TASK:Type='Delegated', Task='${taskToUpdate.text}'`);
       }
-      const nowTs = Date.now();
-      const nextTasks = delegatedTasks.map(task => task.id === taskId ? { ...task, status, completed, updatedAt: nowTs } : task);
+      const nextTasks = delegatedTasks.map(task => task.id === taskId ? { ...task, status, completed } : task);
       setDelegatedTasks(nextTasks);
       setProjects(prev => updateProjectsFromTasks(prev, nextTasks));
 
@@ -4425,30 +4071,22 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, [delegatedTasks, session, onGoogleAuthError, handleProactiveAIMessage]);
 
     const handleDelegatedTaskRemarksChange = useCallback((taskId: string, remarks: string) => {
-      const nowTs = Date.now();
-      setDelegatedTasks(prev => prev.map(task => task.id === taskId ? { ...task, remarks, updatedAt: nowTs } : task));
+      setDelegatedTasks(prev => prev.map(task => task.id === taskId ? { ...task, remarks } : task));
     }, []);
 
     const handleDelegatedTaskDeadlineChange = useCallback((taskId: string, deadline: string) => {
-      const nowTs = Date.now();
-      setDelegatedTasks(prev => prev.map(task => task.id === taskId ? { ...task, deadline: deadline.trim() || 'TBD', updatedAt: nowTs } : task));
+      setDelegatedTasks(prev => prev.map(task => task.id === taskId ? { ...task, deadline: deadline.trim() || 'TBD' } : task));
     }, []);
     
     const handleConfirmPlan = useCallback(async () => {
       // Use ONLY the drafted items from the AI's JSON response - no text parsing fallback
       // The draftedSchedule and draftedPriorities are already correctly parsed from the AI's response
       // Store them in local variables before clearing state
-      const nowTs = Date.now();
       const scheduleToFinalize = draftedSchedule && draftedSchedule.length > 0 ? draftedSchedule : null;
       const prioritiesToFinalize = draftedPriorities && draftedPriorities.length > 0 ? draftedPriorities : null;
-
-      const finalizedSchedule = scheduleToFinalize
-        ? scheduleToFinalize.map((it) => ({ ...it, updatedAt: typeof it.updatedAt === 'number' ? it.updatedAt : nowTs }))
-        : null;
       
-      if (finalizedSchedule) {
-        setScheduleItems(finalizedSchedule);
-        setScheduleUpdatedAt(nowTs);
+      if (scheduleToFinalize) {
+        setScheduleItems(scheduleToFinalize);
       }
       if (prioritiesToFinalize) {
         setTop3Items(prioritiesToFinalize);
@@ -4459,14 +4097,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       setDraftedPriorities(null);
 
       setIsScheduleConfirmed(false);
-      
+
       // Force immediate save to cloud state after finalization - save directly with finalized data
       // Save immediately with the finalized data to ensure persistence on refresh
       const stateToSave: DashboardState = {
-        chatMessages, chatHistory, 
-        scheduleItems: finalizedSchedule || scheduleItems,
-        scheduleUpdatedAt: finalizedSchedule ? nowTs : scheduleUpdatedAt,
-        top3Items: prioritiesToFinalize || top3Items, 
+        chatMessages, chatHistory,
+        scheduleItems: scheduleToFinalize || scheduleItems,
+        top3Items: prioritiesToFinalize || top3Items,
         reminders, projects, completedProjects, keepNotes, delegatedTasks,
         dismissedDelegatedReminderTaskIds,
         team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed: false, briefingInputs, briefingState,
@@ -4480,7 +4117,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       };
       // Save immediately - don't wait for useEffect
       saveDashboardState(userProfile.id, stateToSave).catch((err: any) => console.error("Failed to save state after finalization:", err));
-      
+
       // Also trigger force save flag for the useEffect to catch any subsequent state changes
       forceSaveRef.current = true;
       setNotificationModal({
@@ -4677,7 +4314,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
     const handleClearSchedule = useCallback(() => {
         setScheduleItems([]);
-        setScheduleUpdatedAt(Date.now());
         setDraftedSchedule(null);
         setTop3Items([]);
         setDraftedPriorities(null);
@@ -4694,30 +4330,24 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         if (!title) return;
         const time = item.time.trim() || 'All Day';
         const id = `sched-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const nowTs = Date.now();
-        setScheduleItems(prev => [...prev, { id, time, title, completed: false, updatedAt: nowTs }]);
-        setScheduleUpdatedAt(nowTs);
+        setScheduleItems(prev => [...prev, { id, time, title, completed: false }]);
         setIsScheduleConfirmed(false);
     }, []);
 
     const updateScheduleItem = useCallback((id: string, updates: Partial<Pick<ScheduleItem, 'time' | 'title' | 'completed'>>) => {
-        const nowTs = Date.now();
         setScheduleItems(prev =>
             prev.map(item => {
                 if (item.id !== id) return item;
                 const nextTime = typeof updates.time === 'string' ? updates.time.trim() : item.time;
                 const nextTitle = typeof updates.title === 'string' ? updates.title.trim() : item.title;
-                return { ...item, ...updates, time: nextTime || 'All Day', title: nextTitle || item.title, updatedAt: nowTs };
+                return { ...item, ...updates, time: nextTime || 'All Day', title: nextTitle || item.title };
             })
         );
-        setScheduleUpdatedAt(nowTs);
         setIsScheduleConfirmed(false);
     }, []);
 
     const deleteScheduleItem = useCallback((id: string) => {
-        const nowTs = Date.now();
         setScheduleItems(prev => prev.filter(item => item.id !== id));
-        setScheduleUpdatedAt(nowTs);
         setIsScheduleConfirmed(false);
     }, []);
 
@@ -4732,9 +4362,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             return;
         }
 
-        const ok = await verifyGoogleAccount(token);
-        if (!ok) return;
-
         try {
             const events = await getTodaysEvents(token);
             setGoogleCalendarEvents(events);
@@ -4746,7 +4373,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             }
             setCloudError(`Failed to fetch Google Calendar events: ${error?.message || error}`);
         }
-    }, [session, onGoogleAuthError, verifyGoogleAccount]);
+    }, [session, onGoogleAuthError]);
 
     const syncScheduleToGoogleCalendar = useCallback(async (scheduleOverride?: ScheduleItem[]) => {
         const token = session?.provider_token;
@@ -4758,9 +4385,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             });
             return false;
         }
-
-        const ok = await verifyGoogleAccount(token);
-        if (!ok) return false;
 
         const scheduleToSync = (scheduleOverride ?? scheduleItems).filter(item => !item.isGoogleEvent);
         if (scheduleToSync.length === 0) {
@@ -4793,7 +4417,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         } finally {
             setIsSyncing(false);
         }
-    }, [session, scheduleItems, onGoogleAuthError, verifyGoogleAccount]);
+    }, [session, scheduleItems, onGoogleAuthError]);
 
     const clearGoogleCalendarEvents = useCallback(() => {
         setGoogleCalendarEvents([]);
@@ -5330,7 +4954,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, []);
 
     const submitEndOfDayReview = useCallback(async () => {
-      const todayStr = localIsoDateKey();
+      const todayStr = new Date().toISOString().split('T')[0];
       const morale = typeof endOfDayDraft.morale === 'number' ? Math.min(5, Math.max(1, endOfDayDraft.morale)) : null;
       const attendanceIssues = String(endOfDayDraft.attendance || '').trim();
       const coachingNotes = String(endOfDayDraft.coachingNotes || '').trim();
@@ -5675,7 +5299,7 @@ Then based on their role as ${userProfile.role}, acknowledge their typical workl
                 setChatMessages(prev => [...prev, notificationMessage]);
             }
         }, 60000); // Check every minute
-        
+
         return () => clearInterval(checkInterval);
     }, [currentMode, modeActivatedAt, handleDeactivateMode]);
 
@@ -5683,28 +5307,32 @@ Then based on their role as ${userProfile.role}, acknowledge their typical workl
         // Clear previous email version for new report
         setEmailVersion('');
 
+        // Calculate week range
         const today = new Date();
-        const summary = buildWeeklyDashboardSummary({
-          today,
-          weeklyLog,
-          dailyOpsMetrics,
-        });
+        const dayOfWeek = today.getDay();
+        const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Adjust to Monday
+        const weekStart = new Date(today.setDate(diff));
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 6);
 
-        const weekStartYmd = (() => {
-          const t = new Date(today);
-          t.setHours(0, 0, 0, 0);
-          const day = t.getDay();
-          const diff = (day + 6) % 7;
-          t.setDate(t.getDate() - diff);
-          return toYmdLocal(t);
-        })();
-        const weekEndYmd = toYmdLocal(today);
+        const weekRange = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+        const weekStartYmd = toYmdLocal(weekStart);
+        const weekEndYmd = toYmdLocal(weekEnd);
+        weeklyReportMetricsRef.current = { startYmd: weekStartYmd, endYmd: weekEndYmd };
         const weeklyOpsEntries = dailyOpsMetrics.filter(it => it.date >= weekStartYmd && it.date <= weekEndYmd);
+        const weeklyMoraleScores = weeklyOpsEntries
+          .map(it => it.moraleScore)
+          .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
+        const computedAverageWeeklyMorale =
+          weeklyMoraleScores.length > 0
+            ? Math.round((weeklyMoraleScores.reduce((sum, v) => sum + v, 0) / weeklyMoraleScores.length) * 10) / 10
+            : null;
         const computedAttendanceIssues = weeklyOpsEntries
           .map(it => ({ date: it.date, text: String(it.attendanceIssues || '').trim() }))
           .filter(it => it.text.length > 0 && !/^(none|no|n\/a)\b/i.test(it.text))
           .map(it => `${it.date}: ${it.text}`);
-        
+
         // Add user message and friendly assistant acknowledgment
         const userMessage: ChatMessage = {
             id: Date.now(),
@@ -5712,17 +5340,26 @@ Then based on their role as ${userProfile.role}, acknowledge their typical workl
             text: 'Create my weekly report.'
         };
         setChatMessages(prev => [...prev, userMessage]);
-        
+
         const assistantAck: ChatMessage = {
             id: Date.now() + 1,
             role: 'model',
-            text: `Perfect timing! Let me pull together your weekly dashboard summary for ${summary.week_of}.`
+            text: `Perfect timing! Let me pull together your weekly report for ${weekRange}. I'll compile your accomplishments, project updates, and key metrics from this week...`
         };
         setChatMessages(prev => [...prev, assistantAck]);
-        
-        // Auto-populate project snapshots from dashboard
+
+        // Auto-populate data from dashboard
+        const completedTasks = delegatedTasks.filter(t => t.completed).length;
+        const totalTasks = delegatedTasks.length;
+        const completedProjects = projects.filter(p => {
+            const avgProgress = p.milestones.length > 0
+                ? p.milestones.reduce((sum, m) => sum + (Number(m.progress) || 0), 0) / p.milestones.length
+                : 0;
+            return avgProgress >= 100;
+        });
+
         const projectUpdates = projects.map(p => {
-            const avgProgress = p.milestones.length > 0 
+            const avgProgress = p.milestones.length > 0
                 ? Math.round(p.milestones.reduce((sum, m) => sum + (Number(m.progress) || 0), 0) / p.milestones.length)
                 : 0;
             const nextMilestone = p.milestones.find(m => (Number(m.progress) || 0) < 100);
@@ -5733,45 +5370,149 @@ Then based on their role as ${userProfile.role}, acknowledge their typical workl
                 nextMilestone: nextMilestone?.text
             };
         });
-        
-        const accomplishments = summary.highlights;
-        const challenges = summary.lowlights;
 
-        weeklyReportMetricsRef.current = null;
+        const accomplishments = weeklyLog.filter(log => log.type === 'accomplishment').map(log => log.text);
+        const challenges = weeklyLog.filter(log => log.type === 'challenge').map(log => log.text);
 
-        const report: WeeklyReport = {
-          weekRange: summary.week_of,
-          summary: [
-            `Week of ${summary.week_of}.`,
-            `Total breakage: ${summary.financials.total_breakage}.`,
-            summary.metrics.avg_morale == null ? 'Average morale: N/A.' : `Average morale: ${summary.metrics.avg_morale}.`,
-          ].join('\n'),
-          averageWeeklyMorale: summary.metrics.avg_morale,
-          attendanceIssues: computedAttendanceIssues,
-          accomplishments,
-          challenges,
-          projects: projectUpdates,
-          nextSteps: [],
+        // Calculate mode usage for the week
+        const weekStartTime = weekStart.getTime();
+        const weekEndTime = weekEnd.getTime();
+        const weekModeHistory = modeHistory.filter(entry => {
+            const activatedInWeek = entry.activatedAt >= weekStartTime && entry.activatedAt <= weekEndTime;
+            const deactivatedInWeek = entry.deactivatedAt && entry.deactivatedAt >= weekStartTime;
+            return activatedInWeek || deactivatedInWeek;
+        });
+
+        const modeStats = {
+            crisis: weekModeHistory.filter(m => m.mode === 'crisis').length,
+            strategic: weekModeHistory.filter(m => m.mode === 'strategic').length,
+            redDay: weekModeHistory.filter(m => m.mode === 'red-day').length
         };
 
-        setWeeklyReport(report);
-        setIsWeeklyReportModalOpen(true);
+        // Extract chat context for each mode session
+        const modeSessionDetails = weekModeHistory.map(entry => {
+            const modeName = entry.mode === 'crisis' ? 'Crisis' : entry.mode === 'strategic' ? 'Strategic' : 'Red Day';
+            const activatedDate = new Date(entry.activatedAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const duration = entry.deactivatedAt
+                ? Math.round((entry.deactivatedAt - entry.activatedAt) / (1000 * 60)) + ' minutes'
+                : 'still active';
+
+            // Find chat messages that occurred during this mode session
+            const sessionEndTime = entry.deactivatedAt || Date.now();
+            const sessionMessages = chatMessages.filter(msg => {
+                // Messages have id as timestamp
+                return msg.id >= entry.activatedAt && msg.id <= sessionEndTime && !msg.text.startsWith('SYSTEM:');
+            });
+
+            // Extract user messages and assistant responses to understand the context
+            const userMessages = sessionMessages.filter(msg => msg.role === 'user').map(msg => msg.text);
+            const assistantMessages = sessionMessages.filter(msg => msg.role === 'model').map(msg => msg.text);
+
+            return {
+                modeName,
+                activatedDate,
+                duration,
+                userMessages: userMessages.slice(0, 5), // First 5 messages to understand context
+                assistantMessages: assistantMessages.slice(0, 5),
+                messageCount: sessionMessages.length
+            };
+        });
+
+        const modeSummary = weekModeHistory.length > 0 ? `
+Mode Usage This Week (${modeStats.crisis + modeStats.strategic + modeStats.redDay} total activations):
+- Crisis Mode: ${modeStats.crisis} time${modeStats.crisis !== 1 ? 's' : ''} (urgent operational issues)
+- Strategic Mode: ${modeStats.strategic} time${modeStats.strategic !== 1 ? 's' : ''} (planning and analysis)
+- Red Day Mode: ${modeStats.redDay} time${modeStats.redDay !== 1 ? 's' : ''} (workload management)
+
+DETAILED MODE SESSIONS:
+${modeSessionDetails.map((session, idx) => `
+Session ${idx + 1}: ${session.modeName} Mode
+- When: ${session.activatedDate}
+- Duration: ${session.duration}
+- Chat Activity: ${session.messageCount} messages exchanged
+- User's Key Topics/Issues: ${session.userMessages.length > 0 ? session.userMessages.join(' | ') : 'No specific messages logged'}
+- Assistant's Responses: ${session.assistantMessages.length > 0 ? session.assistantMessages.slice(0, 2).join(' | ') : 'No responses logged'}
+`).join('\n')}` : 'No special modes activated this week.';
+
+        // Detailed prompt for AI (sent internally)
+        const aiPrompt = `SYSTEM: Generate a comprehensive weekly report for the week of ${weekRange}. Use the following data:
+- Completed Tasks: ${completedTasks} of ${totalTasks} delegated tasks
+- Active Projects: ${projects.length} (${completedProjects.length} completed)
+- Weekly Log Entries: ${weeklyLog.length} items (${accomplishments.length} accomplishments, ${challenges.length} challenges)
+
+Daily Metrics (End-of-Day Reviews):
+- Average Weekly Morale (computed): ${computedAverageWeeklyMorale == null ? 'N/A' : computedAverageWeeklyMorale}
+- Attendance Issues (computed):
+${computedAttendanceIssues.length > 0 ? computedAttendanceIssues.map(line => `- ${line}`).join('\n') : '- None'}
+
+${modeSummary}
+
+Project Details:
+${projectUpdates.map(p => `- ${p.name}: ${p.progress}% progress, ${p.status}${p.nextMilestone ? `, Next: ${p.nextMilestone}` : ''}`).join('\n')}
+
+CRITICAL INSTRUCTIONS FOR MODE ACTIVITY SECTION:
+${weekModeHistory.length > 0 ? `
+The user activated special operational modes this week (Crisis/Strategic/Red Day). This is VERY IMPORTANT context.
+
+For the "modeActivity" field in the weekly report, you MUST:
+1. Analyze each mode session listed above to understand WHAT happened
+2. Explain HOW the user handled each situation based on the chat messages
+3. Identify and describe the SOLUTIONS or ACTIONS taken during each mode
+4. Write this as a narrative paragraph (not bullet points) that tells the story of the week's intensity
+5. Focus on outcomes and resolutions, not just that modes were activated
+6. Use professional language suitable for management reporting
+
+Example format: "This week required elevated operational focus with [X] crisis responses and [Y] strategic planning sessions. During the crisis mode activations on [dates], the team addressed [issues mentioned in chat]. Solutions implemented included [actions from assistant responses]. Strategic planning sessions focused on [topics from strategic mode chats], resulting in [outcomes]. The red day mode on [date] helped prioritize [workload items] effectively."
+
+If you cannot determine specific details from the chat messages, provide a general professional summary of the mode usage and its implications for the week's operations.
+` : 'No special modes were activated this week.'}
+
+CRITICAL: Your response MUST be a JSON object with EXACTLY this structure:
+{
+  "text": "A friendly message confirming the report is ready (e.g., 'All done! Your weekly report is ready. I've compiled X accomplishments, Y projects, and Z action items...')",
+  "weeklyReport": {
+    "summary": "Executive summary of the week as a string",
+    "averageWeeklyMorale": ${computedAverageWeeklyMorale == null ? 'null' : computedAverageWeeklyMorale},
+    "attendanceIssues": ${computedAttendanceIssues.length > 0 ? JSON.stringify(computedAttendanceIssues) : '[]'},
+    "accomplishments": ["accomplishment 1", "accomplishment 2", "..."],
+    "challenges": ["challenge 1", "challenge 2", "..."],
+    "projects": [
+      {
+        "name": "Project Name",
+        "progress": 75,
+        "status": "On Track",
+        "nextMilestone": "Next milestone description"
+      }
+    ],
+    ${weekModeHistory.length > 0 ? `"modeActivity": "REQUIRED - Narrative paragraph explaining: 1) What operational challenges arose (from chat messages), 2) How they were handled (actions taken), 3) Solutions implemented (outcomes). Be specific and professional. This should be a comprehensive paragraph, not bullet points.",` : ''}
+    "nextSteps": ["action item 1", "action item 2", "..."],
+    "weekRange": "${weekRange}"
+  }
+}
+
+IMPORTANT RULES:
+1. You MUST include BOTH the "text" and "weeklyReport" fields at the top level
+2. The "weeklyReport" object MUST include ALL required fields
+3. ${weekModeHistory.length > 0 ? 'The "modeActivity" field is MANDATORY when modes were used - analyze the chat messages and write a professional narrative' : 'Omit the "modeActivity" field'}
+4. Make the report comprehensive and professional
+5. Arrays can be empty [] if no data is available, but they must be present`;
+
+        // Send the detailed prompt - handleSendMessage will convert "SYSTEM:" prompts to user-friendly messages
+        await handleSendMessage(undefined, aiPrompt);
     }, [handleSendMessage, delegatedTasks, projects, weeklyLog, modeHistory, chatMessages, dailyOpsMetrics, toYmdLocal]);
 
     const handleGenerateEmailReport = useCallback(async (report: WeeklyReport): Promise<string | null> => {
         setEmailVersion(''); // Clear previous email version
         const reportJson = JSON.stringify(report, null, 2);
         
-        const prompt = `Transform the following weekly report into a professional plain-text email suitable for sending to management or stakeholders.
+        const prompt = `Transform the following weekly report into a professional email format suitable for sending to management or stakeholders.
 
 CRITICAL INSTRUCTIONS:
 - Format it as a complete email with Subject line, greeting, body, and signature
 - The email should look like a real professional email, not a report document
 - Include placeholders [Recipient Name], [Your Name], and [Your Job Title] for personalization
 - Use proper email formatting with clear sections
-- If the modeActivity field is present: this is critical context showing crisis situations, strategic planning, or high-workload periods. Integrate this prominently as a dedicated section or weave it naturally into the narrative
-- Output MUST be plain text only: do not use markdown formatting characters like *, **, _, backticks, or code fences
-- For bullet points, use "- " or "• " (do not use "* " as a bullet)
+- **IF modeActivity field is present**: This is CRITICAL context showing crisis situations, strategic planning, or high-workload periods. Integrate this prominently as a dedicated section or weave it naturally into the narrative
 
 REQUIRED EMAIL STRUCTURE:
 Subject: Weekly Report: [Week Range]
@@ -5783,7 +5524,7 @@ Dear [Recipient Name],
 [Executive Summary section - transform the summary into a natural paragraph]
 
 ${report.modeActivity ? `
-Operational Context & Challenge Resolution
+**Operational Context & Challenge Resolution**
 [IF modeActivity field exists in the report, include a dedicated section here that presents the mode activity information professionally. This section should explain:
 - What operational challenges or strategic needs arose
 - How they were handled (crisis response, strategic planning, workload management)
@@ -5919,7 +5660,6 @@ ${reportJson}`;
             id: localId, assigneeId, assigneeName: assignee.name,
             text, deadline: deadlineString, completed: false,
             loggedAt,
-            updatedAt: loggedAt,
             status: 'not_started',
             remarks: '',
         };
@@ -6274,7 +6014,6 @@ ${reportJson}`;
 
     const value: DashboardContextType = {
         onLogout: props.onLogout,
-        onLock: props.onLock,
         userProfile: props.userProfile,
         onProfileUpdate: props.onProfileUpdate,
         onNavigateToPrivacy: props.onNavigateToPrivacy,

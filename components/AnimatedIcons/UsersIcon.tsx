@@ -1,6 +1,5 @@
 import type { Variants } from "framer-motion";
-import { motion, useAnimation } from "framer-motion";
-import type { HTMLAttributes } from "react";
+import { motion, useAnimation, type HTMLMotionProps } from "framer-motion";
 import { forwardRef, useCallback, useImperativeHandle, useRef, useEffect } from "react";
 
 import { cn } from "../../lib/utils";
@@ -10,7 +9,7 @@ export interface UsersIconHandle {
   stopAnimation: () => void;
 }
 
-interface UsersIconProps extends HTMLAttributes<HTMLDivElement> {
+interface UsersIconProps extends HTMLMotionProps<"div"> {
   size?: number;
   isHovered?: boolean;
 }

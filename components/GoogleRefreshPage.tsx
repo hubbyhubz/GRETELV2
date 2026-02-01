@@ -1,74 +1,24 @@
 import React, { useState } from 'react';
 import { supabase } from './supabaseClient';
-import { getGoogleEmailStorageKey } from '../lib/googleUserInfo';
 
-type GoogleRefreshMode = 'connect' | 'refresh';
-
-const GoogleRefreshPage: React.FC<{ mode?: GoogleRefreshMode }> = ({ mode = 'connect' }) => {
+const GoogleRefreshPage: React.FC = () => {
   const [isRedirecting, setIsRedirecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const handleConnect = async () => {
     if (isRedirecting) return;
     setIsRedirecting(true);
-    setError(null);
-
-    const scopes = [
-      'openid',
-      'email',
-      'profile',
-      'https://www.googleapis.com/auth/calendar.events',
-      'https://www.googleapis.com/auth/tasks',
-      'https://www.googleapis.com/auth/drive.file',
-      'https://www.googleapis.com/auth/gmail.send',
-    ].join(' ');
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const session = sessionData.session;
-
-    const loginHint = session?.user?.id
-      ? window.localStorage.getItem(getGoogleEmailStorageKey(session.user.id))
-      : null;
-    const queryParams: Record<string, string> = {
-      prompt: 'select_account consent',
-      ...(loginHint ? { login_hint: loginHint } : {}),
-    };
-
-    if (mode === 'connect' && session) {
-      const { error } = await supabase.auth.linkIdentity({
-        provider: 'google',
-        options: {
-          scopes,
-          queryParams,
-        },
-      });
-      if (error) {
-        const msg = String(error.message || 'Unknown error');
-        if (msg.toLowerCase().includes('manual linking is disabled')) {
-          setIsRedirecting(false);
-          setError('Google linking is disabled in Supabase settings. Enable Manual Linking in Supabase Auth settings, then try again.');
-          return;
-        }
-        setIsRedirecting(false);
-        setError(`Google Connection Error: ${msg}`);
-        return;
-      }
-      return;
-    }
-
-    const { error } = await supabase.auth.signInWithOAuth({
+    // FIX: Replaced the incorrect `linkIdentity` with `signInWithOAuth`.
+    // This is the correct, robust method for both first-time connections and
+    // re-authenticating an existing user to refresh an expired token. It correctly
+    // triggers the Google sign-in flow and returns a valid session.
+    await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        scopes,
-        queryParams,
+        scopes: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send',
+        // redirectTo is removed to default to Site URL in Supabase settings
       },
     });
-    if (error) {
-      setIsRedirecting(false);
-      setError(`Google Connection Error: ${error.message || 'Unknown error'}`);
-    }
     // The page will redirect, so no need to set isRedirecting back to false.
-
   };
 
   return (
@@ -79,21 +29,12 @@ const GoogleRefreshPage: React.FC<{ mode?: GoogleRefreshMode }> = ({ mode = 'con
                 G.R.E.T.E.L
             </h1>
         </div>
-        <h2 className="text-lg sm:text-xl font-bold text-gray-800 dark:text-gray-200 mb-4">
-          {mode === 'refresh' ? 'Reconnect Your Google Account' : 'Connect Your Google Account'}
-        </h2>
+        <h2 className="text-lg sm:text-xl font-bold text-gray-800 dark:text-gray-200 mb-4">Connect Your Google Account</h2>
         <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mb-8">
-          {mode === 'refresh'
-            ? 'Your Google connection needs to be refreshed to sync your calendar, tasks, and dashboard.'
-            : 'G.R.E.T.E.L requires a connection to your Google Account to sync your calendar, tasks, and dashboard.'}
+          G.R.E.T.E.L requires a connection to your Google Account to sync your calendar, tasks, and dashboard.
           <br /><br />
-          {mode === 'refresh'
-            ? 'This keeps your Google sync working securely.'
-            : 'This is a one-time, mandatory step to begin using your assistant.'}
+          This is a one-time, mandatory step to begin using your assistant.
         </p>
-        {error && (
-          <p className="text-sm text-red-600 dark:text-red-400 mb-4">{error}</p>
-        )}
         <button
           onClick={handleConnect}
           disabled={isRedirecting}

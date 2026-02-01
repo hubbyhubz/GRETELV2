@@ -1,6 +1,5 @@
 import type { Variants } from "framer-motion";
-import { motion, useAnimation } from "framer-motion";
-import type { HTMLAttributes } from "react";
+import { motion, useAnimation, type HTMLMotionProps } from "framer-motion";
 import { forwardRef, useCallback, useImperativeHandle, useRef, useEffect } from "react";
 
 import { cn } from "../../lib/utils";
@@ -10,7 +9,7 @@ export interface SecurityIconHandle {
   stopAnimation: () => void;
 }
 
-interface SecurityIconProps extends HTMLAttributes<HTMLDivElement> {
+interface SecurityIconProps extends HTMLMotionProps<"div"> {
   size?: number;
   isHovered?: boolean;
 }

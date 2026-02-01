@@ -3,59 +3,94 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../components/supabaseClient';
 import type { UserProfile } from '../components/types';
 
+const INACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+
 export function useInactivityLock(session: Session | null, userProfile: UserProfile | null) {
-    const [isLockedInternal, setIsLockedInternal] = useState(false);
+    const [isLocked, setIsLocked] = useState(() => {
+        const storedLock = localStorage.getItem('gretel_is_locked');
+        return storedLock === 'true';
+    });
+
     const inactivityTimer = useRef<number | null>(null);
 
-    const clearLockState = useCallback(() => {
-        localStorage.removeItem('gretel_is_locked');
-        localStorage.removeItem('gretel_locked_at');
-        localStorage.removeItem('gretel_last_activity');
+    const lockNow = useCallback(() => {
+        if (!userProfile?.setup_complete) return;
+        setIsLocked(true);
+        localStorage.setItem('gretel_is_locked', 'true');
+        localStorage.setItem('gretel_locked_at', Date.now().toString());
+
+        if (session?.user?.id) {
+            supabase.from('profiles').update({ is_app_locked: true }).eq('id', session.user.id).then(({ error }) => {
+                if (error) console.error('Error syncing lock state:', error);
+            });
+        }
+    }, [session?.user?.id, userProfile?.setup_complete]);
+
+    const resetInactivityTimer = () => {
         if (inactivityTimer.current) {
             clearTimeout(inactivityTimer.current);
-            inactivityTimer.current = null;
         }
-    }, []);
+        localStorage.setItem('gretel_last_activity', Date.now().toString());
 
-    const setIsLocked = useCallback(
-        (_next: any) => {
-            setIsLockedInternal(false);
-            clearLockState();
-        },
-        [clearLockState]
-    );
+        inactivityTimer.current = window.setTimeout(() => {
+            // Only lock if there is a logged-in user on the dashboard who has completed setup
+            if (userProfile && userProfile.setup_complete) {
+                console.log('🔒 Inactivity timeout - Locking App');
+                lockNow();
+            }
+        }, INACTIVITY_TIMEOUT);
+    };
 
-    const lockNow = useCallback(() => {
-        setIsLockedInternal(false);
-        clearLockState();
-
-        if (session?.user?.id) {
-            supabase.from('profiles').update({ is_app_locked: false }).eq('id', session.user.id).then(({ error }) => {
-                if (error) console.error('Error syncing unlock state:', error);
-            });
+    const checkInactivity = () => {
+        const lastActivity = localStorage.getItem('gretel_last_activity');
+        if (lastActivity) {
+            const elapsed = Date.now() - parseInt(lastActivity, 10);
+            if (elapsed > INACTIVITY_TIMEOUT && userProfile?.setup_complete) {
+                setIsLocked(true);
+                localStorage.setItem('gretel_is_locked', 'true');
+            }
         }
-    }, [clearLockState, session?.user?.id]);
-
-    const resetInactivityTimer = useCallback(() => {
-        setIsLockedInternal(false);
-        clearLockState();
-    }, [clearLockState]);
+    };
 
     useEffect(() => {
-        setIsLockedInternal(false);
-        clearLockState();
-    }, [clearLockState, session?.user?.id, userProfile?.id]);
+        checkInactivity();
 
-    const handleUnlock = useCallback(() => {
-        setIsLockedInternal(false);
-        clearLockState();
+        // Listen for events
+        const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+        const handleActivity = () => resetInactivityTimer();
+
+        events.forEach(event => window.addEventListener(event, handleActivity));
+        resetInactivityTimer(); // Initial timer start
+
+        return () => {
+            events.forEach(event => window.removeEventListener(event, handleActivity));
+            if (inactivityTimer.current) {
+                clearTimeout(inactivityTimer.current);
+            }
+        };
+    }, [userProfile?.setup_complete]); // Re-bind if setup status changes
+
+    // Also sync from profile if it says locked remotely
+    useEffect(() => {
+        if (userProfile?.is_app_locked) {
+            setIsLocked(true);
+            localStorage.setItem('gretel_is_locked', 'true');
+        }
+    }, [userProfile?.is_app_locked]);
+
+    const handleUnlock = () => {
+        setIsLocked(false);
+        localStorage.removeItem('gretel_is_locked');
+        localStorage.removeItem('gretel_locked_at');
+        localStorage.setItem('gretel_last_activity', Date.now().toString());
 
         if (session?.user?.id) {
             supabase.from('profiles').update({ is_app_locked: false }).eq('id', session.user.id).then(({ error }) => {
                 if (error) console.error('Error syncing unlock state:', error);
             });
         }
-    }, [clearLockState, session?.user?.id]);
+        resetInactivityTimer();
+    };
 
-    return { isLocked: isLockedInternal, setIsLocked, handleUnlock, resetInactivityTimer, lockNow };
+    return { isLocked, setIsLocked, handleUnlock, resetInactivityTimer, lockNow };
 }

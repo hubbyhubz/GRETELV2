@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { Settings } from "lucide-react";
-import type { HTMLAttributes } from "react";
 import { forwardRef } from "react";
 
-interface LucideSettingsIconProps extends HTMLAttributes<HTMLDivElement> {
+interface LucideSettingsIconProps extends HTMLMotionProps<"div"> {
   size?: number;
 }
 

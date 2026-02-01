@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { CheckSquare } from "lucide-react";
-import type { HTMLAttributes } from "react";
 import { forwardRef } from "react";
 
-interface LucideCheckIconProps extends HTMLAttributes<HTMLDivElement> {
+interface LucideCheckIconProps extends HTMLMotionProps<"div"> {
   size?: number;
 }
 

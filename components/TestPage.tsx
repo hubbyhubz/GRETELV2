@@ -49,6 +49,8 @@ const initialMockProfile: UserProfile = {
   successDefinition: 'Exceeding Quarterly Targets',
   setup_complete: true,
   assistantMemory: '- Prefers morning briefings at 8 AM\n- Allergies: Peanuts',
+  passiveMemory: [],
+  relationalMemory: { nodes: [], edges: [] },
   team: [
     { id: 't1', name: 'Sarah Connor', role: 'Ops Manager', email: 'sarah@example.com' },
     { id: 't2', name: 'John Doe', role: 'Sales Lead', email: 'john@example.com' }
@@ -142,6 +144,7 @@ const TestPage: React.FC<TestPageProps> = ({ onExit }) => {
                 <LoginPage 
                     onCreateAccountClick={() => alert('Mock: Navigate to Create Account')}
                     onForgotPasswordClick={() => alert('Mock: Navigate to Forgot Password')}
+                    onSuperUserLoginClick={() => alert('Mock: Navigate to Super User Login')}
                     onLoginSuccess={() => alert('Mock: Login Success! (In real app, this redirects to dashboard)')}
                     onNavigateToPrivacy={() => {}}
                     onNavigateToTerms={() => {}}

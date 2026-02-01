@@ -31,9 +31,12 @@ export function useProfileData(session: Session | null) {
             // Wrap fetchProfile to respect mounted state
             const load = async () => {
                 if (!session.user?.id) return;
-                
+
+                const impersonatedId = sessionStorage.getItem('impersonating_user_id');
+                const targetUserId = impersonatedId || session.user.id;
+
                 // Prevent duplicate fetches
-                if (loadedSessionId.current === session.user.id && userProfileRef.current) {
+                if (loadedSessionId.current === targetUserId && userProfileRef.current) {
                     return;
                 }
 
@@ -41,15 +44,15 @@ export function useProfileData(session: Session | null) {
                     setIsFetching(true);
                     setError(null);
                 }
-                
+
                 perfMark('profile:load-start');
 
                 try {
-                    console.log('👤 Loading profile for user:', session.user.id);
-                    loadedSessionId.current = session.user.id;
+                    console.log(`👤 Loading profile for ${impersonatedId ? 'IMPERSONATED ' : ''}user:`, targetUserId);
+                    loadedSessionId.current = targetUserId;
 
                     // Profile fetch with timeout
-                    const profilePromise = supabase.from('profiles').select('*').eq('id', session.user.id).single();
+                    const profilePromise = supabase.from('profiles').select('*').eq('id', targetUserId).single();
                     let profileTimeout: ReturnType<typeof setTimeout>;
                     const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) => {
                         profileTimeout = setTimeout(() => {
@@ -59,7 +62,7 @@ export function useProfileData(session: Session | null) {
 
                     const result = await Promise.race([profilePromise, timeoutPromise]);
                     clearTimeout(profileTimeout!);
-                    
+
                     if (!mounted) return;
 
                     const { data: profileData, error: apiError } = result;
@@ -90,9 +93,9 @@ export function useProfileData(session: Session | null) {
 
                     const profile: UserProfile = {
                         id: finalProfileData.id,
-                        name: finalProfileData.full_name || session.user.user_metadata.full_name || 'New User',
+                        name: finalProfileData.full_name || 'New User',
                         nickname: finalProfileData.username || '',
-                        email: session.user.email ?? '',
+                        email: finalProfileData.email || session.user.email || '',
                         companyId: finalProfileData.company_id || '',
                         mobileNumber: finalProfileData.mobile_number || '',
                         avatar: normalizeAvatarUrl(finalProfileData.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=2080&auto=format&fit=crop'),

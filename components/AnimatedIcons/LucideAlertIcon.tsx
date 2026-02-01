@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { AlertCircle } from "lucide-react";
-import type { HTMLAttributes } from "react";
 import { forwardRef } from "react";
 
-interface LucideAlertIconProps extends HTMLAttributes<HTMLDivElement> {
+interface LucideAlertIconProps extends HTMLMotionProps<"div"> {
   size?: number;
 }
 

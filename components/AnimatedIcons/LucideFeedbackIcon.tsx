@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { MessageSquare } from "lucide-react";
-import type { HTMLAttributes } from "react";
 import { forwardRef } from "react";
 
-interface LucideFeedbackIconProps extends HTMLAttributes<HTMLDivElement> {
+interface LucideFeedbackIconProps extends HTMLMotionProps<"div"> {
   size?: number;
 }
 

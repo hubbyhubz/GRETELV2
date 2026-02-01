@@ -9,6 +9,7 @@ import { perfMark, perfMeasure } from '../lib/perf';
 interface LoginPageProps {
   onCreateAccountClick: () => void;
   onForgotPasswordClick: () => void;
+  onSuperUserLoginClick: () => void;
   onLoginSuccess: (session: Session | null) => void;
   onNavigateToPrivacy: () => void;
   onNavigateToTerms: () => void;
@@ -55,6 +56,7 @@ const EyeOffSvg = ({ size = 20 }: { size?: number }) => (
 const LoginPage: React.FC<LoginPageProps> = ({ 
   onCreateAccountClick, 
   onForgotPasswordClick, 
+  onSuperUserLoginClick,
   onLoginSuccess, 
   onNavigateToPrivacy, 
   onNavigateToTerms,
@@ -298,6 +300,24 @@ const LoginPage: React.FC<LoginPageProps> = ({
                   onMouseLeave={(e) => !isLoading && (e.currentTarget.style.color = '')}
                 >
                   Forgot Password?
+                </a>
+              </div>
+
+              <div className="text-center">
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (!isLoading) onSuperUserLoginClick();
+                  }}
+                  className={`text-sm text-gray-600 dark:text-gray-400 hover:underline transition duration-300 rounded focus:outline-none focus-visible:ring-2 ${
+                    isLoading ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                  style={{ '--tw-ring-color': 'var(--primary-600)' } as React.CSSProperties}
+                  onMouseEnter={(e) => !isLoading && (e.currentTarget.style.color = 'var(--primary-700)')}
+                  onMouseLeave={(e) => !isLoading && (e.currentTarget.style.color = '')}
+                >
+                  Super User Login
                 </a>
               </div>
 

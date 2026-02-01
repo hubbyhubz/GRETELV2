@@ -27,6 +27,8 @@ export default ({ mode }) => {
     test: {
       include: ['tests/**/*.{test,spec}.{ts,tsx,js,jsx}'],
       exclude: ['**/Rubbish/**'],
+      environment: 'jsdom',
+      setupFiles: ['tests/setup.ts'],
     },
     build: {
       rollupOptions: {

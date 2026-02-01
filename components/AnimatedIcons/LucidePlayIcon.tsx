@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { Play } from "lucide-react";
-import type { HTMLAttributes } from "react";
 import { forwardRef } from "react";
 
-interface LucidePlayIconProps extends HTMLAttributes<HTMLDivElement> {
+interface LucidePlayIconProps extends HTMLMotionProps<"div"> {
   size?: number;
 }
 

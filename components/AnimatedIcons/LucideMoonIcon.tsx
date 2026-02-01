@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { Moon } from "lucide-react";
-import type { HTMLAttributes } from "react";
 import { forwardRef } from "react";
 
-interface LucideMoonIconProps extends HTMLAttributes<HTMLDivElement> {
+interface LucideMoonIconProps extends HTMLMotionProps<"div"> {
   size?: number;
 }
 

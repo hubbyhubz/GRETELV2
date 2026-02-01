@@ -1,9 +1,8 @@
-import { motion } from "framer-motion";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import { Mic } from "lucide-react";
-import type { HTMLAttributes } from "react";
 import { forwardRef } from "react";
 
-interface LucideMicIconProps extends HTMLAttributes<HTMLDivElement> {
+interface LucideMicIconProps extends HTMLMotionProps<"div"> {
   size?: number;
   isRecording?: boolean;
 }

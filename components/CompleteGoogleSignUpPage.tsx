@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 // FIX: Update import path from '../App' to './types' to resolve module export errors.
 import type { UserProfile } from './types';
-import AppIcon from './AppIcon';
 import { EyeIcon } from './AnimatedIcons/EyeIcon';
 import { EyeOffIcon } from './AnimatedIcons/EyeOffIcon';
 

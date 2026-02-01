@@ -4,11 +4,6 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
-    inputs:
-      notify_run_url:
-        description: "Override NOTIFY_RUN_URL for manual runs"
-        required: false
-        type: string
 
 jobs:
   notify-run:
@@ -19,19 +14,13 @@ jobs:
           NOTIFY_RUN_URL: ${{ secrets.NOTIFY_RUN_URL }}
           NOTIFY_RUN_SECRET: ${{ secrets.NOTIFY_RUN_SECRET }}
         run: |
-          INPUT_URL="${{ github.event.inputs.notify_run_url }}"
-          EFFECTIVE_URL="$NOTIFY_RUN_URL"
-          if [ -n "$INPUT_URL" ]; then
-            EFFECTIVE_URL="$INPUT_URL"
-          fi
-
-          if [ -z "$EFFECTIVE_URL" ]; then
-            echo "::warning title=Assistant Notifications skipped::Missing NOTIFY_RUN_URL secret (or workflow_dispatch input notify_run_url)."
-            exit 0
+          if [ -z "$NOTIFY_RUN_URL" ]; then
+            echo "Missing NOTIFY_RUN_URL repo secret (e.g. https://<your-domain>/api/notify-run)"
+            exit 1
           fi
 
           if [ -n "$NOTIFY_RUN_SECRET" ]; then
-            curl -fsS -H "Authorization: Bearer $NOTIFY_RUN_SECRET" "$EFFECTIVE_URL"
+            curl -fsS -H "Authorization: Bearer $NOTIFY_RUN_SECRET" "$NOTIFY_RUN_URL"
           else
-            curl -fsS "$EFFECTIVE_URL"
+            curl -fsS "$NOTIFY_RUN_URL"
           fi
