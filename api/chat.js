@@ -262,6 +262,7 @@ export default async function handler(req, res) {
       return cachedLmStudioModelId;
     }
     const headers = { "content-type": "application/json" };
+    if (/\.ngrok(-free)?\./i.test(lmStudioBaseUrl) || /\bngrok\b/i.test(lmStudioBaseUrl)) headers["ngrok-skip-browser-warning"] = "1";
     if (lmStudioApiKey) headers.authorization = `Bearer ${lmStudioApiKey}`;
     const upstream = await fetch(`${lmStudioBaseUrl}/v1/models`, { method: "GET", headers });
     const raw = await upstream.text();
@@ -298,6 +299,7 @@ export default async function handler(req, res) {
     const result = await enqueue(async () => {
       if (lmStudioBaseUrl) {
         const headers = { "content-type": "application/json" };
+        if (/\.ngrok(-free)?\./i.test(lmStudioBaseUrl) || /\bngrok\b/i.test(lmStudioBaseUrl)) headers["ngrok-skip-browser-warning"] = "1";
         if (lmStudioApiKey) headers.authorization = `Bearer ${lmStudioApiKey}`;
         let modelToUse = lmStudioModel;
         if (!modelToUse) {
