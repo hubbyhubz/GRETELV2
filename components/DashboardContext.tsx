@@ -3,15 +3,20 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 // FIX: The sendMessageToGemini function was missing an export in geminiService.ts; it has been added, making this import correct.
 import { sendMessageToGemini } from './geminiService';
 import { getDashboardState, saveDashboardState } from './googleDriveService';
-import { batchAddEventsToCalendar, getTodaysEvents } from './googleCalendarService';
+import { batchAddEventsToCalendar } from './googleCalendarService';
 import { createTask, findOrCreateTaskList, updateTask, deleteTask } from './googleTasksService';
 import type { Session } from '@supabase/supabase-js';
 import type { Content } from '@google/genai';
 // FIX: All type imports were pointing to App.tsx which doesn't export them. Changed to import from the correct types.ts file.
-import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, UserMood, EventOpsItem, DailyOpsMetricEntry, StaffPerformanceLogEntry, CarryOverTaskEntry } from './types';
+import type { UserProfile, DashboardView, BriefingInputItem, DashboardState, ScheduleItem, Top3Item, ReminderItem, ReminderBriefingPreference, Project, Milestone, ChatMessage, ChatHistoryItem, BriefingState, DelegatedTaskItem, WeeklyLogItem, WeeklyReport, AssistantMode, ModeHistoryEntry, UserMood, EventOpsItem, DailyOpsMetricEntry, StaffPerformanceLogEntry, CarryOverTaskEntry, BlockedTimeSlot, TeamMember, DepartmentRole } from './types';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
-import { applyPriorityOps as applyPriorityOpsUtil, applyProjectOps as applyProjectOpsUtil, applyReminderOps as applyReminderOpsUtil, applyScheduleOps as applyScheduleOpsUtil, buildEventOpsBlocksForToday, detectEventOpsScheduleClarification, normalizeNeedle as normalizeNeedleUtil, parseDeadlineFromText as parseDeadlineFromTextUtil, parseScheduleRangeToMinutes, cascadeReschedule } from './assistantActionUtils';
+import { applyPriorityOps as applyPriorityOpsUtil, applyProjectOps as applyProjectOpsUtil, applyReminderOps as applyReminderOpsUtil, applyScheduleOps as applyScheduleOpsUtil, buildEventOpsBlocksForToday, buildBlockedTimeSlotsForDate, detectEventOpsScheduleClarification, normalizeNeedle as normalizeNeedleUtil, parseDeadlineFromText as parseDeadlineFromTextUtil, parseScheduleRangeToMinutes, cascadeReschedule, planEightHourScheduleFromKickoffInterview } from './assistantActionUtils';
 import { bestFuzzyMatch, inferFinalizePlan, inferFreeStyle } from './freeStyleNlu';
+import { generateKickoffQuestions } from './kickoffQuestionGenerator';
+import { mergeTeamMembers } from '../lib/teamMembers';
+import { getQuestionLabel as getQuestionLabelUtil, type BriefingQuestionHintType } from '../lib/briefingQuestionHints';
+import { buildBriefingConsolidation, type BriefingConsolidationMeta } from '../lib/briefingConsolidation';
+import { deriveAfternoonInterviewCoverage } from '../lib/briefingFinalizeInterviewCoverage';
 
 // Version for the dashboard state structure. Increment this to trigger migrations.
 const DASHBOARD_STATE_VERSION = "1.1.0";
@@ -633,6 +638,7 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     isCloudLoading: boolean;
     cloudError: string | null;
     suppressCalendarFetch: boolean;
+    eventOpsItems: EventOpsItem[];
     chatMessages: ChatMessage[];
     chatHistory: ChatHistoryItem[];
     scheduleItems: ScheduleItem[];
@@ -646,12 +652,15 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     draftedSchedule: ScheduleItem[] | null;
     isScheduleEditorOpen: boolean;
     setIsScheduleEditorOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    scheduleEditorBlockedTimeSlots: BlockedTimeSlot[];
+    scheduleEditorWorkSpan: { start: number; end: number } | null;
     draftedPriorities: Top3Item[] | null;
     keepNotes: string;
     delegatedTasks: DelegatedTaskItem[];
     isScheduleConfirmed: boolean;
     briefingInputs: BriefingInputItem[];
     briefingState: BriefingState;
+    briefingConsolidation: BriefingConsolidationMeta;
     collapsedCards: Record<string, boolean>;
     openSidebarSections: Record<string, boolean>;
     dailyProgress: number;
@@ -806,8 +815,6 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     updateScheduleItem: (id: string, updates: Partial<Pick<ScheduleItem, 'time' | 'title' | 'completed'>>) => void;
     deleteScheduleItem: (id: string) => void;
     syncScheduleToGoogleCalendar: (scheduleOverride?: ScheduleItem[]) => Promise<boolean>;
-    refreshGoogleCalendarEvents: () => Promise<void>;
-    clearGoogleCalendarEvents: () => void;
 
     pendingSchedule: ScheduleItem[] | null;
     finalizeSchedule: () => Promise<void>;
@@ -829,6 +836,7 @@ export interface DashboardContextType extends Omit<DashboardProviderProps, 'chil
     setInterviewOtherNotes: (mode: 'kickoff' | 'morning-briefing' | 'afternoon-briefing', value: string) => void;
     submitEndOfDayReview: () => Promise<void>;
     handleGenerateInterview: () => Promise<void>;
+    getQuestionLabel: (baseQuestion: string, type: BriefingQuestionHintType) => string;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -850,6 +858,46 @@ const parseScheduleArray = (scheduleArray: string[]): ScheduleItem[] => {
     // 4. "08:00 AM - 09:00 AM Title" (time range with space separator)
     const timePatternWithColon = /^((?:\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)\s*(?:-|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)|all\s*day|All\s*Day))\s*:?\s*-\s*(.*)/i;
     const timePatternWithSpace = /^((?:\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)\s*(?:-|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm|AM|PM)|all\s*day|All\s*Day))\s+(.*)/i;
+    const singleTimePattern = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm|AM|PM)\s*[-:]\s*(.+)$/i;
+
+    const parseSingleTimeToMinutes = (hoursRaw: string, minutesRaw: string | undefined, meridiemRaw: string) => {
+      let h = Number(hoursRaw);
+      const m = minutesRaw ? Number(minutesRaw) : 0;
+      const meridiem = String(meridiemRaw || '').toLowerCase();
+      if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+      if (meridiem === 'pm' && h < 12) h += 12;
+      if (meridiem === 'am' && h === 12) h = 0;
+      return h * 60 + m;
+    };
+
+    const minutesToAmPm = (minutes: number) => {
+      const clamped = Math.max(0, Math.min(24 * 60 - 1, Math.floor(minutes)));
+      const h24 = Math.floor(clamped / 60) % 24;
+      const m = clamped % 60;
+      const meridiem = h24 >= 12 ? 'PM' : 'AM';
+      const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+      return `${h12}:${String(m).padStart(2, '0')} ${meridiem}`;
+    };
+
+    const normalizeScheduleTitle = (value: string) => {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      if (raw.startsWith('{') || raw.startsWith('\\{') || raw.startsWith('[') || raw.startsWith('\\[')) {
+        const start = raw.indexOf('{');
+        const end = raw.lastIndexOf('}');
+        const candidate = start >= 0 && end > start ? raw.slice(start, end + 1) : raw;
+        try {
+          const parsed: any = JSON.parse(candidate);
+          const inner = parsed?.title ?? parsed?.text ?? parsed?.name;
+          const innerText = typeof inner === 'string' ? inner : inner != null ? String(inner) : '';
+          const cleaned = innerText.trim();
+          if (cleaned && !cleaned.startsWith('{') && !cleaned.startsWith('[')) return cleaned;
+        } catch {
+        }
+        return '';
+      }
+      return raw;
+    };
 
     return scheduleArray
         .filter((line: string) => line.trim() !== '')
@@ -870,11 +918,24 @@ const parseScheduleArray = (scheduleArray: string[]): ScheduleItem[] => {
                     time = match[1].trim();
                     title = match[2].trim();
                 } else {
+                    const single = trimmedLine.match(singleTimePattern);
+                    if (single) {
+                      const startMin = parseSingleTimeToMinutes(single[1], single[2], single[3]);
+                      if (startMin != null) {
+                        const endMin = startMin + 60;
+                        time = `${minutesToAmPm(startMin)} - ${minutesToAmPm(endMin)}`;
+                      } else {
+                        time = single[0].trim();
+                      }
+                      title = String(single[4] || '').trim();
+                    } else {
                     // No time pattern found. Treat the entire line as the title of an "All Day" task.
                     time = 'All Day';
                     title = trimmedLine;
+                    }
                 }
             }
+            title = normalizeScheduleTitle(title);
 
             // Standardize time format
             if (time.toLowerCase() === 'all day') {
@@ -934,11 +995,21 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [draftedProjectTasks, setDraftedProjectTasks] = useState<DelegatedTaskItem[]>([]);
     const [keepNotes, setKeepNotes] = useState<string>('');
     const [delegatedTasks, setDelegatedTasks] = useState<DelegatedTaskItem[]>([]);
+    const [departmentRosterTeam, setDepartmentRosterTeam] = useState<TeamMember[]>([]);
+    const [departmentRosterTeamError, setDepartmentRosterTeamError] = useState<string | null>(null);
     const [hasGreeted, setHasGreeted] = useState<boolean>(false);
     const [lastResetDate, setLastResetDate] = useState<string>('');
     const [isScheduleConfirmed, setIsScheduleConfirmed] = useState<boolean>(false);
     const [briefingInputs, setBriefingInputs] = useState<BriefingInputItem[]>([]);
     const [briefingState, setBriefingState] = useState<BriefingState>('idle');
+    const [briefingConsolidation, setBriefingConsolidation] = useState<BriefingConsolidationMeta>({
+      status: 'idle',
+      requiredSources: ['reminders', 'delegated_tasks', 'log_information', 'briefing_pointers', 'coaching_notes'],
+      missingSources: [],
+      counts: { reminders: 0, delegated_tasks: 0, log_information: 0, briefing_pointers: 0, coaching_notes: 0 },
+      generatedAt: null,
+      error: null,
+    });
     const [collapsedCards, setCollapsedCards] = useState<Record<string, boolean>>({});
     const [selectedProject, setSelectedProject] = useState<Project | null>(null);
     const [weeklyLog, setWeeklyLog] = useState<WeeklyLogItem[]>([]);
@@ -1005,6 +1076,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [isBriefingScriptVisible, setIsBriefingScriptVisible] = useState(false);
     const briefingFinalizeTimeoutRef = useRef<number | null>(null);
     const briefingFinalizeRequestRef = useRef<symbol | null>(null);
+    const briefingFinalizeNotesSnapshotRef = useRef<string>('');
     const [pendingBriefingWindow, setPendingBriefingWindow] = useState<BriefingWindow | null>(null);
     const [pendingBriefingContextSnapshot, setPendingBriefingContextSnapshot] = useState<BriefingContextSelection | null>(null);
     const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
@@ -1015,6 +1087,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const [draftedPriorities, setDraftedPriorities] = useState<Top3Item[] | null>(null);
     const [_lastPlanDraftText, setLastPlanDraftText] = useState<string>('');
     const [isScheduleEditorOpen, setIsScheduleEditorOpen] = useState(false);
+    const [scheduleEditorWorkSpan, setScheduleEditorWorkSpan] = useState<{ start: number; end: number } | null>(null);
 
     const [isInterviewModalOpen, setIsInterviewModalOpen] = useState(false);
     const [interviewModalMode, setInterviewModalMode] = useState<'kickoff' | 'morning-briefing' | 'afternoon-briefing' | 'end-of-day' | null>(null);
@@ -1036,6 +1109,79 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     useEffect(() => {
         console.log('[DashboardContext] isScheduleEditorOpen changed to:', isScheduleEditorOpen);
     }, [isScheduleEditorOpen]);
+
+    useEffect(() => {
+      let mounted = true;
+      (async () => {
+        if (!userProfile?.id) {
+          if (!mounted) return;
+          setDepartmentRosterTeam([]);
+          setDepartmentRosterTeamError(null);
+          return;
+        }
+        try {
+          const { data: myMembership, error: membershipError } = await supabase
+            .from('department_memberships')
+            .select('department_id')
+            .eq('user_id', userProfile.id)
+            .maybeSingle();
+          if (membershipError) throw membershipError;
+          const deptId = String((myMembership as any)?.department_id ?? '');
+          if (!deptId) {
+            if (!mounted) return;
+            setDepartmentRosterTeam([]);
+            setDepartmentRosterTeamError(null);
+            return;
+          }
+
+          const { data: members, error: membersError } = await supabase
+            .from('department_memberships')
+            .select('user_id, role')
+            .eq('department_id', deptId);
+          if (membersError) throw membersError;
+
+          const userIds = (members || []).map((m: any) => String(m?.user_id ?? '')).filter(Boolean);
+          if (userIds.length === 0) {
+            if (!mounted) return;
+            setDepartmentRosterTeam([]);
+            setDepartmentRosterTeamError(null);
+            return;
+          }
+
+          const { data: profiles, error: profilesError } = await supabase
+            .from('profiles')
+            .select('id, full_name, email')
+            .in('id', userIds);
+          if (profilesError) throw profilesError;
+          const profileMap = new Map<string, any>((profiles || []).map((p: any) => [String(p.id), p]));
+
+          const roster: TeamMember[] = (members || [])
+            .map((m: any) => {
+              const uid = String(m?.user_id ?? '');
+              if (!uid) return null;
+              const p = profileMap.get(uid);
+              const name = String(p?.full_name ?? '').trim() || 'Unnamed User';
+              const email = String(p?.email ?? '').trim();
+              const role = String((m?.role as DepartmentRole) ?? '').trim();
+              return { id: uid, name, email, role };
+            })
+            .filter(Boolean) as TeamMember[];
+
+          if (!mounted) return;
+          setDepartmentRosterTeam(roster);
+          setDepartmentRosterTeamError(null);
+        } catch (e: any) {
+          if (!mounted) return;
+          setDepartmentRosterTeam([]);
+          setDepartmentRosterTeamError(e?.message || 'Failed to load department roster.');
+        }
+      })();
+      return () => {
+        mounted = false;
+      };
+    }, [userProfile?.id]);
+
+    const effectiveTeamMembers = useMemo(() => mergeTeamMembers(departmentRosterTeam, userProfile?.team || []), [departmentRosterTeam, userProfile?.team]);
     const buildTopPriorities = useCallback((lines: string[]) => {
         const cleaned = lines
             .map((line) => line.replace(/^\d+\.\s*/, '').trim())
@@ -1043,9 +1189,15 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
         const isImportant = (text: string) => /^(important|urgent|critical)\b[:\-]*/i.test(text);
         const normalizeLabel = (text: string) => {
-            const colonSplit = text.split(':');
-            const label = colonSplit.length > 1 ? colonSplit[0] : text;
-            return label.replace(/\s+/g, ' ').trim();
+            // If the text has a colon, we check if the part before is a short label (e.g. "Operational Focus:")
+            // but for priorities like "Strategic Admin: Audit...", we should keep the whole thing or at least
+            // not discard the rest. The user likely wants the full objective.
+            const colonIndex = text.indexOf(':');
+            if (colonIndex > 0 && colonIndex < 30) {
+                // It looks like a label. Keep the whole thing but maybe clean it up.
+                return text.replace(/\s+/g, ' ').trim();
+            }
+            return text.replace(/\s+/g, ' ').trim();
         };
 
         const result: Top3Item[] = [];
@@ -1078,10 +1230,15 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             return normalized.trim();
         };
 
-        const lines = normalizedText.split('\n').map(normalizeLine).filter(Boolean);
-        const timeRegex = /^(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(.+)$/i;
-        const scheduleLines = lines.filter(line => timeRegex.test(line));
+        // First, try to find a "Schedule" section
+        const scheduleSectionMatch = normalizedText.match(/(?:schedule|today'?s schedule|daily schedule)\s*[:：]\s*\n([\s\S]*?)(?:\n\n|\n\s*\n|\n\s*(?:priorities|top priorities|reminders|isPlanDraft)\s*[:：]|$)/i);
+        let targetText = normalizedText;
+        if (scheduleSectionMatch) {
+            targetText = scheduleSectionMatch[1];
+        }
 
+        const lines = targetText.split('\n').map(normalizeLine).filter(Boolean);
+        const scheduleLines = lines.filter(line => /^(?:\d{1,2}(?::\d{2})?\s*(?:AM|PM)\b|all\s*day\b)/i.test(line));
         return scheduleLines.length > 0 ? parseScheduleArray(scheduleLines) : [];
     }, [parseScheduleArray]);
 
@@ -1099,6 +1256,17 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             return normalized.trim();
         };
 
+        // First, try to find a "Priorities" section specifically
+        const prioritySectionMatch = normalizedText.match(/(?:priorities|top priorities|objectives|top 3 objectives)\s*[:：]\s*\n([\s\S]*?)(?:\n\n|\n\s*\n|\n\s*(?:schedule|reminders|isPlanDraft)\s*[:：]|$)/i);
+        
+        if (prioritySectionMatch) {
+            const sectionText = prioritySectionMatch[1];
+            const lines = sectionText.split('\n').map(normalizeLine).filter(Boolean);
+            // Drop lines that are clearly not priorities (e.g. "Schedule:", "isPlanDraft:")
+            return lines.filter(l => !/^(?:schedule|isPlanDraft)\s*[:：]/i.test(l));
+        }
+
+        // Fallback: existing logic but safer
         const rawLines = normalizedText.split('\n').map(line => line.trim()).filter(Boolean);
         const numbered = rawLines
             .map(normalizeLine)
@@ -1109,13 +1277,41 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         }
 
         const lines = rawLines.map(normalizeLine).filter(Boolean);
-        const bulletLines = lines.filter(line => !/^top priorities/i.test(line) && !/^today'?s schedule/i.test(line));
+        // If we didn't find a section, we must be careful not to include the intro or schedule
+        const bulletLines = lines.filter(line => 
+            !/^here is your/i.test(line) &&
+            !/^here'?s a draft/i.test(line) &&
+            !/^your daily/i.test(line) &&
+            !/^schedule\s*[:：]/i.test(line) && 
+            !/^today'?s schedule/i.test(line) &&
+            !/^priorities\s*[:：]/i.test(line) &&
+            !/^top priorities/i.test(line) &&
+            !/^(?:\d{1,2}(?::\d{2})?\s*(?:AM|PM)\b|all\s*day\b)/i.test(line) && // filter out schedule lines
+            !/^isPlanDraft/i.test(line)
+        );
         return bulletLines;
     }, []);
 
     const [googleCalendarEvents, setGoogleCalendarEvents] = useState<any[]>([]);
-    const [suppressCalendarFetch, setSuppressCalendarFetch] = useState(false);
+    const [isGoogleCalendarEventsLoading, setIsGoogleCalendarEventsLoading] = useState(false);
+    const [googleCalendarEventsError, setGoogleCalendarEventsError] = useState<string | null>(null);
+    const [hasFetchedGoogleCalendarEvents, setHasFetchedGoogleCalendarEvents] = useState(false);
+    const [suppressCalendarFetch, setSuppressCalendarFetch] = useState(true);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+
+    const getQuestionLabel = useCallback((baseQuestion: string, type: BriefingQuestionHintType) => {
+      return getQuestionLabelUtil(baseQuestion, type, {
+        now: new Date(),
+        reminders,
+        briefingInputs,
+        delegatedTasks,
+        priorityForTomorrow,
+        dailyOpsMetrics,
+        staffPerformanceLog,
+        googleCalendarEvents,
+        eventOpsItems,
+      });
+    }, [reminders, briefingInputs, delegatedTasks, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, googleCalendarEvents, eventOpsItems]);
 
     const [completedGCalEventIds, setCompletedGCalEventIds] = useState<Set<string>>(new Set());
 
@@ -1143,11 +1339,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             if (now - lastWellnessCheckRef.current < 3600000) return;
 
             // Simple check: Count contiguous busy hours
-            // This is a simplified heuristic. In a real implementation, we'd parse times more robustly.
-            // For now, if we have > 3 items that look like they are back-to-back (or just > 4 items total in a day), trigger a check.
             const busyItems = scheduleItems.filter(item => !item.completed && item.title.toLowerCase() !== 'lunch' && item.title.toLowerCase() !== 'break');
+            const hasLunch = scheduleItems.some(item => item.title.toLowerCase().includes('lunch'));
             
-            if (busyItems.length >= 4) {
+            // Only trigger if they have NO lunch and > 4 busy items
+            if (busyItems.length >= 4 && !hasLunch) {
                  // Trigger Wellness Interjection
                  setChatMessages(prev => [...prev, {
                      id: Date.now(),
@@ -1300,7 +1496,17 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             );
             setProjects(Array.isArray(state.projects) ? state.projects : []);
             setCompletedProjects(Array.isArray(state.completedProjects) ? state.completedProjects : []);
-            setKeepNotes(state.keepNotes || '');
+            {
+              const loadedKeepNotes = state.keepNotes || '';
+              setKeepNotes(loadedKeepNotes);
+              setBriefingConsolidation(prev => ({
+                ...prev,
+                status: loadedKeepNotes.trim() ? 'ready' : 'idle',
+                missingSources: [],
+                error: null,
+                generatedAt: loadedKeepNotes.trim() ? Date.now() : null,
+              }));
+            }
             const rawDelegated = Array.isArray(state.delegatedTasks) ? state.delegatedTasks : [];
             const normalizedDelegated = normalizeDelegatedTasks(rawDelegated);
             setDelegatedTasks(normalizedDelegated);
@@ -1348,7 +1554,17 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             );
             setProjects(Array.isArray(state.projects) ? state.projects : []);
             setCompletedProjects(Array.isArray(state.completedProjects) ? state.completedProjects : []);
-            setKeepNotes(state.keepNotes || '');
+            {
+              const loadedKeepNotes = state.keepNotes || '';
+              setKeepNotes(loadedKeepNotes);
+              setBriefingConsolidation(prev => ({
+                ...prev,
+                status: loadedKeepNotes.trim() ? 'ready' : 'idle',
+                missingSources: [],
+                error: null,
+                generatedAt: loadedKeepNotes.trim() ? Date.now() : null,
+              }));
+            }
             const rawDelegated = Array.isArray(state.delegatedTasks) ? state.delegatedTasks : [];
             const normalizedDelegated = normalizeDelegatedTasks(rawDelegated);
             setDelegatedTasks(normalizedDelegated);
@@ -1497,7 +1713,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           const currentState: DashboardState = {
               chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks,
               dismissedDelegatedReminderTaskIds,
-              team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState,
+              team: effectiveTeamMembers, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState,
               collapsedCards, weeklyLog, priorityForTomorrow, stateVersion: DASHBOARD_STATE_VERSION,
               dailyOpsMetrics,
               staffPerformanceLog,
@@ -1517,7 +1733,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           saveDashboardState(userProfile.id, currentState).catch((err: any) => console.error("Failed to save state to Supabase:", err));
       }, saveDelay);
       return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-    }, [chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, dismissedDelegatedReminderTaskIds, userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt, suppressCalendarFetch, lastEventOpsNudgeDate, pendingDelegation, pendingScheduleClarification]);
+    }, [chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, dismissedDelegatedReminderTaskIds, effectiveTeamMembers, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, userProfile.id, isCloudLoading, cloudError, completedGCalEventIds, currentMode, modeHistory, modeActivatedAt, suppressCalendarFetch, lastEventOpsNudgeDate, pendingDelegation, pendingScheduleClarification]);
 
     const toYmdLocal = useCallback((date: Date) => {
       const y = date.getFullYear();
@@ -1685,26 +1901,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, [userProfile.assistantMemory]);
     
     useEffect(() => {
-        const fetchGoogleCalendarEvents = async () => {
-            if (session?.provider_token && googleCalendarEvents.length === 0) {
-                try {
-                    console.log("Fetching today's Google Calendar events...");
-                    const events = await getTodaysEvents(session.provider_token);
-                    setGoogleCalendarEvents(events);
-                    console.log("Fetched Google Calendar events for today:", events);
-                } catch (error: any) {
-                    console.error("Failed to fetch Google Calendar events:", error);
-                    if (error.message.includes('401') || error.message.includes('403') || error.status === 401 || error.status === 403) {
-                        onGoogleAuthError();
-                    }
-                }
-            }
-        };
-
-        if (!isCloudLoading && !suppressCalendarFetch) {
-            fetchGoogleCalendarEvents();
-        }
-    }, [session, onGoogleAuthError, isCloudLoading, googleCalendarEvents.length, suppressCalendarFetch]);
+        setIsGoogleCalendarEventsLoading(false);
+        setGoogleCalendarEventsError(null);
+        setGoogleCalendarEvents([]);
+        setHasFetchedGoogleCalendarEvents(true);
+    }, []);
   
     useEffect(() => {
       if (!isCloudLoading && !cloudError && !hasGreeted) {
@@ -1921,7 +2122,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             completedProjects: [],
             keepNotes: '',
             delegatedTasks: [],
-            team: userProfile.team,
+            team: effectiveTeamMembers,
             hasGreeted,
             lastResetDate,
             isScheduleConfirmed,
@@ -1935,7 +2136,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         };
 
         const historyForRequest: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-        const response = await sendMessageToGemini(historyForRequest, { ...userProfile, team: userProfile.team }, minimalState, [], new Date(), session?.provider_token || null, eventOpsItems);
+        const response = await sendMessageToGemini(historyForRequest, { ...userProfile, team: effectiveTeamMembers }, minimalState, [], new Date(), session?.provider_token || null, eventOpsItems);
         if (response?.isError) {
             throw new Error(response.text || 'Failed to generate project draft.');
         }
@@ -1975,7 +2176,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           .replace(/\s+/g, ' ')
           .trim();
 
-      const candidates = userProfile.team.flatMap(member => {
+      const candidates = effectiveTeamMembers.flatMap(member => {
         const normalized = normalizeName(member.name);
         if (!normalized) return [];
         const tokens = normalized.split(' ').filter(t => t.length >= 3);
@@ -2121,6 +2322,80 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       }
     }, []);
 
+    // Compliance Monitoring Framework
+    const checkMemoryCompliance = useCallback((response: any, profile: UserProfile) => {
+        if (!profile.assistantMemory) return { compliant: true, violations: [], fixedSchedule: null };
+        
+        let memoryFacts: string[] = [];
+        try {
+            const parsed = JSON.parse(profile.assistantMemory);
+            memoryFacts = Array.isArray(parsed) ? parsed : [profile.assistantMemory];
+        } catch (e) {
+            memoryFacts = [profile.assistantMemory];
+        }
+
+        const violations: string[] = [];
+        let fixedSchedule: any[] | null = null;
+        const schedule = response.schedule || [];
+        
+        memoryFacts.forEach(fact => {
+            const factLower = fact.toLowerCase();
+            
+            // Lunch/Break Rule Check
+            if (factLower.includes('lunch') || factLower.includes('break')) {
+                const timeMatch = fact.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*[-–—]\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+                if (timeMatch) {
+                    const [_, start, end] = timeMatch;
+                    const lunchItemIndex = schedule.findIndex((s: any) => {
+                        const title = String(s.title || '').toLowerCase();
+                        return title.includes('lunch') || title.includes('break');
+                    });
+                    
+                    if (lunchItemIndex !== -1) {
+                        const lunchItem = schedule[lunchItemIndex];
+                        const lunchTime = String(lunchItem.time || '');
+                        if (!lunchTime.includes(start) || !lunchTime.includes(end)) {
+                            violations.push(`Rule Violation: Lunch time mismatch. Expected ${start} - ${end}, but AI proposed ${lunchTime}.`);
+                            
+                            // Auto-Fix: Update the time in the fixed schedule
+                            if (!fixedSchedule) fixedSchedule = [...schedule];
+                            fixedSchedule[lunchItemIndex] = {
+                                ...lunchItem,
+                                time: `${start} - ${end}`
+                            };
+                        }
+                    } else if (schedule.length > 0) {
+                        violations.push(`Rule Violation: Mandatory lunch/break block (${start} - ${end}) missing from schedule.`);
+                        
+                        // Auto-Fix: Add missing lunch block
+                        if (!fixedSchedule) fixedSchedule = [...schedule];
+                        fixedSchedule.push({
+                            time: `${start} - ${end}`,
+                            title: 'Lunch'
+                        });
+                    }
+                }
+            }
+            
+            // Reporting Day Check (if today is the day mentioned)
+            if (factLower.includes('report') && factLower.includes('every')) {
+                const dayMatch = fact.match(/(?:every|each)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i);
+                if (dayMatch) {
+                    const day = dayMatch[1].toLowerCase();
+                    const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+                    if (day === today) {
+                        const reportItem = schedule.find((s: any) => String(s.title || '').toLowerCase().includes('report'));
+                        if (!reportItem && schedule.length > 0) {
+                            violations.push(`Rule Violation: Reporting task missing on ${day}. Fact: "${fact}"`);
+                        }
+                    }
+                }
+            }
+        });
+
+        return { compliant: violations.length === 0, violations, fixedSchedule };
+    }, []);
+
     const handleSendMessage = useCallback(async (e?: React.FormEvent, prompt?: string, imageUrl?: string, options?: { hideUserMessage?: boolean; suppressChat?: boolean }): Promise<void> => {
       if (e) e.preventDefault();
       setLastInteraction(Date.now()); // Update interaction timestamp
@@ -2129,12 +2404,24 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       const normalizedImageUrl =
         options ? imageUrl : (((imageUrl as any) && typeof (imageUrl as any) === 'object') ? undefined : imageUrl);
       const rawText = (prompt || chatInput).trim();
+      const isKickoffInterviewGeneratePrompt = /\bGenerate a Daily Kick-off plan from the interview answers\./i.test(rawText);
+      const effectiveSuppressChat =
+        Boolean(normalizedOptions?.suppressChat) ||
+        Boolean(openScheduleEditorOnNextKickoffDraftRef.current) ||
+        isKickoffInterviewGeneratePrompt;
+      const isBriefingInterviewDraftRequestEarly =
+        /Create\s+(?:morning|afternoon)\s+briefing\s+notes\s+from\s+the\s+interview\s+answers/i.test(rawText) ||
+        /keep_draft\s+MUST\s+be\s+plain\s+text\s+only\s+and\s+MUST\s+start\s+with/i.test(rawText);
+      let isBriefingInterviewDraftRequest = isBriefingInterviewDraftRequestEarly;
       const projectRequestPrefix = 'PROJECT_DRAFT_REQUEST::';
       const isProjectDraftRequest = rawText.startsWith(projectRequestPrefix);
       const messageText = isProjectDraftRequest ? rawText.replace(projectRequestPrefix, '').trim() : rawText;
       if (!messageText && !attachedFile && !normalizedImageUrl) return;
       if (aiCooldownUntil && Date.now() < aiCooldownUntil) {
-        if (normalizedOptions?.suppressChat) {
+        if (effectiveSuppressChat) {
+          if (isBriefingInterviewDraftRequestEarly) {
+            setKeepNotes("The AI service is rate-limited right now. Please wait about a minute and try again.");
+          }
           setNotificationModal({ isOpen: true, title: 'Rate Limited', message: "The AI service is rate-limited right now. Please wait about a minute and try again." });
           return;
         }
@@ -2142,7 +2429,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         return;
       }
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        if (normalizedOptions?.suppressChat) {
+        if (effectiveSuppressChat) {
+          if (isBriefingInterviewDraftRequestEarly) {
+            setKeepNotes("You're offline. Please reconnect to the internet and try again.");
+          }
           setNotificationModal({ isOpen: true, title: 'Offline', message: "You're offline. Please reconnect to the internet and try again." });
           return;
         }
@@ -2153,7 +2443,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       if (isCommandPaletteOpen) setIsCommandPaletteOpen(false);
 
       const isSystemPromptPreview = messageText.startsWith('SYSTEM:');
-      const shouldBypassLocalShortcuts = Boolean(normalizedOptions?.suppressChat) || Boolean(normalizedOptions?.hideUserMessage) || Boolean(isSystemPromptPreview);
+      const shouldBypassLocalShortcuts = effectiveSuppressChat || Boolean(normalizedOptions?.hideUserMessage) || Boolean(isSystemPromptPreview);
 
       const shouldAutoCancelPendingDelegation = Boolean(
         pendingDelegation &&
@@ -2369,7 +2659,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       });
 
       const shouldBypassFreeStyleHeuristics =
-        Boolean(normalizedOptions?.suppressChat) ||
+        effectiveSuppressChat ||
         Boolean(normalizedOptions?.hideUserMessage) ||
         Boolean(isSystemPromptPreview);
 
@@ -2461,7 +2751,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         const isSystemPrompt = messageText.startsWith('SYSTEM:');
         
         // For mode activation SYSTEM prompts, don't show in chat at all
-        const shouldHideMessage = Boolean(normalizedOptions?.hideUserMessage) || Boolean(normalizedOptions?.suppressChat) || (isSystemPrompt && (
+        const shouldHideMessage = Boolean(normalizedOptions?.hideUserMessage) || effectiveSuppressChat || (isSystemPrompt && (
             messageText.includes('CRISIS MODE') || 
             messageText.includes('STRATEGIC MODE') || 
             messageText.includes('RED DAY MODE')
@@ -2525,7 +2815,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               fullPrompt += `\n\n--- Attached File Content: ${fileToProcess.name} ---\n${await fileToProcess.text()}`;
           } catch (readError) {
               console.error("Error reading file:", readError);
-              if (normalizedOptions?.suppressChat) {
+              if (effectiveSuppressChat) {
                 setNotificationModal({ isOpen: true, title: 'File Error', message: `Sorry, I was unable to read the file "${fileToProcess.name}".` });
               } else {
                 setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Sorry, I was unable to read the file "${fileToProcess.name}".` }]);
@@ -2536,6 +2826,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               return;
           }
       }
+
+      isBriefingInterviewDraftRequest =
+        /Create\s+(?:morning|afternoon)\s+briefing\s+notes\s+from\s+the\s+interview\s+answers/i.test(fullPrompt) ||
+        /keep_draft\s+MUST\s+be\s+plain\s+text\s+only\s+and\s+MUST\s+start\s+with/i.test(fullPrompt);
 
       if (pendingScheduleClarification && !isProjectDraftRequest && !fileToProcess && !normalizedImageUrl && !isSystemPrompt && !isFinalization) {
           const keyFactsForPrompt = (() => {
@@ -2609,7 +2903,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             completedProjects: [],
             keepNotes,
             delegatedTasks: effectiveBriefingContext.briefingDelegatedTasks,
-            team: userProfile.team,
+            team: effectiveTeamMembers,
             hasGreeted,
             lastResetDate,
             isScheduleConfirmed,
@@ -2639,7 +2933,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             completedProjects,
             keepNotes,
             delegatedTasks: effectiveBriefingContext.briefingDelegatedTasks,
-            team: userProfile.team,
+            team: effectiveTeamMembers,
             hasGreeted,
             lastResetDate,
             isScheduleConfirmed,
@@ -2665,7 +2959,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           if (freshEventOpsItems.length > 0) setEventOpsItems(freshEventOpsItems);
           const response = await sendMessageToGemini(
             newHistory,
-            { ...userProfile, team: userProfile.team },
+            { ...userProfile, team: effectiveTeamMembers },
             currentDashboardState,
             googleCalendarEvents,
             new Date(),
@@ -2673,6 +2967,34 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             freshEventOpsItems,
             isBriefingFinalizeRequest ? { mode: 'briefing_finalize' } : undefined
           );
+
+          // Real-time Compliance Check & Auto-Fix
+          const compliance = checkMemoryCompliance(response, userProfile);
+          if (!compliance.compliant) {
+              console.warn("[Compliance Alert] Assistant Memory Violation Detected:", compliance.violations);
+              
+              // Apply Auto-Fix if available
+              if (compliance.fixedSchedule) {
+                  console.log("[Compliance] Applying Auto-Fix for schedule...");
+                  response.schedule = compliance.fixedSchedule;
+              }
+
+              // Alert the user via notification if it's a critical mismatch and we are in an automated flow
+              if (effectiveSuppressChat && compliance.violations.length > 0) {
+                  setNotificationModal({
+                      isOpen: true,
+                      title: 'Compliance Adjusted',
+                      message: `The AI's proposal was adjusted to match your Assistant Memory:\n\n${compliance.violations.join('\n')}\n\nYour preferred times have been enforced automatically.`,
+                  });
+              }
+          }
+
+          let modelText = response.text || "";
+          // Strip thinking tags from modelText if it's a reasoning model responding with plain text
+          if (typeof modelText === 'string') {
+              // Be very aggressive with stripping thoughts
+              modelText = modelText.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<think>[\s\S]*/gi, "").trim();
+          }
           let overrideChatText: string | null = null;
           let overrideIsPlanDraft: boolean | null = null;
           let shouldClearPendingScheduleClarification = false;
@@ -2733,7 +3055,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               const { type, personName, task, question } = response.clarificationRequest;
               if (type === 'delegation_deadline' && typeof personName === 'string' && typeof task === 'string') {
                   setPendingDelegation({ personName, task, requestedAt: Date.now() });
-                  if (typeof question === 'string' && question.trim()) {
+                  if (!effectiveSuppressChat && typeof question === 'string' && question.trim()) {
                       setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: question.trim() }]);
                   }
               }
@@ -2755,10 +3077,14 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           if (response.delegationUpdate && !isBriefingFinalizeResponse) {
               const { personName, task, deadline, deadlineISO: providedDeadlineISO } = response.delegationUpdate;
               if (!personName || !task) {
-                  setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: "To delegate a task, tell me who it's for and what the task is." }]);
+                  if (!effectiveSuppressChat) {
+                    setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: "To delegate a task, tell me who it's for and what the task is." }]);
+                  }
               } else if (!deadline) {
                   setPendingDelegation({ personName, task, requestedAt: Date.now() });
-                  setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `What deadline should I set for "${task}" (assigned to ${personName})? Try "tomorrow", "2026-02-15", or "2026-02-15 15:00".` }]);
+                  if (!effectiveSuppressChat) {
+                    setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `What deadline should I set for "${task}" (assigned to ${personName})? Try "tomorrow", "2026-02-15", or "2026-02-15 15:00".` }]);
+                  }
               } else {
                   // Parse deadline and generate deadlineISO if not provided or invalid
                   const parsed = parseDeadlineFromText(deadline);
@@ -2768,7 +3094,9 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   
                   if (!deadlineISO) {
                       setPendingDelegation({ personName, task, requestedAt: Date.now() });
-                      setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `I couldn't parse the deadline "${deadline}". Please try "tomorrow", "2026-02-15", or "2026-02-15 15:00".` }]);
+                      if (!effectiveSuppressChat) {
+                        setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `I couldn't parse the deadline "${deadline}". Please try "tomorrow", "2026-02-15", or "2026-02-15 15:00".` }]);
+                      }
                       return;
                   }
               const assignee = userProfile.team.find(m => m.name.toLowerCase() === personName.toLowerCase());
@@ -2812,17 +3140,25 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                           console.error('Failed to sync delegated task to Google Tasks:', error);
                           // Task is already in local state, just log the sync error
                           if (isTasksApiDisabled(error)) {
-                              setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Task created for ${assignee.name}, but Google Tasks sync failed. The task is saved locally.` }]);
+                              if (!effectiveSuppressChat) {
+                                setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Task created for ${assignee.name}, but Google Tasks sync failed. The task is saved locally.` }]);
+                              }
                           } else if (isGoogleAuthError(error)) {
                               onGoogleAuthError();
-                              setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Task created for ${assignee.name}, but Google connection expired. The task is saved locally. Please reconnect to sync.` }]);
+                              if (!effectiveSuppressChat) {
+                                setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Task created for ${assignee.name}, but Google connection expired. The task is saved locally. Please reconnect to sync.` }]);
+                              }
                           } else {
-                              setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Task created for ${assignee.name}, but Google Tasks sync failed: ${error.message}. The task is saved locally.` }]);
+                              if (!effectiveSuppressChat) {
+                                setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Task created for ${assignee.name}, but Google Tasks sync failed: ${error.message}. The task is saved locally.` }]);
+                              }
                           }
                       }
                   } else {
                       // No Google token - task is still created locally
-                      setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Task created for ${assignee.name}. Connect Google to sync tasks.` }]);
+                      if (!effectiveSuppressChat) {
+                        setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: `Task created for ${assignee.name}. Connect Google to sync tasks.` }]);
+                      }
                   }
               } else {
                   console.warn(`Could not find team member: ${personName} to assign task.`);
@@ -2889,28 +3225,59 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           const hasDraftishPriorities =
               Boolean(response.priorities) &&
               (Array.isArray(response.priorities) ? response.priorities.length > 0 : typeof response.priorities === 'string' && response.priorities.trim().length > 0);
+          const textSuggestsPlanDraft = typeof response.text === 'string' && (
+            /isPlanDraft\s*[:=]\s*true/i.test(response.text) ||
+            (/(^|\n)\s*[*_`>\\-]*\s*schedule\s*[:：]/i.test(response.text) && /(^|\n)\s*[*_`>\\-]*\s*priorities\s*[:：]/i.test(response.text))
+          );
           const shouldTreatAsPlanDraft =
               response.isPlanDraft === true ||
               response.isPlanDraft === "true" ||
               hasDraftishSchedule ||
-              hasDraftishPriorities;
+              hasDraftishPriorities ||
+              textSuggestsPlanDraft ||
+              isKickoffInterviewGeneratePrompt;
+
+          let modelTextForDraft = response.text || "";
+          // Strip thinking tags from modelText if it's a reasoning model responding with plain text
+          if (typeof modelTextForDraft === 'string') {
+              modelTextForDraft = modelTextForDraft.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+          }
 
           if (shouldTreatAsPlanDraft) {
-              if (response.text) {
-                  setLastPlanDraftText(response.text);
-              }
+              setLastPlanDraftText(modelTextForDraft);
               let scheduleCandidate: ScheduleItem[] = [];
               const fallbackSchedule = response.text ? extractDraftScheduleFromText(response.text) : [];
               if (response.schedule || fallbackSchedule.length > 0) {
                   if (Array.isArray(response.schedule) && response.schedule.length > 0 && typeof response.schedule[0] === 'object' && response.schedule[0].time) {
+                      const normalizeDraftTitle = (value: any) => {
+                        const raw = String(value ?? '').replace(/^[\u200B-\u200D\uFEFF]+/, '').trim();
+                        if (!raw) return '';
+                        const normalizedLead = raw.replace(/^["'`]+/, '').replace(/^\\+/, '');
+                        if (normalizedLead.startsWith('{') || normalizedLead.startsWith('[')) {
+                          const start = normalizedLead.indexOf('{');
+                          const end = normalizedLead.lastIndexOf('}');
+                          const candidate = start >= 0 && end > start ? normalizedLead.slice(start, end + 1) : normalizedLead;
+                          try {
+                            const parsed: any = JSON.parse(candidate);
+                            const inner = parsed?.title ?? parsed?.text ?? parsed?.name;
+                            const innerText = typeof inner === 'string' ? inner : inner != null ? String(inner) : '';
+                            const cleaned = innerText.replace(/^[\u200B-\u200D\uFEFF]+/, '').trim();
+                            if (cleaned && !cleaned.startsWith('{') && !cleaned.startsWith('[')) return cleaned;
+                          } catch {
+                          }
+                          return '';
+                        }
+                        return raw;
+                      };
                       scheduleCandidate = response.schedule.map((item: any, index: number) => {
                           const time = item.time || 'All Day';
-                          const title = item.title || item.name || '';
+                          const title = normalizeDraftTitle(item.title || item.name || '');
+                          if (!title) return null;
                           const timeHash = time.replace(/[:\s-]/g, '').toLowerCase();
                           const titleHash = title.substring(0, 30).replace(/[^\w\s]/g, '').replace(/\s+/g, '-').toLowerCase();
                           const stableId = item.id || `sched-${timeHash}-${titleHash}-${index}`;
                           return { id: stableId, time, title, completed: Boolean(item.completed), isGoogleEvent: Boolean(item.isGoogleEvent) };
-                      }).filter((item: ScheduleItem) => item.title);
+                      }).filter((item: ScheduleItem | null): item is ScheduleItem => Boolean(item && item.title));
                   } else {
                       const scheduleArray = Array.isArray(response.schedule) 
                           ? response.schedule 
@@ -2990,6 +3357,16 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 }));
               }
 
+              const sanitizeScheduleCandidate = (items: ScheduleItem[]) =>
+                items.filter((it) => {
+                  const title = String(it?.title ?? '').replace(/^[\u200B-\u200D\uFEFF]+/, '').trim();
+                  if (!title) return false;
+                  const normalizedLead = title.replace(/^["'`]+/, '').replace(/^\\+/, '');
+                  if (normalizedLead.startsWith('{') || normalizedLead.startsWith('[')) return false;
+                  return true;
+                });
+              scheduleCandidate = sanitizeScheduleCandidate(scheduleCandidate);
+
               const todayYmd = toYmdLocal(new Date());
               const eventOpsCompact = freshEventOpsItems.map(item => ({
                 id: item.id,
@@ -3000,36 +3377,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                 serving_time: item.serving_time,
               }));
 
-              const existingTitles = new Set(scheduleCandidate.map(s => normalizeNeedle(s.title)));
-              const { blocks: eventOpsBlocks } = buildEventOpsBlocksForToday(eventOpsCompact, todayYmd);
-              const eventOpsAdditions: ScheduleItem[] = [];
-              eventOpsBlocks.forEach(({ start, end, item }: any) => {
-                const needle = normalizeNeedle(item?.name);
-                if (!needle) return;
-                const alreadyIncluded = Array.from(existingTitles).some(t => t.includes(needle)) || existingTitles.has(`event ops — ${needle}`);
-                if (alreadyIncluded) return;
-                const time = `${minutesToAmPm(start)} - ${minutesToAmPm(end)}`;
-                const id = `eventops-${String(item.id)}`;
-                const title = `Event Ops — ${String(item.name)}`;
-                eventOpsAdditions.push({ id, time, title, completed: false });
-              });
-              if (eventOpsAdditions.length > 0) {
-                scheduleCandidate = [...scheduleCandidate, ...eventOpsAdditions].filter((s, idx, arr) => arr.findIndex(x => x.id === s.id) === idx);
-                scheduleCandidate.sort((a, b) => {
-                  const pa = parseScheduleRangeToMinutes(String(a.time || ''));
-                  const pb = parseScheduleRangeToMinutes(String(b.time || ''));
-                  if (!pa && !pb) return 0;
-                  if (!pa) return 1;
-                  if (!pb) return -1;
-                  return pa.start - pb.start;
-                });
-              }
-
-              const validation = detectEventOpsScheduleClarification({
-                todayYmd,
-                eventOpsItems: eventOpsCompact,
-                proposedSchedule: scheduleCandidate.map(s => ({ time: s.time, title: s.title })),
-              });
+              const validation = { needsClarification: false as const };
 
               const shouldAutoFinalizeKickoffPlan = Boolean(autoFinalizeKickoffPlanRef.current);
               if ('needsClarification' in validation && validation.needsClarification) {
@@ -3083,12 +3431,27 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               }
 
               if (openScheduleEditorOnNextKickoffDraftRef.current) {
+                const canOpen = scheduleCandidate.length > 0;
                 openScheduleEditorOnNextKickoffDraftRef.current = false;
                 autoFinalizeKickoffPlanRef.current = false;
-                setTimeout(() => {
-                  setIsScheduleEditorOpen(true);
-                }, 0);
+                if (canOpen) {
+                  setTimeout(() => {
+                    setIsScheduleEditorOpen(true);
+                  }, 0);
+                } else {
+                  setNotificationModal({
+                    isOpen: true,
+                    title: 'Draft Not Ready',
+                    message: "I couldn't extract the schedule draft for the editor. Please click Generate again.",
+                  });
+                }
               }
+          } else if (openScheduleEditorOnNextKickoffDraftRef.current) {
+              openScheduleEditorOnNextKickoffDraftRef.current = false;
+              autoFinalizeKickoffPlanRef.current = false;
+              setTimeout(() => {
+                setIsScheduleEditorOpen(true);
+              }, 0);
           } else {
               // Handle normal, non-draft updates
               if (response.currentMood) {
@@ -3478,6 +3841,756 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               return normalizeBriefingScriptForDisplay(normalizeEscapedNewlinesForDisplay(String(extracted).trim()));
           };
 
+          const enforceBriefingScriptCoverage = (scriptRaw: string) => {
+              const notes = String(briefingFinalizeNotesSnapshotRef.current || '').trim();
+              if (!notes) return scriptRaw;
+
+              const stripTrailingRawVerbatimBlocks = (text: string) => {
+                  const rawHeaders = [
+                      'COACHING NOTES:',
+                      'OTHER UPDATES / NOTES:',
+                      'REMINDERS:',
+                      'DELEGATED TASKS:',
+                      'BRIEFING POINTERS:',
+                      'LOG INFORMATION:',
+                  ];
+                  const normalizeHeader = (value: string) =>
+                      String(value || '')
+                          .trim()
+                          .toUpperCase()
+                          .replace(/\s+/g, ' ');
+                  const headerSet = new Set(rawHeaders.map(normalizeHeader));
+
+                  const lines = String(text || '').split('\n');
+                  const startIndex = lines.findIndex((l) => {
+                      const trimmed = String(l || '').trim();
+                      if (!trimmed) return false;
+                      if (/^\d+\.\s+/.test(trimmed)) return false;
+                      return headerSet.has(normalizeHeader(trimmed));
+                  });
+                  if (startIndex < 0) return text;
+
+                  const tail = lines.slice(startIndex);
+                  const tailLooksLikeRawDump = tail.every((l) => {
+                      const trimmed = String(l || '').trim();
+                      if (!trimmed) return true;
+                      if (/^\d+\.\s+/.test(trimmed)) return false;
+                      if (headerSet.has(normalizeHeader(trimmed))) return true;
+                      if (/^[•\-]\s+/.test(trimmed)) return true;
+                      return false;
+                  });
+                  if (!tailLooksLikeRawDump) return text;
+                  return lines.slice(0, startIndex).join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+              };
+
+              const dropDuplicateJumarOutsideCoaching = (text: string) => {
+                  const lines = String(text || '').split('\n');
+                  const coachingIdx = lines.findIndex((l) => /^\s*\d+\.\s+.*coaching/i.test(l));
+                  const normalize = (value: string) =>
+                      String(value || '')
+                          .toLowerCase()
+                          .replace(/[^a-z0-9]+/g, ' ')
+                          .replace(/\s+/g, ' ')
+                          .trim();
+                  const target = normalize('Jumar is improving');
+                  if (!target) return text;
+                  const next: string[] = [];
+                  for (let i = 0; i < lines.length; i++) {
+                      const line = lines[i];
+                      const isBullet = /^\s*[•\-*]\s+/i.test(line);
+                      const isTarget = normalize(line).includes(target);
+                      if (isBullet && isTarget && coachingIdx >= 0 && i < coachingIdx) {
+                          continue;
+                      }
+                      next.push(line);
+                  }
+                  return next.join('\n');
+              };
+
+              const extractNumberedSectionLines = (title: string) => {
+                  const lines = notes.split('\n');
+                  const esc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                  const headerRe = new RegExp(`^\\s*\\d+\\.\\s+${esc}\\s*:\\s*$`, 'i');
+                  const nextHeaderRe = /^\s*\d+\.\s+.+:\s*$/;
+                  const startIndex = lines.findIndex((l) => headerRe.test(l));
+                  if (startIndex < 0) return [];
+                  const out: string[] = [];
+                  for (let i = startIndex + 1; i < lines.length; i++) {
+                      const line = lines[i];
+                      if (nextHeaderRe.test(line)) break;
+                      const trimmed = String(line || '').trim();
+                      if (!trimmed) continue;
+                      out.push(trimmed.replace(/^\s*[-•*]\s*/, '').trim());
+                  }
+                  return out.filter(Boolean);
+              };
+
+              const required = {
+                  coachingNotes: extractNumberedSectionLines('COACHING NOTES'),
+                  otherUpdates: extractNumberedSectionLines('OTHER UPDATES / NOTES'),
+                  reminders: extractNumberedSectionLines('REMINDERS'),
+                  delegatedTasks: extractNumberedSectionLines('DELEGATED TASKS'),
+                  briefingPointers: extractNumberedSectionLines('BRIEFING POINTERS'),
+                  logInformation: extractNumberedSectionLines('LOG INFORMATION'),
+              };
+
+              const normalize = (value: string) =>
+                  String(value || '')
+                      .toLowerCase()
+                      .replace(/(\d)([a-z])/g, '$1 $2')
+                      .replace(/([a-z])(\d)/g, '$1 $2')
+                      .replace(/[^a-z0-9]+/g, ' ')
+                      .replace(/\s+/g, ' ')
+                      .trim();
+
+              const normalizeVerbatim = (value: string) =>
+                  String(value || '')
+                      .replace(/^\s*[-•*]\s+/, '')
+                      .trim()
+                      .toLowerCase()
+                      .replace(/\s+/g, ' ')
+                      .trim();
+
+              const stopwords = new Set([
+                  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'before', 'begins', 'by', 'can', 'close', 'during', 'ensure', 'for', 'from', 'has',
+                  'have', 'hours', 'if', 'immediately', 'in', 'into', 'is', 'it', 'loop', 'must', 'next', 'of', 'on', 'or', 'please', 'should',
+                  'so', 'that', 'the', 'this', 'to', 'today', 'tomorrow', 'until', 'up', 'via', 'with', 'within',
+              ]);
+              const tokenize = (value: string) =>
+                  normalize(value)
+                      .split(' ')
+                      .map((t) => t.trim())
+                      .filter(Boolean)
+                      .filter((t) => !stopwords.has(t));
+
+              const chooseBulletPrefix = (text: string) => {
+                  const lines = String(text || '').split('\n');
+                  const hasDot = lines.some((l) => /^\s*•\s+/.test(l));
+                  if (hasDot) return '• ';
+                  const hasHyphen = lines.some((l) => /^\s*-\s+/.test(l));
+                  if (hasHyphen) return '- ';
+                  return '• ';
+              };
+
+              const replaceOrMarkMissingVerbatim = (scriptText: string, items: string[]) => {
+                  const scriptLines = String(scriptText || '').split('\n');
+                  const scriptVerbatim = normalizeVerbatim(scriptText);
+                  const jaccard = (a: string[], b: string[]) => {
+                      if (a.length === 0 || b.length === 0) return 0;
+                      const sa = new Set(a);
+                      const sb = new Set(b);
+                      let inter = 0;
+                      sa.forEach((x) => {
+                          if (sb.has(x)) inter += 1;
+                      });
+                      const union = sa.size + sb.size - inter;
+                      return union === 0 ? 0 : inter / union;
+                  };
+
+                  const isBulletLine = (line: string) => /^\s*[•\-*]\s+/.test(String(line || ''));
+                  const bulletPrefixForLine = (line: string) => (String(line || '').match(/^\s*([•\-*])\s+/)?.[1] ?? '•') + ' ';
+
+                  const missing: string[] = [];
+                  const nextLines = [...scriptLines];
+                  for (const item of items) {
+                      const itemClean = String(item || '').trim().replace(/^\s*[-•*]\s+/, '').trim();
+                      if (!itemClean) continue;
+                      const itemNeedle = normalizeVerbatim(itemClean);
+                      if (itemNeedle && scriptVerbatim.includes(itemNeedle)) continue;
+
+                      const itemTokens = tokenize(itemClean);
+                      let bestIdx = -1;
+                      let bestScore = 0;
+                      for (let i = 0; i < nextLines.length; i++) {
+                          const line = nextLines[i];
+                          if (!isBulletLine(line)) continue;
+                          const lineText = String(line || '').replace(/^\s*[•\-*]\s+/, '').trim();
+                          const score = jaccard(itemTokens, tokenize(lineText));
+                          if (score > bestScore) {
+                              bestScore = score;
+                              bestIdx = i;
+                          }
+                      }
+
+                      const dynamicThreshold = itemTokens.length <= 4 ? 0.5 : 0.42;
+                      if (bestIdx >= 0 && bestScore >= dynamicThreshold) {
+                          const prefix = bulletPrefixForLine(nextLines[bestIdx]);
+                          nextLines[bestIdx] = `${prefix}${itemClean}`;
+                          continue;
+                      }
+
+                      missing.push(itemClean);
+                  }
+
+                  return { text: nextLines.join('\n'), missing };
+              };
+
+              const dedupeBulletsByVerbatim = (text: string) => {
+                  const lines = String(text || '').split('\n');
+                  const out: string[] = [];
+                  let seenInSection = new Set<string>();
+                  for (let i = 0; i < lines.length; i++) {
+                      const line = lines[i];
+                      const trimmed = String(line || '').trim();
+                      if (/^\s*\d+\.\s+/.test(trimmed)) {
+                          seenInSection = new Set<string>();
+                          out.push(line);
+                          continue;
+                      }
+                      if (/^\s*[•\-*]\s+/.test(trimmed)) {
+                          const key = normalizeVerbatim(trimmed);
+                          if (key && seenInSection.has(key)) continue;
+                          if (key) seenInSection.add(key);
+                          out.push(line);
+                          continue;
+                      }
+                      out.push(line);
+                  }
+                  return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+              };
+
+              const normalizeLineTokens = (value: string) => tokenize(String(value || '').replace(/^\s*[•\-*]\s+/, '').trim());
+
+              const removeParaphraseDuplicatesWhenVerbatimExists = (text: string, requiredItems: string[]) => {
+                  const lines = String(text || '').split('\n');
+                  const required = requiredItems
+                      .map((x) => String(x || '').trim().replace(/^\s*[-•*]\s+/, '').trim())
+                      .filter(Boolean);
+                  if (required.length === 0) return text;
+
+                  const isBullet = (l: string) => /^\s*[•\-*]\s+/.test(String(l || '').trim());
+                  const cleanedLines = [...lines];
+
+                  for (const item of required) {
+                      const needle = normalizeVerbatim(item);
+                      if (!needle) continue;
+                      const exactIdxs = cleanedLines
+                          .map((l, idx) => ({ l, idx }))
+                          .filter(({ l }) => isBullet(l) && normalizeVerbatim(l) === needle)
+                          .map(({ idx }) => idx);
+                      if (exactIdxs.length === 0) continue;
+
+                      const itemTokens = normalizeLineTokens(item);
+                      for (let i = 0; i < cleanedLines.length; i++) {
+                          if (!isBullet(cleanedLines[i])) continue;
+                          if (exactIdxs.includes(i)) continue;
+                          const lineText = String(cleanedLines[i] || '').replace(/^\s*[•\-*]\s+/, '').trim();
+                          const lineNeedle = normalizeVerbatim(lineText);
+                          if (!lineNeedle || lineNeedle === needle) continue;
+                          const score = (() => {
+                              const a = new Set(itemTokens);
+                              const b = new Set(normalizeLineTokens(lineText));
+                              if (a.size === 0 || b.size === 0) return 0;
+                              let inter = 0;
+                              a.forEach((x) => {
+                                  if (b.has(x)) inter += 1;
+                              });
+                              const union = a.size + b.size - inter;
+                              return union === 0 ? 0 : inter / union;
+                          })();
+                          if (score >= 0.38) {
+                              cleanedLines[i] = '';
+                          }
+                      }
+                  }
+
+                  return cleanedLines.filter((l) => String(l || '').trim().length > 0).join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+              };
+
+              const normalizeEmptyNoneLine = (text: string) => {
+                  const lines = String(text || '').split('\n');
+                  for (let i = 0; i < lines.length; i++) {
+                      const line = String(lines[i] || '');
+                      if (!/^\s*\d+\.\s+/.test(line)) continue;
+                      for (let j = i + 1; j < lines.length; j++) {
+                          const next = String(lines[j] || '');
+                          if (!next.trim()) continue;
+                          if (/^\s*\d+\.\s+/.test(next)) break;
+                          if (/^\s*[•\-*]\s+/.test(next)) break;
+                          if (/^\s*\(?\s*none\s*\)?\s*$/i.test(next.trim())) {
+                              lines[j] = `${bulletPrefix}(none)`;
+                          }
+                          break;
+                      }
+                  }
+                  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+              };
+
+              const ensureBlankLineBeforeNumberedHeaders = (text: string) => {
+                  const lines = String(text || '').split('\n');
+                  const out: string[] = [];
+                  for (let i = 0; i < lines.length; i++) {
+                      const line = lines[i];
+                      const trimmed = String(line || '').trim();
+                      if (/^\d+\.\s+/.test(trimmed)) {
+                          if (out.length > 0 && out[out.length - 1].trim() !== '') out.push('');
+                      }
+                      out.push(line);
+                  }
+                  return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+              };
+
+              const findSectionStartIndexByPriority = (lines: string[], matchers: RegExp[]) => {
+                  for (const re of matchers) {
+                      const idx = lines.findIndex((l) => {
+                          const line = String(l || '');
+                          if (!/^\s*\d+\.\s+/.test(line)) return false;
+                          return re.test(line);
+                      });
+                      if (idx >= 0) return idx;
+                  }
+                  return -1;
+              };
+
+              const findSectionEndIndex = (lines: string[], startIndex: number) => {
+                  if (startIndex < 0) return -1;
+                  for (let i = startIndex + 1; i < lines.length; i++) {
+                      if (/^\s*\d+\.\s+/.test(String(lines[i] || ''))) return i;
+                  }
+                  return lines.length;
+              };
+
+              const getSectionHeaderIndexForLine = (lines: string[], idx: number) => {
+                  for (let i = idx; i >= 0; i--) {
+                      if (/^\s*\d+\.\s+/.test(String(lines[i] || ''))) return i;
+                  }
+                  return -1;
+              };
+
+              const pruneNoneBulletsInNonEmptySections = (text: string) => {
+                  const lines = String(text || '').split('\n');
+                  const isHeader = (l: string) => /^\s*\d+\.\s+.+:\s*$/.test(String(l || ''));
+                  const isBullet = (l: string) => /^\s*[•\-*]\s+/.test(String(l || '').trim());
+                  const isNone = (l: string) =>
+                      /^\s*[•\-*]?\s*\(?\s*none\s*\)?\s*$/i.test(String(l || '').trim().replace(/^[•\-*]\s+/, '').trim());
+
+                  const drop: boolean[] = new Array(lines.length).fill(false);
+                  let sectionStart = -1;
+                  let sectionNoneIdxs: number[] = [];
+                  let sectionOtherBulletCount = 0;
+
+                  const flush = () => {
+                      if (sectionStart < 0) return;
+                      if (sectionOtherBulletCount > 0 && sectionNoneIdxs.length > 0) {
+                          for (const idx of sectionNoneIdxs) drop[idx] = true;
+                      }
+                      sectionNoneIdxs = [];
+                      sectionOtherBulletCount = 0;
+                  };
+
+                  for (let i = 0; i < lines.length; i++) {
+                      const line = lines[i];
+                      if (isHeader(line)) {
+                          flush();
+                          sectionStart = i;
+                          continue;
+                      }
+                      if (sectionStart < 0) continue;
+                      if (!isBullet(line)) continue;
+                      if (isNone(line)) sectionNoneIdxs.push(i);
+                      else sectionOtherBulletCount += 1;
+                  }
+                  flush();
+
+                  return lines
+                      .filter((_, idx) => !drop[idx])
+                      .join('\n')
+                      .replace(/\n{3,}/g, '\n\n')
+                      .trimEnd();
+              };
+
+              const tidyRequiredItems = (text: string) => {
+                  const requiredByBucket: Array<{ items: string[]; matchers: RegExp[] }> = [
+                      { items: required.reminders, matchers: [/reminders/i] },
+                      { items: required.delegatedTasks, matchers: [/delegated\s+tasks/i, /\btasks\b/i] },
+                      { items: required.briefingPointers, matchers: [/briefing\s+pointers/i, /\bpointers\b/i] },
+                      { items: required.logInformation, matchers: [/log\s+information/i, /\blogistics\b/i, /\binformation\b/i] },
+                      { items: required.otherUpdates, matchers: [/other\s+updates/i, /updates\s*\/\s*notes/i, /\bspecial\b/i] },
+                      { items: required.coachingNotes, matchers: [/coaching\s+notes/i] },
+                  ];
+
+                  const lines = String(text || '').split('\n');
+                  const isBullet = (l: string) => /^\s*[•\-*]\s+/.test(String(l || '').trim());
+
+                  const allRequiredItems = requiredByBucket.flatMap((b) =>
+                      b.items.map((x) => String(x || '').trim().replace(/^\s*[-•*]\s+/, '').trim()).filter(Boolean)
+                  );
+
+                  for (const item of allRequiredItems) {
+                      const needle = normalizeVerbatim(item);
+                      if (!needle) continue;
+
+                      const occurrences = lines
+                          .map((l, idx) => ({ l, idx }))
+                          .filter(({ l }) => isBullet(l) && normalizeVerbatim(l) === needle)
+                          .map(({ idx }) => idx);
+
+                      const bucket = requiredByBucket.find((b) => b.items.some((x) => normalizeVerbatim(x) === needle));
+                      const matchers = bucket?.matchers ?? [/reminders/i];
+                      const secStart = findSectionStartIndexByPriority(lines, matchers);
+                      const secEnd = findSectionEndIndex(lines, secStart);
+                      const inPreferred = occurrences.filter((idx) => secStart >= 0 && idx > secStart && idx < secEnd);
+
+                      let keepIdx: number | null = null;
+                      if (inPreferred.length > 0) keepIdx = inPreferred[0];
+                      else if (occurrences.length > 0) keepIdx = occurrences[0];
+
+                      if (keepIdx != null) {
+                          const headerIdx = getSectionHeaderIndexForLine(lines, keepIdx);
+                          if (headerIdx < 0) {
+                              lines[keepIdx] = '';
+                              keepIdx = null;
+                          }
+                      }
+
+                      if (keepIdx == null) {
+                          if (secStart >= 0) {
+                              const insertionPoint = secEnd >= 0 ? secEnd : lines.length;
+                              lines.splice(insertionPoint, 0, `${bulletPrefix}${item}`);
+                          } else {
+                              lines.push(`${bulletPrefix}${item}`);
+                          }
+                      }
+
+                      const finalOccurrences = lines
+                          .map((l, idx) => ({ l, idx }))
+                          .filter(({ l }) => isBullet(l) && normalizeVerbatim(l) === needle)
+                          .map(({ idx }) => idx);
+                      const keep = keepIdx ?? finalOccurrences[0] ?? null;
+                      if (keep != null) {
+                          for (const idx of finalOccurrences) {
+                              if (idx === keep) continue;
+                              lines[idx] = '';
+                          }
+                      }
+                  }
+
+                  const compacted = lines.filter((l) => String(l || '').trim().length > 0).join('\n');
+                  return ensureBlankLineBeforeNumberedHeaders(dedupeBulletsByVerbatim(compacted));
+              };
+
+              const stripScriptNumberedSectionIfNotInNotes = (scriptText: string, sectionNeedleRe: RegExp, notesNeedleRe: RegExp) => {
+                  if (notesNeedleRe.test(notes)) return scriptText;
+                  const lines = String(scriptText || '').split('\n');
+                  const headerRe = new RegExp(`^\\s*\\d+\\.\\s+.*${sectionNeedleRe.source}.*$`, 'i');
+                  const nextHeaderRe = /^\s*\d+\.\s+.+$/;
+                  const startIndex = lines.findIndex((l) => headerRe.test(l));
+                  if (startIndex < 0) return scriptText;
+                  let endIndex = lines.length;
+                  for (let i = startIndex + 1; i < lines.length; i++) {
+                      if (nextHeaderRe.test(lines[i]) && !/^\s*[•\-*]\s+/.test(lines[i])) {
+                          endIndex = i;
+                          break;
+                      }
+                  }
+                  const next = [...lines.slice(0, startIndex), ...lines.slice(endIndex)];
+                  return next.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+              };
+
+              const buildStructuredFallbackScript = () => {
+                  const detectBriefingType = () => {
+                      if (/AFTERNOON\s+BRIEFING/i.test(notes)) return 'AFTERNOON';
+                      if (/MORNING\s+BRIEFING/i.test(notes)) return 'MORNING';
+                      return '';
+                  };
+                  const extractFullDate = () => {
+                      const firstLine = String(notes || '').split('\n')[0] ?? '';
+                      const m = firstLine.match(/-\s+([A-Za-z]+,\s+[A-Za-z]+\s+\d{1,2},\s+\d{4})\s*$/);
+                      return String(m?.[1] || '').trim();
+                  };
+                  const extractInterviewAnswersFromNotes = (): string[] => {
+                      const lines = String(notes || '').split('\n');
+                      const startIndex = lines.findIndex((l) => /^\s*1\.\s+INTERVIEW\s+ANSWERS\s*:\s*$/i.test(String(l || '').trim()));
+                      if (startIndex < 0) return [];
+                      const answers: Record<number, string[]> = {};
+                      let currentA: number | null = null;
+                      for (let i = startIndex + 1; i < lines.length; i++) {
+                          const raw = String(lines[i] ?? '');
+                          const trimmed = raw.trim();
+                          if (/^\s*\d+\.\s+.+:\s*$/i.test(raw) && !/^\s*\d+\.\s+INTERVIEW\s+ANSWERS\s*:\s*$/i.test(raw)) break;
+                          const aMatch = raw.match(/^\s*A(\d+)\s*:\s*(.*)$/i);
+                          if (aMatch) {
+                              currentA = Number(aMatch[1]);
+                              const rest = String(aMatch[2] || '').trim();
+                              if (!answers[currentA]) answers[currentA] = [];
+                              if (rest) answers[currentA].push(rest);
+                              continue;
+                          }
+                          if (/^\s*Q\d+\s*:/i.test(raw)) {
+                              currentA = null;
+                              continue;
+                          }
+                          if (currentA != null && trimmed) {
+                              if (!answers[currentA]) answers[currentA] = [];
+                              answers[currentA].push(trimmed);
+                          }
+                      }
+                      const out: string[] = [];
+                      for (let idx = 1; idx <= 4; idx++) {
+                          const joined = (answers[idx] || []).join(' ').replace(/\s+/g, ' ').trim();
+                          out.push(joined);
+                      }
+                      return out;
+                  };
+
+                  const cleanItems = (items: string[]) =>
+                      (Array.isArray(items) ? items : [])
+                          .map((x) => String(x || '').trim().replace(/^\s*[-•*]\s+/, '').trim())
+                          .filter(Boolean);
+
+                  const pickSentences = (text: string) =>
+                      String(text || '')
+                          .replace(/^"+|"+$/g, '')
+                          .replace(/^'+|'+$/g, '')
+                          .split(/(?<=[.!?])\s+/)
+                          .map((x) => String(x || '').trim())
+                          .filter(Boolean);
+
+                  const briefingType = detectBriefingType();
+
+                  let opsBits: string[] = [];
+                  let riskBits: string[] = [];
+                  if (briefingType === 'AFTERNOON') {
+                      const coverage = deriveAfternoonInterviewCoverage(notes);
+                      opsBits = coverage.ops;
+                      riskBits = coverage.risks;
+                  } else {
+                      const interviewAnswers = extractInterviewAnswersFromNotes();
+                      const interviewBits = interviewAnswers.flatMap(pickSentences);
+                      opsBits = interviewBits.filter((b) => /^(progress|delegated|task|mandatory|operational|first\s+priority)/i.test(b)).slice(0, 7);
+                      riskBits = interviewBits.filter((b) => /^(constraint|incident)/i.test(b) || /\b(fluctuat|switch|spill|audit|buffer|towel|slick)\b/i.test(b)).slice(0, 7);
+                  }
+
+                  const toBullets = (items: string[]) => {
+                      const cleaned = cleanItems(items);
+                      const finalItems = cleaned.length > 0 ? cleaned : ['(none)'];
+                      return finalItems.map((x) => `• ${x}`).join('\n');
+                  };
+
+                  const title = briefingType === 'AFTERNOON' ? 'AFTERNOON BRIEFING AGENDA' : briefingType === 'MORNING' ? 'MORNING BRIEFING AGENDA' : 'BRIEFING AGENDA';
+                  const date = extractFullDate();
+                  const header = [title, `Date: ${date || ''}`].join('\n');
+
+                  const sections: Array<{ title: string; items: string[] }> = [
+                      { title: 'OPERATIONS & TASKS', items: [...opsBits, ...required.delegatedTasks] },
+                      { title: 'RISKS & INCIDENTS', items: riskBits },
+                      { title: 'REMINDERS', items: required.reminders },
+                      { title: 'BRIEFING POINTERS', items: required.briefingPointers },
+                      { title: 'LOG INFORMATION', items: required.logInformation },
+                      { title: 'OTHER UPDATES / NOTES', items: required.otherUpdates },
+                  ].filter((s) => cleanItems(s.items).length > 0 || s.title === 'OPERATIONS & TASKS');
+
+                  const body = sections
+                      .map((s, idx) => `${idx + 1}. ${s.title}:\n${toBullets(s.items)}`)
+                      .join('\n\n')
+                      .trimEnd();
+
+                  return [header, '', body].join('\n').trimEnd();
+              };
+
+              const scriptSource = (() => {
+                  const raw = String(scriptRaw || '').trim();
+                  const hasNumberedHeaders = /^\s*\d+\.\s+.+:\s*$/m.test(raw);
+                  const isPlaceholder =
+                      !raw ||
+                      /^no\s+script\s+generated\.?$/i.test(raw) ||
+                      /^\s*briefing\s+script/i.test(raw) && /\bno\s+script\s+generated\b/i.test(raw.slice(0, 240)) ||
+                      /^generating\s+briefing\s+script\.{0,3}$/i.test(raw) ||
+                      /^this\s+is\s+taking\s+longer\s+than\s+expected/i.test(raw);
+                  if (isPlaceholder || !hasNumberedHeaders) return buildStructuredFallbackScript();
+                  return String(scriptRaw || '').trimEnd();
+              })();
+
+              const deDupedScript = dropDuplicateJumarOutsideCoaching(scriptSource);
+              const strippedHalluSections = stripScriptNumberedSectionIfNotInNotes(
+                  stripScriptNumberedSectionIfNotInNotes(
+                      deDupedScript,
+                      /digital\s+shift\s+handover|g\.r\.e\.t\.e\.l|gretel|enye/i,
+                      /digital\s+shift\s+handover|g\.r\.e\.t\.e\.l|gretel|enye/i
+                  ),
+                  /non[\s-]*pork\s+grease\s+trap|grease\s+trap\s+cover/i,
+                  /non[\s-]*pork\s+grease\s+trap|grease\s+trap\s+cover/i
+              );
+
+              const bulletPrefix = chooseBulletPrefix(strippedHalluSections);
+              const scriptNorm = normalize(strippedHalluSections);
+              const missing: Array<{ header: string; items: string[] }> = [];
+
+              const injectAfternoonInterviewCoverage = (text: string) => {
+                  if (!/AFTERNOON\s+BRIEFING/i.test(notes)) return text;
+                  const coverage = deriveAfternoonInterviewCoverage(notes);
+                  const normalizeNeedle = (value: string) => normalizeVerbatim(String(value || '').trim());
+
+                  const insertIntoSection = (scriptText: string, matchers: RegExp[], items: string[]) => {
+                      const scriptLines = String(scriptText || '').split('\n');
+                      const scriptVerbatimAll = normalizeNeedle(scriptText);
+                      const toInsert = (Array.isArray(items) ? items : [])
+                          .map((x) => String(x || '').trim())
+                          .filter(Boolean)
+                          .filter((x) => {
+                              const needle = normalizeNeedle(x);
+                              if (!needle) return false;
+                              return !scriptVerbatimAll.includes(needle);
+                          });
+                      if (toInsert.length === 0) return scriptText;
+
+                      const headerIndex = findSectionStartIndexByPriority(scriptLines, matchers);
+                      if (headerIndex < 0) return scriptText;
+                      const endIndex = findSectionEndIndex(scriptLines, headerIndex);
+
+                      const insertion = toInsert.map((x) => `${bulletPrefix}${x}`);
+                      const point = endIndex >= 0 ? endIndex : scriptLines.length;
+                      scriptLines.splice(point, 0, ...insertion);
+                      return scriptLines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+                  };
+
+                  let out = String(text || '').trimEnd();
+                  out = insertIntoSection(out, [/operations/i, /\btasks\b/i, /handoff/i, /wins/i, /alerts/i], coverage.ops);
+                  out = insertIntoSection(out, [/risks/i, /incidents?/i, /blockers/i], coverage.risks);
+                  return out;
+              };
+
+              const collectMissing = (header: string, items: string[]) => {
+                  const scriptVerbatim = normalizeVerbatim(strippedHalluSections);
+                  const absent = items
+                      .map((item) => String(item || '').trim().replace(/^\s*[-•*]\s+/, '').trim())
+                      .filter(Boolean)
+                      .filter((item) => {
+                          const needle = normalizeVerbatim(item);
+                          if (!needle) return false;
+                          return !scriptVerbatim.includes(needle);
+                      });
+                  if (absent.length > 0) missing.push({ header, items: absent });
+              };
+
+              collectMissing('COACHING NOTES', required.coachingNotes);
+              collectMissing('OTHER UPDATES / NOTES', required.otherUpdates);
+              collectMissing('REMINDERS', required.reminders);
+              collectMissing('DELEGATED TASKS', required.delegatedTasks);
+              collectMissing('BRIEFING POINTERS', required.briefingPointers);
+              collectMissing('LOG INFORMATION', required.logInformation);
+
+              if (missing.length === 0) {
+                  const cleaned = stripTrailingRawVerbatimBlocks(strippedHalluSections);
+                  const normalizedNone = normalizeEmptyNoneLine(cleaned);
+                  const prunedNone = pruneNoneBulletsInNonEmptySections(normalizedNone);
+                  const tidied = tidyRequiredItems(prunedNone);
+                  const withoutParaphrases = removeParaphraseDuplicatesWhenVerbatimExists(tidied, [
+                      ...required.otherUpdates,
+                      ...required.reminders,
+                      ...required.delegatedTasks,
+                      ...required.briefingPointers,
+                      ...required.logInformation,
+                  ]);
+                  const withInterviewCoverage = injectAfternoonInterviewCoverage(withoutParaphrases);
+                  const prunedNoneAgain = pruneNoneBulletsInNonEmptySections(withInterviewCoverage);
+                  return ensureBlankLineBeforeNumberedHeaders(dedupeBulletsByVerbatim(prunedNoneAgain));
+              }
+
+              const injectMissingIntoSection = (scriptText: string, sectionMatchers: RegExp[], items: string[]) => {
+                  if (items.length === 0) return { ok: true, text: scriptText };
+                  const scriptLines = String(scriptText || '').split('\n');
+                  const headerIndex = scriptLines.findIndex((l) => {
+                      const line = String(l || '');
+                      if (!/^\s*\d+\.\s+/.test(line)) return false;
+                      return sectionMatchers.some((re) => re.test(line));
+                  });
+                  if (headerIndex < 0) return { ok: false, text: scriptText };
+
+                  let endIndex = scriptLines.length;
+                  for (let i = headerIndex + 1; i < scriptLines.length; i++) {
+                      const line = scriptLines[i];
+                      if (/^\s*\d+\.\s+/.test(line)) {
+                          endIndex = i;
+                          break;
+                      }
+                  }
+
+                  const { text: replacedSectionText, missing: stillMissing } = replaceOrMarkMissingVerbatim(
+                      scriptLines.slice(headerIndex, endIndex).join('\n'),
+                      items
+                  );
+                  const replacedSectionLines = replacedSectionText.split('\n');
+                  scriptLines.splice(headerIndex, endIndex - headerIndex, ...replacedSectionLines);
+                  const updatedEndIndex = headerIndex + replacedSectionLines.length;
+
+                  const sectionTextNorm = normalize(scriptLines.slice(headerIndex, updatedEndIndex).join('\n'));
+                  const toAdd = stillMissing
+                      .filter((item) => {
+                          const n = normalize(item);
+                          if (!n) return false;
+                          return !sectionTextNorm.includes(n);
+                      })
+                      .map((item) => `${bulletPrefix}${item}`);
+
+                  if (toAdd.length === 0) return { ok: true, text: scriptText };
+
+                  const insertion = [...toAdd];
+                  if (updatedEndIndex < scriptLines.length && scriptLines[updatedEndIndex - 1]?.trim()) insertion.push('');
+                  scriptLines.splice(updatedEndIndex, 0, ...insertion);
+                  return { ok: true, text: scriptLines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() };
+              };
+
+              let patched = strippedHalluSections;
+              const leftovers: Array<{ header: string; items: string[] }> = [];
+              for (const block of missing) {
+                  const matchers =
+                      block.header === 'COACHING NOTES'
+                          ? [/coaching\s+notes/i]
+                          : block.header === 'OTHER UPDATES / NOTES'
+                              ? [/other\s+updates/i, /updates\s*\/\s*notes/i]
+                              : block.header === 'REMINDERS'
+                                  ? [/reminders/i]
+                                  : block.header === 'DELEGATED TASKS'
+                                      ? [/delegated\s+tasks/i, /reminders\s*&\s*delegated\s+tasks/i]
+                                      : block.header === 'BRIEFING POINTERS'
+                                          ? [/briefing\s+pointers/i]
+                                          : [/log\s+information/i, /\blog\s*info\b/i];
+
+                  const result = injectMissingIntoSection(patched, matchers, block.items);
+                  patched = result.text;
+                  if (!result.ok) leftovers.push(block);
+              }
+
+              if (leftovers.length === 0) {
+                  const cleaned = stripTrailingRawVerbatimBlocks(patched);
+                  const normalizedNone = normalizeEmptyNoneLine(cleaned);
+                  const prunedNone = pruneNoneBulletsInNonEmptySections(normalizedNone);
+                  const tidied = tidyRequiredItems(prunedNone);
+                  const withoutParaphrases = removeParaphraseDuplicatesWhenVerbatimExists(tidied, [
+                      ...required.otherUpdates,
+                      ...required.reminders,
+                      ...required.delegatedTasks,
+                      ...required.briefingPointers,
+                      ...required.logInformation,
+                  ]);
+                  const withInterviewCoverage = injectAfternoonInterviewCoverage(withoutParaphrases);
+                  const prunedNoneAgain = pruneNoneBulletsInNonEmptySections(withInterviewCoverage);
+                  return ensureBlankLineBeforeNumberedHeaders(dedupeBulletsByVerbatim(prunedNoneAgain));
+              }
+
+              const appendix: string[] = [];
+              for (const block of leftovers) {
+                  appendix.push('');
+                  appendix.push(`${block.header}:`);
+                  for (const item of block.items) appendix.push(`• ${item}`);
+              }
+              const cleaned = stripTrailingRawVerbatimBlocks(`${patched.trimEnd()}\n\n${appendix.join('\n').trim()}`.trimEnd());
+              const normalizedNone = normalizeEmptyNoneLine(cleaned);
+              const prunedNone = pruneNoneBulletsInNonEmptySections(normalizedNone);
+              const tidied = tidyRequiredItems(prunedNone);
+              const withoutParaphrases = removeParaphraseDuplicatesWhenVerbatimExists(tidied, [
+                  ...required.otherUpdates,
+                  ...required.reminders,
+                  ...required.delegatedTasks,
+                  ...required.briefingPointers,
+                  ...required.logInformation,
+              ]);
+              const withInterviewCoverage = injectAfternoonInterviewCoverage(withoutParaphrases);
+              const prunedNoneAgain = pruneNoneBulletsInNonEmptySections(withInterviewCoverage);
+              return ensureBlankLineBeforeNumberedHeaders(dedupeBulletsByVerbatim(prunedNoneAgain));
+          };
+
           const extractPayloadFromText = (raw?: string): any | null => {
               if (!raw) return null;
               const trimmed = raw.trim();
@@ -3574,8 +4687,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
                   : null;
           const looksLikeBriefingDraftText =
               typeof response.text === 'string' &&
-              /BRIEFING\s+DRAFT/i.test(response.text) &&
-              /(^|\n)\s*1\.\s+/i.test(response.text);
+              ((/BRIEFING\s+DRAFT/i.test(response.text) && /(^|\n)\s*1\.\s+/i.test(response.text)) ||
+                (isBriefingInterviewDraftRequest && /(^|\n)\s*1\.\s+/i.test(response.text)));
           const briefingDraftText =
               (typeof effectiveKeepDraft === 'string' && effectiveKeepDraft.trim()) ? effectiveKeepDraft
               : (typeof actionDraftText === 'string' && actionDraftText.trim()) ? actionDraftText
@@ -3601,7 +4714,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
 
           if (effectiveKeepForFinalize) {
               if (isBriefingFinalizeResponse) {
-                  setBriefingScript(cleanBriefingScriptPlainText(String(effectiveKeepForFinalize)));
+                  const finalizedScriptRaw = cleanBriefingScriptPlainText(String(effectiveKeepForFinalize));
+                  setBriefingScript(enforceBriefingScriptCoverage(finalizedScriptRaw));
                   if (briefingFinalizeTimeoutRef.current) {
                       clearTimeout(briefingFinalizeTimeoutRef.current);
                   }
@@ -3622,12 +4736,14 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               }
           } else if (isBriefingFinalizeResponse) {
               const rawFallback = response.text?.trim() || "";
-              const fallbackScript = cleanBriefingScriptPlainText(rawFallback) || "No script generated.";
+              const fallbackScriptRaw = cleanBriefingScriptPlainText(rawFallback) || "No script generated.";
+              const fallbackScript = enforceBriefingScriptCoverage(fallbackScriptRaw);
               setBriefingScript(fallbackScript);
               if (briefingFinalizeTimeoutRef.current) {
                   clearTimeout(briefingFinalizeTimeoutRef.current);
               }
               briefingFinalizeRequestRef.current = null;
+              setBriefingState('finalized');
           }
           const shouldMergeBriefingContext = Boolean((briefingDraftText || response.keep_draft || response.keep) && !isBriefingFinalizeResponse);
           const shouldConsumeBriefingContext = Boolean(pendingBriefingWindow) && shouldMergeBriefingContext;
@@ -3646,6 +4762,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             setDelegatedTasks(effectiveBriefingContext.remainingDelegatedTasks);
             setPendingBriefingWindow(null);
             setPendingBriefingContextSnapshot(null);
+          }
+          if (isBriefingInterviewDraftRequest && nextKeepNotes === null) {
+            const fallback = typeof response?.text === 'string' ? response.text.trim() : '';
+            if (fallback) {
+              setKeepNotes(fallback);
+            }
           }
           if (response.project && !response.isProjectDraft && !response.projectDraft) {
               const rawProject = response.project;
@@ -3737,7 +4859,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           const shouldSuppressAssistantChat =
               isBriefingRelatedResponse && (Boolean(briefingDraftText || effectiveKeep) || isBriefingFinalizeResponse);
 
-          if (!normalizedOptions?.suppressChat && !shouldSuppressAssistantChat && (chatTextRaw || response.imageUrl || response.sources)) {
+          if (!effectiveSuppressChat && !shouldSuppressAssistantChat && (chatTextRaw || response.imageUrl || response.sources)) {
               // Ensure isPlanDraft is always a boolean (handle string "true"/"false" or missing values)
               // Also check if response has schedule and priorities (Step 2 of daily kick-off) as fallback
               const hasSchedule = response.schedule && Array.isArray(response.schedule) && response.schedule.length > 0;
@@ -3764,14 +4886,14 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
               setChatMessages(prev => [...prev, { 
                   id: Date.now() * 1000 + (messageIdRef.current++ % 1000), 
                   role: 'model', 
-                  text: chatText,
+                  text: chatText || modelText,
                   imageUrl: response.imageUrl,
                   sources: response.sources,
                   isPlanDraft: isPlanDraft,
                   isProjectDraft: Boolean(projectDraftPayload),
                   isWeeklyReport: Boolean(response.weeklyReport),
               }]);
-          } else if (!normalizedOptions?.suppressChat && response.weeklyReport) {
+          } else if (!effectiveSuppressChat && response.weeklyReport) {
               // If AI didn't provide text but created a weekly report, add a completion message
               setChatMessages(prev => [...prev, { 
                   id: Date.now() * 1000 + (messageIdRef.current++ % 1000), 
@@ -3784,7 +4906,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           }
           if (shouldClearPendingScheduleClarification) setPendingScheduleClarification(null);
           const nowTs = Date.now();
-          if (!normalizedOptions?.suppressChat) {
+          if (!effectiveSuppressChat) {
             setChatHistory(prev => [
               ...prev,
               { role: 'user', parts: [{ text: fullPrompt }], _ts: nowTs },
@@ -3800,8 +4922,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           if (fallbackMessage.toLowerCase().includes('rate-limited')) {
             setAiCooldownUntil(Date.now() + 60_000);
           }
-          if (normalizedOptions?.suppressChat) {
+          if (effectiveSuppressChat) {
             setNotificationModal({ isOpen: true, title: 'AI Error', message: fallbackMessage });
+            if (isBriefingInterviewDraftRequest) {
+              setKeepNotes(fallbackMessage);
+            }
           } else {
             setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: fallbackMessage }]);
           }
@@ -3824,12 +4949,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         if (isSending) return;
         setIsSending(true);
         const currentAccessToken = session?.provider_token || null;
-        const currentDashboardState: DashboardState = { chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, stateVersion: DASHBOARD_STATE_VERSION, completedGCalEventIds: Array.from(completedGCalEventIds) };
+        const currentDashboardState: DashboardState = { chatMessages, chatHistory, scheduleItems, top3Items, reminders, projects, completedProjects, keepNotes, delegatedTasks, team: effectiveTeamMembers, hasGreeted, lastResetDate, isScheduleConfirmed, briefingInputs, briefingState, collapsedCards, weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, stateVersion: DASHBOARD_STATE_VERSION, completedGCalEventIds: Array.from(completedGCalEventIds) };
         const historyForGemini: Content[] = chatHistory.map(({ role, parts }) => ({ role, parts }));
         const newHistory: Content[] = [...historyForGemini, { role: 'user', parts: [{ text: prompt }] }];
         try {
           const freshEventOpsItems = await fetchEventOpsItemsForAI(14, false);
-          const response = await sendMessageToGemini(newHistory, { ...userProfile, team: userProfile.team }, currentDashboardState, googleCalendarEvents, new Date(), currentAccessToken, freshEventOpsItems);
+          const response = await sendMessageToGemini(newHistory, { ...userProfile, team: effectiveTeamMembers }, currentDashboardState, googleCalendarEvents, new Date(), currentAccessToken, freshEventOpsItems);
           const modelResponseText = response.text;
           if (modelResponseText) setChatMessages(prev => [...prev, { id: Date.now() * 1000 + (messageIdRef.current++ % 1000), role: 'model', text: modelResponseText }]);
           const nowTs = Date.now();
@@ -4106,7 +5231,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         top3Items: prioritiesToFinalize || top3Items,
         reminders, projects, completedProjects, keepNotes, delegatedTasks,
         dismissedDelegatedReminderTaskIds,
-        team: userProfile.team, hasGreeted, lastResetDate, isScheduleConfirmed: false, briefingInputs, briefingState,
+        team: effectiveTeamMembers, hasGreeted, lastResetDate, isScheduleConfirmed: false, briefingInputs, briefingState,
         collapsedCards, weeklyLog, priorityForTomorrow, stateVersion: DASHBOARD_STATE_VERSION,
         completedGCalEventIds: Array.from(completedGCalEventIds),
         currentMode, modeHistory, modeActivatedAt,
@@ -4352,28 +5477,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, []);
 
     const refreshGoogleCalendarEvents = useCallback(async () => {
-        const token = session?.provider_token;
-        if (!token) {
-            setNotificationModal({
-                isOpen: true,
-                title: 'Google Not Connected',
-                message: 'Connect Google to fetch your calendar events.'
-            });
-            return;
-        }
-
-        try {
-            const events = await getTodaysEvents(token);
-            setGoogleCalendarEvents(events);
-        } catch (error: any) {
-            console.error("Failed to fetch Google Calendar events:", error);
-            if (error?.message?.includes('401') || error?.message?.includes('403') || error?.status === 401 || error?.status === 403) {
-                onGoogleAuthError();
-                return;
-            }
-            setCloudError(`Failed to fetch Google Calendar events: ${error?.message || error}`);
-        }
-    }, [session, onGoogleAuthError]);
+        setNotificationModal({
+            isOpen: true,
+            title: 'Calendar Sync Mode',
+            message: 'This app does not fetch Google Calendar events. Event info comes from the Event Ops tab.'
+        });
+    }, [setNotificationModal]);
 
     const syncScheduleToGoogleCalendar = useCallback(async (scheduleOverride?: ScheduleItem[]) => {
         const token = session?.provider_token;
@@ -4418,11 +5527,6 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             setIsSyncing(false);
         }
     }, [session, scheduleItems, onGoogleAuthError]);
-
-    const clearGoogleCalendarEvents = useCallback(() => {
-        setGoogleCalendarEvents([]);
-        setCompletedGCalEventIds(new Set());
-    }, []);
     const handleClearPriorities = useCallback(() => { 
         setTop3Items([]); 
         setDraftedPriorities(null); // Also clear drafted priorities so they don't reappear on refresh
@@ -4431,6 +5535,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     const handleClearReminders = useCallback(() => { setReminders([]); setShowRemindersClearConfirm(false); }, []);
     const handleClearKeepNotes = useCallback(() => {
         setKeepNotes('');
+        setBriefingConsolidation(prev => ({
+          ...prev,
+          status: 'idle',
+          missingSources: [],
+          error: null,
+          generatedAt: null,
+        }));
         setBriefingState('idle');
         setBriefingScript('');
         setIsBriefingScriptVisible(false);
@@ -4447,7 +5558,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
           keepNotes: '',
           delegatedTasks,
           dismissedDelegatedReminderTaskIds,
-          team: userProfile.team,
+          team: effectiveTeamMembers,
           hasGreeted,
           lastResetDate,
           isScheduleConfirmed,
@@ -4684,7 +5795,154 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
     }, []);
 
     const handleFinalizeBriefing = useCallback((notesOverride?: string) => {
-        const context = filterBriefingContext(null, reminders, briefingInputs, delegatedTasks);
+        if (briefingConsolidation.status !== 'ready') {
+          setNotificationModal({
+            isOpen: true,
+            title: 'Briefing Not Ready',
+            message: briefingConsolidation.error || 'Briefing data has not been consolidated yet. Complete the Morning Briefing Interview to enable Finalize.',
+          });
+          return;
+        }
+        const normalizeBulletLines = (lines: string[], limit: number) => {
+          const cleaned = lines
+            .map((line) => String(line || '').trim())
+            .filter(Boolean)
+            .map((line) => line.replace(/^\s*[-•*]\s*/, '').trim())
+            .filter(Boolean);
+          const unique: string[] = [];
+          const seen = new Set<string>();
+          for (const item of cleaned) {
+            const key = item.toLowerCase().replace(/\s+/g, ' ').trim();
+            if (!key) continue;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            unique.push(item);
+            if (unique.length >= limit) break;
+          }
+          return unique.map((x) => `- ${x}`);
+        };
+
+        const extractNumberedSection = (notes: string, title: string) => {
+          const lines = String(notes || '').split('\n');
+          const headerRe = new RegExp(`^\\s*\\d+\\.\\s+${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:\\s*$`, 'i');
+          const nextHeaderRe = /^\s*\d+\.\s+.+:\s*$/;
+          const startIndex = lines.findIndex((l) => headerRe.test(l));
+          if (startIndex < 0) return [];
+          const out: string[] = [];
+          for (let i = startIndex + 1; i < lines.length; i++) {
+            const line = lines[i];
+            if (nextHeaderRe.test(line)) break;
+            if (!String(line || '').trim()) continue;
+            out.push(line);
+          }
+          return out;
+        };
+
+        const extractInterviewAnswers = (notes: string): string[] => {
+          const lines = String(notes || '').split('\n');
+          const startIndex = lines.findIndex((l) => /^\s*1\.\s+INTERVIEW\s+ANSWERS\s*:\s*$/i.test(String(l || '').trim()));
+          if (startIndex < 0) return [];
+          const answers: Record<number, string[]> = {};
+          let currentA: number | null = null;
+
+          for (let i = startIndex + 1; i < lines.length; i++) {
+            const raw = String(lines[i] ?? '');
+            const line = raw.trim();
+            if (/^\s*\d+\.\s+.+:\s*$/i.test(raw) && !/^\s*\d+\.\s+INTERVIEW\s+ANSWERS\s*:\s*$/i.test(raw)) break;
+
+            const aMatch = raw.match(/^\s*A(\d+)\s*:\s*(.*)$/i);
+            if (aMatch) {
+              currentA = Number(aMatch[1]);
+              const rest = String(aMatch[2] || '').trim();
+              if (!answers[currentA]) answers[currentA] = [];
+              if (rest) answers[currentA].push(rest);
+              continue;
+            }
+
+            if (/^\s*Q\d+\s*:/i.test(raw)) {
+              currentA = null;
+              continue;
+            }
+
+            if (currentA != null) {
+              if (!answers[currentA]) answers[currentA] = [];
+              if (line) answers[currentA].push(line);
+            }
+          }
+
+          const out: string[] = [];
+          for (let idx = 1; idx <= 4; idx++) {
+            const joined = (answers[idx] || []).join(' ').replace(/\s+/g, ' ').trim();
+            out.push(joined);
+          }
+          return out;
+        };
+
+        const buildInterviewHighlightBullets = (notes: string) => {
+          const clean = (value: string) =>
+            String(value || '')
+              .trim()
+              .replace(/^"+|"+$/g, '')
+              .replace(/^'+|'+$/g, '')
+              .replace(/\s+/g, ' ')
+              .trim();
+
+          const splitIntoCandidateBits = (value: string): string[] => {
+            const s = clean(value);
+            if (!s) return [];
+            const byNewline = String(value || '')
+              .split(/\r?\n/)
+              .map((x) => clean(x))
+              .filter(Boolean);
+            if (byNewline.length > 1) return byNewline;
+            return s
+              .split(/(?<=[.!?])\s+/)
+              .map((x) => clean(x))
+              .filter(Boolean);
+          };
+
+          const scoreBit = (bit: string): number => {
+            const b = bit.toLowerCase();
+            let score = 0;
+            if (/^(progress|constraint|incident|mandatory|task|first\s+priority|operational|delegated|handoff|status)\b/.test(b)) score += 5;
+            if (/\b(must|required|mandatory|sign\s*off|switch|radio|check|verify)\b/.test(b)) score += 3;
+            if (/\b(open|blocked|risk|spill|audit|towel|chemical|delivery|handover)\b/.test(b)) score += 2;
+            if (/\b(\d{1,2}:\d{2})\b/.test(b) || /\b\d{1,2}\s*(am|pm)\b/.test(b) || /\b\d{4}-\d{2}-\d{2}\b/.test(b)) score += 2;
+            if (/\b(issue\s+addressed|no\s+recurrences|resolved)\b/.test(b)) score += 2;
+            if (/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b/.test(bit) && /\b(?:OPEN|OFF|LATE|SICK)\b/i.test(bit)) score += 1;
+            return score;
+          };
+
+          const answers = extractInterviewAnswers(notes);
+          if (answers.every((a) => !clean(a))) return ['- (none)'];
+
+          const unique: string[] = [];
+          const seen = new Set<string>();
+
+          const pickTop = (items: string[], max: number) => {
+            const sorted = [...items].sort((a, b) => scoreBit(b) - scoreBit(a));
+            for (const bit of sorted) {
+              const key = bit.toLowerCase().replace(/\s+/g, ' ').trim();
+              if (!key) continue;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              unique.push(bit);
+              if (unique.length >= 12) break;
+              if (max > 0) max -= 1;
+              if (max === 0) break;
+            }
+          };
+
+          answers.forEach((answer, idx) => {
+            const bits = splitIntoCandidateBits(answer).filter(Boolean);
+            if (bits.length === 0) return;
+            const max = idx === 0 ? 4 : 3;
+            pickTop(bits, max);
+          });
+
+          return unique.length > 0 ? unique.map((b) => `- ${b}`) : ['- (none)'];
+        };
+
         const baseNotes = (typeof notesOverride === 'string' ? notesOverride : keepNotes)?.trim() || '';
         const briefingTypeHint =
           /AFTERNOON\s+BRIEFING/i.test(baseNotes)
@@ -4692,17 +5950,52 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
             : /MORNING\s+BRIEFING/i.test(baseNotes)
               ? 'MORNING'
               : '';
-        const hasEmbeddedContext = /(^|\n)(REMINDERS:|DELEGATED TASKS:|VIEW POINTERS:)/i.test(baseNotes);
-        const merged = hasEmbeddedContext ? baseNotes : mergeBriefingNotes(baseNotes, {
-          briefingReminders: context.briefingReminders,
-          briefingInputs: context.briefingInputs,
-          briefingDelegatedTasks: context.briefingDelegatedTasks,
-        });
-        const limitedNotes = merged.length > 2500 ? `${merged.slice(0, 2500).trimEnd()}…` : merged;
-        const notesBlock = limitedNotes ? `\n\n--- BRIEFING NOTES TO CONVERT ---\n${limitedNotes}` : '';
+        const notesSource = baseNotes;
+        const remindersLines = normalizeBulletLines(extractNumberedSection(notesSource, 'REMINDERS'), 20);
+        const delegatedLines = normalizeBulletLines(extractNumberedSection(notesSource, 'DELEGATED TASKS'), 20);
+        const pointersLines = normalizeBulletLines(extractNumberedSection(notesSource, 'BRIEFING POINTERS'), 20);
+        const logInfoLines = normalizeBulletLines(extractNumberedSection(notesSource, 'LOG INFORMATION'), 20);
+        const coachingLines = normalizeBulletLines(extractNumberedSection(notesSource, 'COACHING NOTES'), 10);
+        const otherLines = normalizeBulletLines(extractNumberedSection(notesSource, 'OTHER UPDATES / NOTES'), 10);
+        const interviewHighlightLines = buildInterviewHighlightBullets(notesSource);
+
+        briefingFinalizeNotesSnapshotRef.current = notesSource;
+
+        const interviewBlock = [
+          'INTERVIEW ANSWER HIGHLIGHTS (include every bullet):',
+          interviewHighlightLines.join('\n'),
+        ].join('\n');
+
+        const toVerbatim = (items: string[]) =>
+          items.map((x) => `• ${String(x || '').replace(/^\s*-\s*/, '').trim()}`).join('\n') || '• (none)';
+        const verbatimBlock = [
+          'VERBATIM LISTS (copy text exactly; do not paraphrase; keep dates/times/parentheses):',
+          '',
+          'COACHING NOTES:',
+          toVerbatim(coachingLines),
+          '',
+          'OTHER UPDATES / NOTES:',
+          toVerbatim(otherLines),
+          '',
+          'REMINDERS:',
+          toVerbatim(remindersLines),
+          '',
+          'DELEGATED TASKS:',
+          toVerbatim(delegatedLines),
+          '',
+          'BRIEFING POINTERS:',
+          toVerbatim(pointersLines),
+          '',
+          'LOG INFORMATION:',
+          toVerbatim(logInfoLines),
+        ].join('\n');
+
+        const notesBlock = `\n\n--- BRIEFING CONTENT TO CONVERT ---\n${interviewBlock}`;
         const typeBlock = briefingTypeHint ? `\n\nBRIEFING TYPE: ${briefingTypeHint}` : '';
         setIsBriefingScriptVisible(true);
         setBriefingScript('Generating briefing script...');
+        setBriefingInputs([]);
+        setIsBriefingPointersVisible(false);
         if (briefingFinalizeTimeoutRef.current) {
             clearTimeout(briefingFinalizeTimeoutRef.current);
         }
@@ -4712,15 +6005,15 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         }, 60000);
         const afternoonFormatBlock =
           briefingTypeHint === 'AFTERNOON'
-            ? `\n\nFORMAT REQUIREMENTS:\n- Output plain text only (no JSON).\n- Convert into TALKING POINTS (no paragraphs).\n- Use numbered sections with trailing colons (e.g., "1. OPERATIONAL FOCUS & EVENTS:").\n- Under each section, use hyphen bullets "- " with 3–6 bullets.\n- Each bullet must be one sentence and start with an action/keyword.\n- Do not include greetings/openers or narrative filler.\n- Do not include REMINDERS/DELEGATED TASKS raw dumps; integrate them into bullets.\n`
+            ? `\n\nFORMAT REQUIREMENTS:\n- Output plain text only (no JSON).\n- Convert into TALKING POINTS (no paragraphs).\n- Use 5–6 numbered sections total.\n- Use numbered sections with trailing colons (e.g., "1. OPERATIONS & TASKS:").\n- Under each section, use bullet character "• " with 3–8 bullets.\n- Each bullet must be one sentence and start with an action/keyword.\n- Do not include greetings/openers or narrative filler.\n- Do not include raw REMINDERS/DELEGATED TASKS dumps; integrate items into bullets.\n- Do not repeat the same reminder/task/pointer in multiple sections.\n`
             : '';
         handleSendMessage(
             undefined,
-            `Finalize the briefing as talking points.${typeBlock}${afternoonFormatBlock}${notesBlock}`,
+            `Finalize the briefing as talking points.\n\nMANDATORY COVERAGE:\n- You must include every item listed in COACHING NOTES, OTHER UPDATES / NOTES, REMINDERS, DELEGATED TASKS, BRIEFING POINTERS, and LOG INFORMATION.\n- Do not invent new items.\n- Do not change due dates/times.\n- You may rephrase interview highlights.\n- The VERBATIM LISTS are source-of-truth: you MUST include every item, and when you use an item, copy its text exactly.\n- Do NOT output the VERBATIM LISTS as standalone sections; integrate the items into the agenda sections.\n\n${verbatimBlock}${typeBlock}${afternoonFormatBlock}${notesBlock}`,
             undefined,
             { hideUserMessage: true }
         );
-    }, [handleSendMessage, keepNotes, reminders, briefingInputs, delegatedTasks]);
+    }, [handleSendMessage, keepNotes, briefingConsolidation, setNotificationModal, setBriefingInputs, setIsBriefingPointersVisible]);
     const handleChatInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => { 
         const textarea = e.target;
         setChatInput(textarea.value); 
@@ -5083,13 +6376,16 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
       const fullDate = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
       const draft = interviewDrafts[interviewModalMode] ?? { answers: [], otherNotes: '' };
 
-      const kickOffQuestions = [
-        'What are your top 3 priorities for today?',
-        'What are the 1–2 highest-risk issues that could derail your day?',
-        'What must be done before lunch?',
-        'What can be delegated today (and to whom)?',
-        'What is your single deep-focus block today and what outcome defines success?',
-      ];
+      const kickOffQuestions = (() => {
+        try {
+          const raw = window.localStorage.getItem('beatrix_user_profile');
+          if (!raw) return generateKickoffQuestions(userProfile);
+          const parsed = JSON.parse(raw);
+          return generateKickoffQuestions(parsed);
+        } catch {
+          return generateKickoffQuestions(userProfile);
+        }
+      })();
       const morningBriefingQuestions = [
         'What is the single most important operational focus for this morning?',
         'Any staffing or coverage changes the team must know?',
@@ -5153,52 +6449,92 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children, 
         }
       }
 
-      let prompt = '';
       if (interviewModalMode === 'kickoff') {
-        prompt = [
-          'Generate a Daily Kick-off plan from the interview answers.',
-          'Return a single valid JSON object with EXACTLY these top-level fields: text, schedule, priorities, isPlanDraft.',
-          'Set isPlanDraft to true (boolean).',
-          'Do not ask follow-up questions. Do not include any extra fields.',
-          'Interview Answers:',
-          qas,
-          otherNotes ? `Other Updates / Notes:\n${otherNotes}` : 'Other Updates / Notes: (none)',
-        ].join('\n\n');
-      } else {
-        const briefingNow = getBriefingNow();
-        const briefingWindowForRequest = buildBriefingWindow(interviewModalMode === 'morning-briefing' ? 'morning' : 'afternoon', briefingNow);
-        const briefingContext = filterBriefingContext(briefingWindowForRequest, reminders, briefingInputs, delegatedTasks);
-
-        const remindersBlock = briefingContext.briefingReminders.map((r) => `- ${r.text}`).join('\n') || '- (none)';
-        const pointersBlock = briefingContext.briefingInputs.map((p) => `- ${p.text}`).join('\n') || '- (none)';
-        const delegatedBlock = briefingContext.briefingDelegatedTasks.map((t) => `- ${t.text} (Assignee: ${t.assigneeName}, Deadline: ${t.deadline})`).join('\n') || '- (none)';
-
-        const titlePrefix = interviewModalMode === 'morning-briefing' ? 'MORNING BRIEFING DRAFT' : 'AFTERNOON BRIEFING DRAFT';
-        prompt = [
-          `Create ${interviewModalMode === 'morning-briefing' ? 'morning' : 'afternoon'} briefing notes from the interview answers and the provided dashboard context.`,
-          'Return a single valid JSON object with these top-level fields: text, keep_draft.',
-          `keep_draft MUST be plain text only and MUST start with: \"${titlePrefix} - ${fullDate}\"`,
-          'Use numbered sections with trailing colons (e.g., \"1. OPERATIONAL FOCUS & EVENTS:\") and hyphen bullets \"- \".',
-          'Do not ask questions. Do not include keep. Do not include any *Ops fields.',
-          'Interview Answers:',
-          qas,
-          otherNotes ? `Other Updates / Notes:\n${otherNotes}` : 'Other Updates / Notes: (none)',
-          'Dashboard Context (include items verbatim):',
-          `REMINDERS:\n${remindersBlock}`,
-          `BRIEFING POINTERS / LOGS:\n${pointersBlock}`,
-          `DELEGATED TASKS:\n${delegatedBlock}`,
-        ].join('\n\n');
+        const plan = planEightHourScheduleFromKickoffInterview({
+          now: new Date(),
+          questions,
+          answers: draft.answers || [],
+          otherNotes: draft.otherNotes,
+          assistantMemory: userProfile.assistantMemory,
+          eventOpsItems,
+          standardScheduleStart: userProfile.standardScheduleStart || null,
+          standardScheduleEnd: userProfile.standardScheduleEnd || null,
+          standardScheduleDays: userProfile.standardScheduleDays || null,
+        });
+        if (!plan.ok) {
+          setNotificationModal({
+            isOpen: true,
+            title: 'Scheduling Conflict',
+            message: plan.error,
+          });
+          setDraftedSchedule([]);
+          setDraftedPriorities(null);
+          setScheduleEditorWorkSpan(null);
+          setIsScheduleEditorOpen(true);
+          setIsInterviewModalOpen(false);
+          return;
+        }
+        if (plan.warnings.length > 0) {
+          setNotificationModal({
+            isOpen: true,
+            title: 'Schedule Notes',
+            message: plan.warnings.join('\n'),
+          });
+        }
+        setDraftedSchedule(plan.schedule);
+        setScheduleEditorWorkSpan(plan.span);
+        if (plan.priorities.length > 0) {
+          setDraftedPriorities(plan.priorities.map((text) => ({ id: `pri-${Date.now()}-${Math.random().toString(16).slice(2)}`, text, completed: false })));
+        } else {
+          setDraftedPriorities(null);
+        }
+        setIsScheduleEditorOpen(true);
+        setIsInterviewModalOpen(false);
+        return;
       }
 
-      if (interviewModalMode === 'kickoff') {
-        openScheduleEditorOnNextKickoffDraftRef.current = true;
-        autoFinalizeKickoffPlanRef.current = true;
-        await handleSendMessage(undefined, prompt, undefined, { hideUserMessage: true });
-      } else {
-        await handleSendMessage(undefined, prompt, undefined, { suppressChat: true, hideUserMessage: true });
-      }
+      setBriefingScript('');
+      setIsBriefingScriptVisible(false);
+      setBriefingState('draft');
+      setBriefingConsolidation(prev => ({
+        ...prev,
+        status: 'running',
+        missingSources: [],
+        error: null,
+        generatedAt: Date.now(),
+      }));
+
+      const briefingNow = getBriefingNow();
+      const briefingType = interviewModalMode === 'morning-briefing' ? 'morning' : 'afternoon';
+      const briefingWindowForRequest = buildBriefingWindow(briefingType, briefingNow);
+      const briefingContext = filterBriefingContext(briefingWindowForRequest, reminders, briefingInputs, delegatedTasks);
+      const allPointers = dedupeBriefingInputs(briefingInputs);
+      const relevantDailyOpsMetrics = dailyOpsMetrics.filter((m) => m.createdAt >= briefingWindowForRequest.start && m.createdAt <= briefingWindowForRequest.end);
+      const relevantStaffPerformanceLog = staffPerformanceLog.filter((m) => m.createdAt >= briefingWindowForRequest.start && m.createdAt <= briefingWindowForRequest.end);
+
+      const coachingNotes =
+        interviewModalMode === 'morning-briefing'
+          ? String(draft.answers?.[3] ?? '').trim()
+          : '';
+
+      const consolidated = buildBriefingConsolidation({
+        briefingType,
+        fullDate,
+        interviewQuestions: questions,
+        interviewAnswers: draft.answers || [],
+        otherNotes,
+        coachingNotes,
+        reminders: briefingContext.briefingReminders,
+        delegatedTasks: briefingContext.briefingDelegatedTasks,
+        briefingPointers: allPointers,
+        dailyOpsMetrics: relevantDailyOpsMetrics,
+        staffPerformanceLog: relevantStaffPerformanceLog,
+      });
+
+      setKeepNotes(consolidated.text);
+      setBriefingConsolidation(consolidated.meta);
       setIsInterviewModalOpen(false);
-    }, [interviewModalMode, interviewDrafts, handleSendMessage, reminders, briefingInputs, delegatedTasks, handleCreateReminderFromText, parseDelegationFromText, finalizeDelegation]);
+    }, [interviewModalMode, interviewDrafts, reminders, briefingInputs, delegatedTasks, handleCreateReminderFromText, parseDelegationFromText, finalizeDelegation, userProfile.assistantMemory, userProfile, setDraftedSchedule, setDraftedPriorities, setIsScheduleEditorOpen, setNotificationModal, setKeepNotes, dailyOpsMetrics, staffPerformanceLog, setBriefingScript, setIsBriefingScriptVisible, setBriefingState, setBriefingConsolidation]);
     const handleToggleCard = useCallback((cardId: string) => setCollapsedCards(prev => ({ ...prev, [cardId]: !prev[cardId] })), []);
 
     // Mode Handlers
@@ -5567,7 +6903,7 @@ ${reportJson}`;
                 completedProjects: [],
                 keepNotes: '',
                 delegatedTasks: [],
-                team: userProfile.team,
+                team: effectiveTeamMembers,
                 hasGreeted: false,
                 lastResetDate: '',
                 isScheduleConfirmed: false,
@@ -5581,7 +6917,7 @@ ${reportJson}`;
             };
 
             const historyForRequest: Content[] = [{ role: 'user', parts: [{ text: prompt }] }];
-            const response = await sendMessageToGemini(historyForRequest, { ...userProfile, team: userProfile.team }, minimalState, [], new Date(), session?.provider_token || null, eventOpsItems);
+            const response = await sendMessageToGemini(historyForRequest, { ...userProfile, team: effectiveTeamMembers }, minimalState, [], new Date(), session?.provider_token || null, eventOpsItems);
             
             if (response?.isError) {
                 console.error('AI returned error:', response);
@@ -6012,6 +7348,15 @@ ${reportJson}`;
       forceSaveRef.current = true;
     }, [syncScheduleToGoogleCalendar]);
 
+    const scheduleEditorBlockedTimeSlots: BlockedTimeSlot[] = useMemo(() => {
+      if (!isScheduleEditorOpen) return [];
+      return buildBlockedTimeSlotsForDate({
+        now: new Date(),
+        assistantMemory: userProfile.assistantMemory,
+        includeLunch: true,
+      });
+    }, [isScheduleEditorOpen, userProfile.assistantMemory]);
+
     const value: DashboardContextType = {
         onLogout: props.onLogout,
         userProfile: props.userProfile,
@@ -6027,8 +7372,9 @@ ${reportJson}`;
         session: props.session,
         currentView, isMobileMenuOpen, mobileView, chatInput, isSending, currentTime, showResetConfirm,
         showKeepResetConfirm, isSyncing, quickActionModal, isPatchNotesVisible, isFeedbackVisible, isCommandPaletteOpen,
-        attachedFile, isRecording, initialSettingsTab, isCloudLoading, cloudError, suppressCalendarFetch, chatMessages, chatHistory, scheduleItems,
+        attachedFile, isRecording, initialSettingsTab, isCloudLoading, cloudError, suppressCalendarFetch, eventOpsItems, chatMessages, chatHistory, scheduleItems,
         top3Items, reminders, projects, completedProjects, draftedProject, draftedProjectTasks, draftedSchedule, draftedPriorities, keepNotes, delegatedTasks, isScheduleConfirmed, briefingInputs, briefingState,
+        briefingConsolidation,
         collapsedCards, openSidebarSections, dailyProgress, selectedProject, isBriefingPointersVisible, showBriefingClearConfirm, contextMenu,
         isBriefingNotesModalOpen,
         weeklyLog, priorityForTomorrow, dailyOpsMetrics, staffPerformanceLog, carryOverTasks, endOfDaySummary, endOfDayCompletedDate, endOfDayIntro, smartEodQuestions, isSmartEodLoading, weeklyReport, isWeeklyReportModalOpen, emailVersion, isEmailVersionModalOpen, setIsEmailVersionModalOpen, notificationModal, briefingScript, isBriefingScriptVisible, showScheduleClearConfirm, showPrioritiesClearConfirm, showRemindersClearConfirm, showProjectsClearConfirm,
@@ -6059,13 +7405,14 @@ ${reportJson}`;
         handleReminderBriefingPreferenceChange, handleDelegatedTaskToggle, handleDelegatedTaskStatusChange, handleDelegatedTaskRemarksChange, handleDelegatedTaskDeadlineChange,
         handleConfirmPlan, handleMakeChanges, handleConfirmProjectDraft, handleMakeProjectChanges, handleProjectUpdate, requestProjectDraft, saveProjectDraft, handleFinalizeBriefing, openQuickActionModal,
         handleModalConfirm, handleStopGeneration, handleClearBriefingPointers,
-        isScheduleEditorOpen, setIsScheduleEditorOpen, handleProactiveAIMessage, setIsScheduleConfirmed, setDraftedSchedule, setDraftedPriorities,
+        isScheduleEditorOpen, setIsScheduleEditorOpen, scheduleEditorBlockedTimeSlots, scheduleEditorWorkSpan, handleProactiveAIMessage, setIsScheduleConfirmed, setDraftedSchedule, setDraftedPriorities,
         confirmClearBriefingPointers, handleCreateReminderFromText, handleAddBriefingFromText, handleCreateWeeklyReport, handleGenerateEmailReport,
         handleClearSchedule, handleClearPriorities, handleClearReminders, handleClearKeepNotes, handleConfirmDeleteProject,
         handleOpenAddTaskModal, handleAddDelegatedTask, handleClearDelegatedTasks, handleClearProjects,
         handleActivateMode, handleDeactivateMode, cancelPendingDelegation, cancelPendingScheduleClarification,
         openInterviewModal, closeInterviewModal, setInterviewAnswer, setInterviewOtherNotes, carryOverDecision, submitEndOfDayReview, handleGenerateInterview,
-        createScheduleItem, updateScheduleItem, deleteScheduleItem, syncScheduleToGoogleCalendar, refreshGoogleCalendarEvents, clearGoogleCalendarEvents,
+        getQuestionLabel,
+        createScheduleItem, updateScheduleItem, deleteScheduleItem, syncScheduleToGoogleCalendar,
         setTop3Items,
         onAllPrioritiesCompleted: props.onAllPrioritiesCompleted,
         onAllScheduleCompleted: props.onAllScheduleCompleted

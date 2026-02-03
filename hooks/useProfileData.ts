@@ -4,6 +4,7 @@ import type { UserProfile } from '../components/types';
 import { supabase } from '../components/supabaseClient';
 import { ensureAssistantBrain, syncAssistantBrainProfile } from '../components/assistantBrainService';
 import { perfMark, perfMeasure } from '../lib/perf';
+import { normalizeTeamMembers } from '../lib/teamMembers';
 
 // Helper to normalize avatar URLs
 const normalizeAvatarUrl = (url: string) => {
@@ -110,9 +111,12 @@ export function useProfileData(session: Session | null) {
                         timeChallenge: finalProfileData.time_challenge || '',
                         commStyle: finalProfileData.comm_style || '',
                         successDefinition: finalProfileData.success_definition || '',
+                        standardScheduleStart: finalProfileData.standard_schedule_start || '',
+                        standardScheduleEnd: finalProfileData.standard_schedule_end || '',
+                        standardScheduleDays: finalProfileData.standard_schedule_days || '',
                         setup_complete: finalProfileData.setup_complete || false,
                         assistantMemory: finalProfileData.assistant_memory || '',
-                        team: finalProfileData.team || [],
+                        team: normalizeTeamMembers(finalProfileData.team),
                         last_seen_version: finalProfileData.last_seen_version || APP_VERSION,
                         tour_completed: finalProfileData.tour_completed || false,
                         passiveMemory: finalProfileData.passive_memory || [],
@@ -138,7 +142,20 @@ export function useProfileData(session: Session | null) {
                     if (err.name === 'AbortError' || err.message?.includes('AbortError')) return;
 
                     console.error('❌ Error loading profile:', err);
-                    setError(err.message || 'Failed to load profile');
+                    const rawMessage = String(err?.message || '');
+                    const isNetworkFetchFailure =
+                      err instanceof TypeError &&
+                      (rawMessage.includes('Failed to fetch') || rawMessage.includes('NetworkError') || rawMessage.includes('Load failed'));
+                    if (isNetworkFetchFailure) {
+                      const offline = typeof navigator !== 'undefined' && navigator && navigator.onLine === false;
+                      setError(
+                        offline
+                          ? 'You appear to be offline. Please check your internet connection and try again.'
+                          : 'Unable to reach the Supabase backend (network/DNS). Check your network, firewall/VPN, and confirm VITE_SUPABASE_URL is correct.'
+                      );
+                    } else {
+                      setError(rawMessage || 'Failed to load profile');
+                    }
                     perfMark('profile:load-error');
                 } finally {
                     if (mounted) {

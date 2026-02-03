@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { clampSystemInstruction } from "../components/geminiService";
 
 const parseAssistantKeyFacts = (memory: string | null | undefined): string[] => {
   const raw = String(memory || "").trim();
@@ -48,3 +49,15 @@ describe("assistant key facts parsing/merge", () => {
   });
 });
 
+describe("clampSystemInstruction", () => {
+  test("keeps required workflow substring when truncating", () => {
+    const needleA = "DAILY KICK-OFF / PLANNING WORKFLOW";
+    const needleB = "JSON-ONLY Output";
+    const input = `${"a".repeat(8000)}${needleA}${"b".repeat(8000)}${needleB}${"c".repeat(12000)}`;
+    const out = clampSystemInstruction(input, 14000, [needleA, needleB]);
+    expect(out.length).toBeLessThanOrEqual(14000);
+    expect(out).toContain(needleA);
+    expect(out).toContain(needleB);
+    expect(out).toContain("[TRUNCATED]");
+  });
+});

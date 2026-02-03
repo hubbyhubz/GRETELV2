@@ -16,6 +16,9 @@ export interface WizardData {
   timeChallenge: string;
   commStyle: string;
   successDefinition: string;
+  standardScheduleStart?: string;
+  standardScheduleEnd?: string;
+  standardScheduleDays?: string;
 }
 
 export interface TeamMember {
@@ -54,7 +57,10 @@ export interface CreateAccountFormData {
   agreedToTerms: boolean;
 }
 
-export type ScheduleItem = { id: string; time: string; title: string; completed: boolean; isGoogleEvent?: boolean; };
+export type ScheduleItemSource = 'user' | 'event_ops' | 'rule' | 'blocked';
+export type ScheduleItem = { id: string; time: string; title: string; completed: boolean; isGoogleEvent?: boolean; source?: ScheduleItemSource; eventOpsId?: string; };
+export type BlockedTimeSlotSource = 'rule';
+export type BlockedTimeSlot = { id: string; start: number; end: number; timeLabel: string; title: string; source: BlockedTimeSlotSource; reason?: string; };
 export type Top3Item = { id:string; text: string; completed: boolean; };
 export type ReminderBriefingPreference = 'none' | 'morning' | 'afternoon' | 'both';
 export type ReminderItem = { id: string; text: string; completed: boolean; loggedAt?: number; includeInBriefing?: ReminderBriefingPreference; linkedTaskId?: string; };

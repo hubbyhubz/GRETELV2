@@ -1,4 +1,4 @@
-import type { Milestone, Project, ReminderBriefingPreference, ReminderItem, ScheduleItem, Top3Item } from './types';
+import type { BlockedTimeSlot, Milestone, Project, ReminderBriefingPreference, ReminderItem, ScheduleItem, Top3Item } from './types';
 
 export const normalizeNeedle = (value: unknown) => String(value ?? '').toLowerCase().trim();
 
@@ -398,9 +398,10 @@ const doRangesOverlap = (range1: { start: number; end: number }, range2: { start
 /**
  * Formats minutes since midnight to "HH:MM AM/PM" format
  */
-const minutesToTimeString = (minutes: number): string => {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
+export const minutesToTimeString = (minutes: number): string => {
+  const normalized = ((Math.floor(minutes) % (24 * 60)) + (24 * 60)) % (24 * 60);
+  const hours = Math.floor(normalized / 60);
+  const mins = normalized % 60;
   const h = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
   const m = String(mins).padStart(2, '0');
   const ampm = hours >= 12 ? 'PM' : 'AM';
@@ -412,6 +413,7 @@ const minutesToTimeString = (minutes: number): string => {
  */
 const findConflictingItems = (schedule: ScheduleItem[], newRange: { start: number; end: number }): ScheduleItem[] => {
   return schedule.filter(item => {
+    if (item.source === 'rule') return false;
     if (item.time.toLowerCase().trim() === 'all day') return true; // All day items always conflict
     const itemRange = parseScheduleRangeToMinutes(item.time);
     if (!itemRange) return false;
@@ -429,7 +431,7 @@ const getHardConstraintBlocks = (schedule: ScheduleItem[]): Array<{ start: numbe
   
   schedule.forEach(item => {
     const titleLower = item.title.toLowerCase();
-    const isConstraint = constraintKeywords.some(keyword => titleLower.includes(keyword));
+    const isConstraint = item.source === 'rule' || constraintKeywords.some(keyword => titleLower.includes(keyword));
     if (isConstraint) {
       const range = parseScheduleRangeToMinutes(item.time);
       if (range) {
@@ -684,4 +686,456 @@ export const detectEventOpsScheduleClarification = (params: {
   }
 
   return { needsClarification: false as const };
+};
+
+const clampMinutesRange = (range: { start: number; end: number }) => {
+  const start = Math.max(0, Math.min(24 * 60, Math.floor(range.start)));
+  const end = Math.max(0, Math.min(24 * 60, Math.floor(range.end)));
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  if (end <= start) return null;
+  return { start, end };
+};
+
+const rangesOverlap = (a: { start: number; end: number }, b: { start: number; end: number }) => {
+  return Math.max(0, Math.min(a.end, b.end) - Math.max(a.start, b.start)) > 0;
+};
+
+const parseFlexibleTimeToMinutes = (value: string) => {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return null;
+  const ampm = parseAmPmToMinutes(trimmed);
+  if (ampm != null) return ampm;
+  const hm = parseHmToMinutes(trimmed);
+  if (hm != null) return hm;
+  const m = trimmed.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = m[2] ? Number(m[2]) : 0;
+  if (Number.isNaN(h) || Number.isNaN(min)) return null;
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+};
+
+const extractAssistantMemoryText = (assistantMemory: unknown) => {
+  const raw = String(assistantMemory ?? '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.map((x) => String(x)).join('\n');
+    if (typeof parsed === 'string') return parsed;
+    return raw;
+  } catch {
+    return raw;
+  }
+};
+
+const extractWorkHoursFromMemory = (assistantMemory: unknown) => {
+  const text = extractAssistantMemoryText(assistantMemory);
+  const match = text.match(/work\s*hours?\s*[:\-]?\s*([0-9:\s]+(?:am|pm)?)\s*(?:to|\-|–)\s*([0-9:\s]+(?:am|pm)?)/i);
+  if (!match) return null;
+  const start = parseFlexibleTimeToMinutes(match[1]);
+  const end = parseFlexibleTimeToMinutes(match[2]);
+  if (start == null || end == null) return null;
+  return clampMinutesRange({ start, end });
+};
+
+const extractLunchFromMemory = (assistantMemory: unknown) => {
+  const text = extractAssistantMemoryText(assistantMemory);
+  const match = text.match(/lunch\b[^0-9]*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+  if (!match) return null;
+  const start = parseFlexibleTimeToMinutes(match[1]);
+  if (start == null) return null;
+  const durationMatch = text.match(/lunch\b.*?\b(\d{1,3})\s*(?:min|mins|minutes)\b/i);
+  const duration = durationMatch ? Number(durationMatch[1]) : 30;
+  if (!Number.isFinite(duration) || duration <= 0) return null;
+  return clampMinutesRange({ start, end: start + Math.min(240, duration) });
+};
+
+const toTimeLabel = (range: { start: number; end: number }) => {
+  if (range.start === 0 && range.end >= 24 * 60) return 'All Day';
+  return `${minutesToTimeString(range.start)} - ${minutesToTimeString(range.end)}`;
+};
+
+const mergeOverlappingRanges = (ranges: Array<{ start: number; end: number }>) => {
+  const sorted = ranges
+    .map(clampMinutesRange)
+    .filter(Boolean) as Array<{ start: number; end: number }>;
+  sorted.sort((a, b) => a.start - b.start);
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const r of sorted) {
+    const last = merged[merged.length - 1];
+    if (!last) {
+      merged.push({ ...r });
+      continue;
+    }
+    if (r.start <= last.end) {
+      last.end = Math.max(last.end, r.end);
+      continue;
+    }
+    merged.push({ ...r });
+  }
+  return merged;
+};
+
+export const buildBlockedTimeSlotsForDate = (params: {
+  now: Date;
+  assistantMemory: unknown;
+  includeOutsideWorkHours?: boolean;
+  includeLunch?: boolean;
+}) => {
+  const { now, assistantMemory } = params;
+  const includeOutsideWorkHours = params.includeOutsideWorkHours === true;
+  const includeLunch = params.includeLunch === true;
+
+  const workHours = extractWorkHoursFromMemory(assistantMemory) ?? { start: 9 * 60, end: 17 * 60 };
+  const lunch = extractLunchFromMemory(assistantMemory);
+
+  const slots: BlockedTimeSlot[] = [];
+  const ymd = toYmdLocal(now);
+
+  if (includeOutsideWorkHours) {
+    const before = clampMinutesRange({ start: 0, end: workHours.start });
+    const after = clampMinutesRange({ start: workHours.end, end: 24 * 60 });
+    if (before) slots.push({ id: `blocked-rule-before-${ymd}`, start: before.start, end: before.end, timeLabel: toTimeLabel(before), title: 'Outside Work Hours', source: 'rule', reason: 'outside_work_hours' });
+    if (after) slots.push({ id: `blocked-rule-after-${ymd}`, start: after.start, end: after.end, timeLabel: toTimeLabel(after), title: 'Outside Work Hours', source: 'rule', reason: 'outside_work_hours' });
+  }
+
+  if (includeLunch && lunch) {
+    slots.push({ id: `blocked-rule-lunch-${ymd}`, start: lunch.start, end: lunch.end, timeLabel: toTimeLabel(lunch), title: 'Lunch', source: 'rule', reason: 'lunch' });
+  }
+
+  const ruleRanges = mergeOverlappingRanges(slots.filter((s) => s.source === 'rule').map((s) => ({ start: s.start, end: s.end })));
+
+  const normalizedSlots: BlockedTimeSlot[] = [];
+  ruleRanges.forEach((r, idx) => {
+    const matchingReasons = slots
+      .filter((s) => s.source === 'rule')
+      .filter((s) => rangesOverlap({ start: s.start, end: s.end }, r))
+      .map((s) => s.reason)
+      .filter(Boolean) as string[];
+    const reason = matchingReasons.includes('lunch') ? 'lunch' : matchingReasons.includes('outside_work_hours') ? 'outside_work_hours' : undefined;
+    const title = reason === 'lunch' ? 'Lunch' : 'Outside Work Hours';
+    normalizedSlots.push({ id: `blocked-rule-${ymd}-${idx}`, start: r.start, end: r.end, timeLabel: toTimeLabel(r), title, source: 'rule', reason });
+  });
+
+  normalizedSlots.sort((a, b) => a.start - b.start);
+
+  return normalizedSlots;
+};
+
+export type KickoffEnergyPeak = 'morning' | 'midday' | 'afternoon' | 'evening';
+
+export type EightHourSchedulePlan =
+  | { ok: true; span: { start: number; end: number }; schedule: ScheduleItem[]; priorities: string[]; warnings: string[] }
+  | { ok: false; error: string };
+
+const parseAnswerList = (raw: string) => {
+  return String(raw || '')
+    .split(/\r?\n|;|,/)
+    .map((line) => String(line || '').trim().replace(/^[-•*]\s+/, ''))
+    .filter(Boolean);
+};
+
+const shortenKickoffLabel = (raw: string, maxLen: number = 34) => {
+  let text = String(raw ?? '').trim();
+  if (!text) return '';
+  text = text.replace(/^[\u200B-\u200D\uFEFF]+/, '').trim();
+  text = text.replace(/^[-•*]+\s*/, '').trim();
+  text = text.replace(/^focus\s*[-—:]\s*/i, '').trim();
+  const separators = [':', '—', '-'];
+  for (const sep of separators) {
+    const idx = text.indexOf(sep);
+    if (idx > 3 && idx < 44) {
+      const left = text.slice(0, idx).trim();
+      if (left.length >= 4) {
+        text = left;
+        break;
+      }
+    }
+  }
+  text = text.replace(/\s+/g, ' ').trim();
+  text = text.replace(/[.,"'`]+$/g, '').trim();
+  if (text.length > maxLen) {
+    text = `${text.slice(0, Math.max(0, maxLen - 1)).trimEnd()}…`;
+  }
+  return text;
+};
+
+const deriveKickoffFillLabels = (questions: string[], answers: string[], otherNotes?: string) => {
+  const pairs = (Array.isArray(questions) ? questions : []).map((q, i) => ({
+    q: String(q ?? ''),
+    qLower: String(q ?? '').toLowerCase(),
+    a: String((Array.isArray(answers) ? answers[i] : '') ?? '').trim(),
+    aLower: String((Array.isArray(answers) ? answers[i] : '') ?? '').toLowerCase(),
+  }));
+
+  const labels: string[] = [];
+  labels.push('Waste', 'Checklist', 'Breakage');
+
+  const adminAnswer = pairs.find((p) => p.qLower.includes('additional admin blocks'))?.a ?? '';
+  parseAnswerList(adminAnswer).forEach((item) => {
+    const shortened = shortenKickoffLabel(item, 26);
+    if (shortened) labels.push(shortened);
+  });
+
+  if (pairs.some((p) => p.a && p.qLower.includes('breakage'))) labels.unshift('Breakage');
+  if (pairs.some((p) => p.a && p.qLower.includes('inventory'))) labels.unshift('Inventory');
+  if (pairs.some((p) => p.a && (p.qLower.includes('team development') || p.qLower.includes('coaching')))) labels.unshift('Coaching');
+  if (pairs.some((p) => p.a && p.qLower.includes('bottlenecks'))) labels.unshift('Bottlenecks');
+  if (pairs.some((p) => p.a && p.qLower.includes('deep focus block'))) labels.unshift('Deep Focus');
+
+  const other = String(otherNotes ?? '').trim();
+  if (other) {
+    parseAnswerList(other).slice(0, 6).forEach((item) => {
+      const shortened = shortenKickoffLabel(item, 26);
+      if (shortened) labels.push(shortened);
+    });
+  }
+
+  const fallbackDefaults = ['Follow-ups', 'Email', 'Admin'];
+  if (labels.length === 0) labels.push(...fallbackDefaults);
+
+  const seen = new Set<string>();
+  return labels.filter((l) => {
+    const key = l.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const extractAvailabilityWindowFromText = (raw: string) => {
+  const text = String(raw || '').trim();
+  if (!text) return { start: null as number | null, end: null as number | null };
+
+  const rangeMatch = text.match(/(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*(?:to|\-|–)\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+  if (rangeMatch) {
+    const start = parseFlexibleTimeToMinutes(rangeMatch[1]);
+    const end = parseFlexibleTimeToMinutes(rangeMatch[2]);
+    return { start, end };
+  }
+
+  const startMatch = text.match(/\b(?:start|available|in|begin)\b[^0-9]*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+  const endMatch = text.match(/\b(?:done|leave|out|until|end|hard\s*stop)\b[^0-9]*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+  const start = startMatch ? parseFlexibleTimeToMinutes(startMatch[1]) : null;
+  const end = endMatch ? parseFlexibleTimeToMinutes(endMatch[1]) : null;
+  return { start, end };
+};
+
+const extractEnergyPeakFromText = (raw: string): KickoffEnergyPeak | null => {
+  const text = String(raw || '').toLowerCase();
+  if (!text) return null;
+  if (text.includes('morning')) return 'morning';
+  if (text.includes('midday') || text.includes('lunch') || text.includes('noon')) return 'midday';
+  if (text.includes('afternoon')) return 'afternoon';
+  if (text.includes('evening') || text.includes('night')) return 'evening';
+  return null;
+};
+
+const subtractRanges = (base: { start: number; end: number }, blocks: Array<{ start: number; end: number }>) => {
+  const merged = mergeOverlappingRanges(blocks) as Array<{ start: number; end: number }>;
+  const result: Array<{ start: number; end: number }> = [];
+  let cursor = base.start;
+  merged.forEach((b) => {
+    const start = Math.max(base.start, b.start);
+    const end = Math.min(base.end, b.end);
+    if (end <= base.start || start >= base.end) return;
+    if (start > cursor) result.push({ start: cursor, end: start });
+    cursor = Math.max(cursor, end);
+  });
+  if (cursor < base.end) result.push({ start: cursor, end: base.end });
+  return result;
+};
+
+export const planEightHourScheduleFromKickoffInterview = (params: {
+  now: Date;
+  questions: string[];
+  answers: string[];
+  otherNotes?: string;
+  assistantMemory: unknown;
+  eventOpsItems?: Array<{ id: string; kind: string; event_date: string; name: string; location: string | null; serving_time: string | null }>;
+  standardScheduleStart?: string | null;
+  standardScheduleEnd?: string | null;
+  standardScheduleDays?: string | null;
+}) => {
+  const now = params.now;
+  const answers = Array.isArray(params.answers) ? params.answers : [];
+  const assistantMemory = params.assistantMemory;
+  const assistantText = extractAssistantMemoryText(assistantMemory);
+
+  const top3Answer = String(answers[0] || '').trim();
+  const energyAnswer = String(answers[1] || '').trim();
+  const availabilityAnswer = String(answers[2] || '').trim();
+
+  const priorities = parseAnswerList(top3Answer).slice(0, 3).map((p) => shortenKickoffLabel(p, 40)).filter(Boolean);
+  const energyPeak = extractEnergyPeakFromText(energyAnswer);
+
+  const extractShiftFromMemory = () => {
+    const match = assistantText.match(/\bshift\b[^a-z]*(morning|afternoon|midnight)\b/i);
+    return match ? match[1].toLowerCase() : null;
+  };
+  const extractStandardScheduleFromMemory = () => {
+    const match = assistantText.match(/\bstandard\s*schedule\b[\s\S]*?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*(?:to|\-|–)\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+    if (!match) return null;
+    const start = parseFlexibleTimeToMinutes(match[1]);
+    const end = parseFlexibleTimeToMinutes(match[2]);
+    if (start == null || end == null) return null;
+    return clampMinutesRange({ start, end });
+  };
+  const extractStandardScheduleFromProfile = () => {
+    const startRaw = String(params.standardScheduleStart ?? '').trim();
+    const endRaw = String(params.standardScheduleEnd ?? '').trim();
+    if (!startRaw || !endRaw) return null;
+    const start = parseFlexibleTimeToMinutes(startRaw);
+    const end = parseFlexibleTimeToMinutes(endRaw);
+    if (start == null || end == null) return null;
+    return clampMinutesRange({ start, end });
+  };
+
+  const defaultByShift = (shift: string | null) => {
+    if (shift === 'morning') return { start: 8 * 60, end: 18 * 60 };
+    if (shift === 'afternoon') return { start: 15 * 60, end: 23 * 60 };
+    if (shift === 'midnight') return null;
+    return { start: 8 * 60, end: 18 * 60 };
+  };
+
+  const availability = extractAvailabilityWindowFromText(availabilityAnswer);
+  const standard = extractStandardScheduleFromProfile() ?? extractStandardScheduleFromMemory();
+  const shift = extractShiftFromMemory();
+  const shiftDefault = defaultByShift(shift);
+  const workHours = extractWorkHoursFromMemory(assistantMemory) ?? { start: 8 * 60, end: 18 * 60 };
+
+  const inferredStart = standard?.start ?? (availability.start != null ? availability.start : shiftDefault?.start ?? workHours.start);
+  const inferredEnd = standard?.end ?? (availability.end != null ? availability.end : shiftDefault?.end ?? workHours.end);
+  const dayRange = clampMinutesRange({ start: inferredStart, end: inferredEnd });
+  if (!dayRange) {
+    return { ok: false as const, error: 'I need a valid start and end time for today (e.g., 8:00 AM - 6:00 PM).' };
+  }
+
+  const warnings: string[] = [];
+
+  const makeId = (prefix: string) => `${prefix}-${now.getTime()}-${Math.random().toString(16).slice(2)}`;
+  const pushItem = (items: ScheduleItem[], item: ScheduleItem) => {
+    if (!item?.time || !item?.title) return;
+    const range = parseScheduleRangeToMinutes(item.time);
+    if (!range) return;
+    if (range.end <= dayRange.start || range.start >= dayRange.end) return;
+    items.push(item);
+  };
+
+  const fixed: ScheduleItem[] = [];
+
+  const lunch = extractLunchFromMemory(assistantMemory);
+  if (lunch) {
+    const t = `${minutesToTimeString(lunch.start)} - ${minutesToTimeString(lunch.end)}`;
+    pushItem(fixed, { id: makeId('rule-lunch'), time: t, title: 'Lunch', completed: false, source: 'rule' });
+  }
+
+  if (dayRange.start < 8 * 60 && 8 * 60 + 30 <= dayRange.end) {
+    pushItem(fixed, { id: makeId('rule-briefing-am'), time: `${minutesToTimeString(8 * 60)} - ${minutesToTimeString(8 * 60 + 30)}`, title: 'Morning Briefing', completed: false, source: 'rule' });
+  }
+  if (dayRange.end > 15 * 60 && 15 * 60 + 30 <= dayRange.end) {
+    pushItem(fixed, { id: makeId('rule-briefing-pm'), time: `${minutesToTimeString(15 * 60)} - ${minutesToTimeString(15 * 60 + 30)}`, title: 'Afternoon Briefing', completed: false, source: 'rule' });
+  }
+
+  const pairs = (Array.isArray(params.questions) ? params.questions : []).map((q, i) => ({
+    qLower: String(q ?? '').toLowerCase(),
+    a: String((Array.isArray(answers) ? answers[i] : '') ?? '').trim(),
+  }));
+  const adminAnswer = pairs.find((p) => p.qLower.includes('additional admin blocks'))?.a ?? '';
+  const additionalAdmin = parseAnswerList(adminAnswer).map((x) => shortenKickoffLabel(x, 18)).filter(Boolean);
+
+  const adminParts = ['Waste', 'Checklist', 'Breakage', ...additionalAdmin];
+  const adminTitle = `Admin — ${adminParts.slice(0, 4).join('/')}${adminParts.length > 4 ? '…' : ''}`;
+  const adminDuration = Math.min(120, 60 + Math.max(0, adminParts.length - 3) * 15);
+  const preferredAdminStart = 16 * 60 + 30;
+  const adminStart = Math.max(dayRange.start, Math.min(preferredAdminStart, dayRange.end - adminDuration));
+  const adminEnd = adminStart + adminDuration;
+  if (adminEnd > adminStart && adminEnd <= dayRange.end) {
+    pushItem(fixed, { id: makeId('rule-admin'), time: `${minutesToTimeString(adminStart)} - ${minutesToTimeString(adminEnd)}`, title: adminTitle, completed: false, source: 'rule' });
+  }
+
+  const fixedRanges = [...fixed]
+    .map((it) => parseScheduleRangeToMinutes(it.time))
+    .filter(Boolean) as Array<{ start: number; end: number }>;
+
+  const free = subtractRanges(dayRange, fixedRanges);
+  const freeMinutes = free.reduce((sum, r) => sum + Math.max(0, r.end - r.start), 0);
+  if (freeMinutes < 180) warnings.push('Very limited free time detected due to fixed blocks; consider adjusting times.');
+
+  const placeBlockInWindow = (preferred: { start: number; end: number }, duration: number) => {
+    const window = clampMinutesRange({ start: Math.max(dayRange.start, preferred.start), end: Math.min(dayRange.end, preferred.end) });
+    if (!window) return null;
+    for (const r of free) {
+      const s = Math.max(r.start, window.start);
+      const e = Math.min(r.end, window.end);
+      if (e - s >= duration) return { start: s, end: s + duration };
+    }
+    return null;
+  };
+
+  const focusDuration = 90;
+  const focusLabel = priorities[0] ? `Focus — ${priorities[0]}` : 'Focus';
+  const preferredWindow =
+    energyPeak === 'morning'
+      ? { start: 9 * 60, end: 11 * 60 }
+      : energyPeak === 'afternoon'
+        ? { start: 13 * 60, end: 15 * 60 }
+        : energyPeak === 'midday'
+          ? { start: 11 * 60, end: 13 * 60 }
+          : { start: 15 * 60, end: 17 * 60 };
+
+  const focusSlot = placeBlockInWindow(preferredWindow, focusDuration) ?? placeBlockInWindow({ start: dayRange.start, end: dayRange.end }, focusDuration);
+  if (!focusSlot) {
+    return { ok: false as const, error: 'No available slot for a Focus Block without colliding with fixed blocks. Adjust your availability window or rules.' };
+  }
+
+  const schedule: ScheduleItem[] = [];
+  fixed.forEach((it) => schedule.push(it));
+  schedule.push({ id: makeId('auto-focus'), time: `${minutesToTimeString(focusSlot.start)} - ${minutesToTimeString(focusSlot.end)}`, title: focusLabel, completed: false });
+
+  const remainingPriorities = priorities.slice(1);
+  const fillLabels = deriveKickoffFillLabels(params.questions, answers, params.otherNotes);
+  let fillIdx = 0;
+
+  const occupiedAfterFocus = [...schedule]
+    .map((it) => parseScheduleRangeToMinutes(it.time))
+    .filter(Boolean) as Array<{ start: number; end: number }>;
+  const freeAfter = subtractRanges(dayRange, occupiedAfterFocus);
+
+  remainingPriorities.forEach((p) => {
+    const label = `Ops — ${p}`;
+    const slot = freeAfter.find((r) => r.end - r.start >= 60);
+    if (!slot) return;
+    const start = slot.start;
+    const end = start + 60;
+    schedule.push({ id: makeId('auto-ops'), time: `${minutesToTimeString(start)} - ${minutesToTimeString(end)}`, title: label, completed: false });
+    occupiedAfterFocus.push({ start, end });
+    const nextFree = subtractRanges(dayRange, occupiedAfterFocus);
+    freeAfter.splice(0, freeAfter.length, ...nextFree);
+  });
+
+  const bufferCount = Math.min(2, Math.max(0, freeAfter.length));
+  for (let i = 0; i < bufferCount; i++) {
+    const slot = freeAfter.find((r) => r.end - r.start >= 45);
+    if (!slot) break;
+    const start = slot.start;
+    const end = start + Math.min(60, slot.end - slot.start);
+    const title = fillLabels[fillIdx++ % fillLabels.length] || 'Ops Buffer';
+    schedule.push({ id: makeId('auto-fill'), time: `${minutesToTimeString(start)} - ${minutesToTimeString(end)}`, title, completed: false });
+    occupiedAfterFocus.push({ start, end });
+    const nextFree = subtractRanges(dayRange, occupiedAfterFocus);
+    freeAfter.splice(0, freeAfter.length, ...nextFree);
+  }
+
+  schedule.sort((a, b) => {
+    const pa = parseScheduleRangeToMinutes(String(a.time || ''));
+    const pb = parseScheduleRangeToMinutes(String(b.time || ''));
+    if (!pa && !pb) return 0;
+    if (!pa) return 1;
+    if (!pb) return -1;
+    return pa.start - pb.start;
+  });
+
+  return { ok: true as const, span: { start: dayRange.start, end: dayRange.end }, schedule, priorities, warnings };
 };

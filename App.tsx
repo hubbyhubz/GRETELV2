@@ -324,6 +324,9 @@ function App() {
       team: normalizedProfile.team,
       passive_memory: normalizedProfile.passiveMemory,
       relational_memory: normalizedProfile.relationalMemory,
+      standard_schedule_start: normalizedProfile.standardScheduleStart || null,
+      standard_schedule_end: normalizedProfile.standardScheduleEnd || null,
+      standard_schedule_days: normalizedProfile.standardScheduleDays || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -430,6 +433,9 @@ function App() {
       comm_style: wizardData.commStyle,
       success_definition: wizardData.successDefinition,
       assistant_name: wizardData.assistantName,
+      standard_schedule_start: (wizardData as any).standardScheduleStart || null,
+      standard_schedule_end: (wizardData as any).standardScheduleEnd || null,
+      standard_schedule_days: (wizardData as any).standardScheduleDays || null,
       setup_complete: true,
       updated_at: new Date().toISOString(),
     };
@@ -442,7 +448,23 @@ function App() {
     if (error) {
       console.error("Error finalizing setup:", error);
     } else {
-      const updatedProfile = { ...userProfile, ...updates, setup_complete: true };
+      const updatedProfile: UserProfile = {
+        ...userProfile,
+        role: wizardData.role,
+        responsibilities: wizardData.responsibilities,
+        dailyTasks: wizardData.dailyTasks,
+        deepFocusProjects: wizardData.deepFocusProjects,
+        metrics: wizardData.metrics,
+        meetings: wizardData.meetings,
+        timeChallenge: wizardData.timeChallenge,
+        commStyle: wizardData.commStyle,
+        successDefinition: wizardData.successDefinition,
+        assistantName: wizardData.assistantName,
+        standardScheduleStart: wizardData.standardScheduleStart || '',
+        standardScheduleEnd: wizardData.standardScheduleEnd || '',
+        standardScheduleDays: wizardData.standardScheduleDays || '',
+        setup_complete: true,
+      };
       updateProfileLocal(updatedProfile);
 
       syncAssistantBrainProfile(updatedProfile.id, updatedProfile).catch(() => { });

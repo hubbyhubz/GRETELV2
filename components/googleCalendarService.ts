@@ -2,6 +2,7 @@
 import type { ScheduleItem } from './types';
 
 const CALENDAR_API_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+const CALENDAR_API_EVENT_URL = (eventId: string) => `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`;
 
 /**
  * Parses a time range string (e.g., "9-10am", "11am - 1pm") into start and end Date objects.
@@ -200,4 +201,33 @@ export const getTodaysEvents = async (accessToken: string): Promise<any[]> => {
         return data.items;
     }
     return [];
+};
+
+export const patchCalendarEvent = async (accessToken: string | null, eventId: string, patch: any): Promise<any> => {
+    if (!accessToken) {
+        const err = new Error("Google Calendar update failed: Missing authentication token.");
+        (err as any).status = 401;
+        throw err;
+    }
+    if (!eventId) {
+        const err = new Error("Google Calendar update failed: Missing event id.");
+        (err as any).status = 400;
+        throw err;
+    }
+    const response = await fetch(CALENDAR_API_EVENT_URL(eventId), {
+        method: 'PATCH',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(patch ?? {}),
+    });
+    if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        const message = errorBody?.error?.message || `Failed to update event (${response.status})`;
+        const err = new Error(message);
+        (err as any).status = response.status;
+        throw err;
+    }
+    return response.json();
 };

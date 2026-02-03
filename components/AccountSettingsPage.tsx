@@ -9,6 +9,7 @@ import { UserIcon } from './AnimatedIcons/UserIcon';
 import { UsersIcon } from './AnimatedIcons/UsersIcon';
 import { SecurityIcon } from './AnimatedIcons/SecurityIcon';
 import { XIcon } from './AnimatedIcons/XIcon';
+import { CustomTimePicker } from './CustomTimePicker';
 
 // Icons
 import { EyeIcon } from './AnimatedIcons/EyeIcon';
@@ -314,6 +315,9 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
         timeChallenge: '',
         commStyle: '',
         successDefinition: '',
+        standardScheduleStart: '',
+        standardScheduleEnd: '',
+        standardScheduleDays: '',
         setup_complete: false,
         assistantMemory: '',
         team: [],
@@ -340,6 +344,9 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
     timeChallenge: userProfile.timeChallenge || '',
     commStyle: userProfile.commStyle || '',
     successDefinition: userProfile.successDefinition || '',
+    standardScheduleStart: userProfile.standardScheduleStart || '',
+    standardScheduleEnd: userProfile.standardScheduleEnd || '',
+    standardScheduleDays: userProfile.standardScheduleDays || '',
     setup_complete: userProfile.setup_complete ?? false,
     assistantMemory: userProfile.assistantMemory || '',
       team: Array.isArray(userProfile.team) ? userProfile.team : [],
@@ -408,6 +415,9 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
         timeChallenge: userProfile?.timeChallenge || '',
         commStyle: userProfile?.commStyle || '',
         successDefinition: userProfile?.successDefinition || '',
+        standardScheduleStart: userProfile?.standardScheduleStart || '',
+        standardScheduleEnd: userProfile?.standardScheduleEnd || '',
+        standardScheduleDays: userProfile?.standardScheduleDays || '',
         setup_complete: userProfile?.setup_complete ?? false,
         assistantMemory: userProfile?.assistantMemory || '',
         team: Array.isArray(userProfile?.team) ? userProfile.team : [],
@@ -694,6 +704,40 @@ export function AccountSettingsPage({ onBackToDashboard, userProfile, onProfileU
                                             <label htmlFor="companyId" className="text-sm font-bold">Company ID</label>
                                             <input type="text" id="companyId" name="companyId" value={profileData.companyId} onChange={handleProfileDataChange} placeholder="e.g., CRM00302" className={`w-full p-2 bg-gray-100 dark:bg-gray-700 border rounded-md ${!isCompanyIdValid ? 'border-red-500' : ''}`} />
                                             {!isCompanyIdValid && <p className="mt-1 text-sm text-red-600">Company ID must start with 'CRM'.</p>}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="space-y-2 pt-6 border-t border-gray-200 dark:border-gray-700">
+                                    <h3 className="text-lg font-bold">Standard Schedule</h3>
+                                    <p className="text-xs text-gray-500 mb-2">Used by the Daily Kick Off scheduler to set your default start and end times.</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                                        <div>
+                                            <label className="text-sm font-bold">Start Time</label>
+                                            <CustomTimePicker
+                                                value={profileData.standardScheduleStart || ''}
+                                                onChange={(value) => setProfileData(prev => ({ ...prev, standardScheduleStart: value }))}
+                                                className="w-full p-2 bg-gray-100 dark:bg-gray-700 border rounded-md"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-bold">End Time</label>
+                                            <CustomTimePicker
+                                                value={profileData.standardScheduleEnd || ''}
+                                                onChange={(value) => setProfileData(prev => ({ ...prev, standardScheduleEnd: value }))}
+                                                className="w-full p-2 bg-gray-100 dark:bg-gray-700 border rounded-md"
+                                            />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label htmlFor="standardScheduleDays" className="text-sm font-bold">Days (optional)</label>
+                                            <input
+                                                type="text"
+                                                id="standardScheduleDays"
+                                                name="standardScheduleDays"
+                                                value={profileData.standardScheduleDays || ''}
+                                                onChange={handleProfileDataChange}
+                                                placeholder="Mon-Fri"
+                                                className="w-full p-2 bg-gray-100 dark:bg-gray-700 border rounded-md"
+                                            />
                                         </div>
                                     </div>
                                 </div>

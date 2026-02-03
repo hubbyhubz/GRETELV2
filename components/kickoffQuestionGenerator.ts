@@ -17,23 +17,12 @@ const asStringArray = (value: unknown): string[] => {
   return [];
 };
 
-const includesAny = (haystack: string, needles: string[]): boolean => {
-  const lowered = haystack.toLowerCase();
-  return needles.some(n => lowered.includes(n.toLowerCase()));
-};
-
 export const generateKickoffQuestions = (userProfile: KickoffProfileLike | null | undefined): string[] => {
-  const roleRaw = String(userProfile?.role ?? '').trim();
-  const roleLower = roleRaw.toLowerCase();
-  const isSupervisorOrManager = includesAny(roleLower, ['supervisor', 'manager']);
-
   const questions: string[] = [];
 
-  if (isSupervisorOrManager) {
-    questions.push(`What are your Top 3 Objectives for ${roleRaw || 'your'} operations today?`);
-  } else {
-    questions.push('What are your Top 3 Priorities for today?');
-  }
+  questions.push('What are your Top 3 Priorities for today?');
+  questions.push('What is your energy level today (low/medium/high), and when is it highest?');
+  questions.push('What time window are you available to work today? (start/end, plus any hard stops)');
 
   const metricsRaw = (userProfile as any)?.key_metrics ?? (userProfile as any)?.metrics ?? '';
   const metricsList = asStringArray(metricsRaw).join(' ').toLowerCase();
@@ -52,17 +41,7 @@ export const generateKickoffQuestions = (userProfile: KickoffProfileLike | null 
   if (firstProject) {
     questions.push(`Do you have a deep focus block for ${firstProject} today? What outcome defines success?`);
   }
-
-  const successDefinition = String((userProfile as any)?.success_definition ?? (userProfile as any)?.successDefinition ?? '').trim();
-  if (successDefinition.toLowerCase() === 'team grow') {
-    questions.push('Do you have any Team Development or Coaching points for your briefings?');
-  }
-  if (successDefinition.toLowerCase() === 'clearing to-do list') {
-    questions.push('What operational bottlenecks need to be cleared before lunch?');
-  }
-
-  questions.push('What additional admin blocks are needed today? (Note: Waste, Checklist, & Breakage are auto-included).');
+  questions.push('Afternoon admin is mandatory (Waste, Checklist, Breakage). What additional admin blocks are needed today?');
 
   return questions;
 };
-

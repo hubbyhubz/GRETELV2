@@ -8,6 +8,43 @@ const openAiApiKey =
   import.meta.env.VITE_API_KEY ??
   '';
 
+export const clampSystemInstruction = (
+  systemInstruction: string,
+  maxChars: number,
+  requiredSubstrings: string[] = []
+): string => {
+  const input = String(systemInstruction || '');
+  const limit = Number.isFinite(maxChars) && maxChars > 0 ? Math.floor(maxChars) : 0;
+  if (!limit || input.length <= limit) return input;
+
+  const marker = '\n\n[TRUNCATED]\n\n';
+  const usable = Math.max(0, limit - marker.length);
+  const headChars = Math.max(0, Math.floor(usable * 0.4));
+  const tailChars = Math.max(0, usable - headChars);
+
+  let tailStart = Math.max(0, input.length - tailChars);
+  if (requiredSubstrings.length > 0) {
+    const spans: Array<{ start: number; end: number }> = [];
+    for (const needleRaw of requiredSubstrings) {
+      const needle = String(needleRaw || '').trim();
+      if (!needle) continue;
+      const idx = input.indexOf(needle);
+      if (idx >= 0) spans.push({ start: idx, end: idx + needle.length });
+    }
+    if (spans.length > 0) {
+      const spanStart = Math.min(...spans.map((s) => s.start));
+      const spanEnd = Math.max(...spans.map((s) => s.end));
+      const spanMid = Math.floor((spanStart + spanEnd) / 2);
+      const desiredStart = Math.max(0, spanMid - Math.floor(tailChars / 2));
+      tailStart = Math.min(desiredStart, Math.max(0, input.length - tailChars));
+    }
+  }
+
+  const head = input.slice(0, headChars);
+  const tail = input.slice(tailStart, tailStart + tailChars);
+  return `${head}${marker}${tail}`;
+};
+
 /**
  * Request queue to prevent API overload
  */
@@ -410,6 +447,29 @@ Today is ${formattedDate} (${todayYmd}).
 Tomorrow is: ${tomorrowYmd}.
 Next Monday is: ${nextMondayYmd}.
 
+**🚨 HIGHEST PRIORITY: ASSISTANT CONFIGURATION RULES (FROM ACCOUNT SETTINGS) 🚨**
+These rules are configured by the user in Account Settings → Assistant Configuration. They are ABSOLUTE CONSTRAINTS. They override ALL other instructions, workflows, and even your own "Wellness Check" logic. You are FORBIDDEN from deviating from these rules.
+
+**Assistant Name:** ${userProfile.assistantName}
+- You MUST identify yourself as "${userProfile.assistantName}" in all interactions
+- This is your identity - never use a different name
+
+**Assistant Memory (Key Facts) - ABSOLUTE ENFORCEMENT:**
+${formattedMemory ? `The user has configured the following key facts that you MUST follow WITHOUT EXCEPTION:
+
+${formattedMemory}
+
+**ENFORCEMENT RULES:**
+1. These facts are HARD CONSTRAINTS.
+2. You MUST apply these facts in every single schedule, plan, or response you generate.
+3. If a fact specifies a time (e.g., "Lunch is 1:00 PM - 1:30 PM"), you MUST use that exact time. You are NOT allowed to make it longer, shorter, or move it, even if the schedule is "packed".
+4. These facts represent the user's non-negotiable personal and professional boundaries.
+5. If the user asks “what are my Key Facts / Assistant Memory”, you MUST list every fact exactly as written above.
+
+**EXAMPLES OF ABSOLUTE COMPLIANCE:**
+- If a fact says "Lunch is 1:00 PM - 1:30 PM", then "12:00 PM - 1:30 PM" is a VIOLATION. Use "1:00 PM - 1:30 PM" exactly.
+- Do NOT try to be "helpful" by changing these times. The user wants EXACT compliance.` : 'No key facts have been configured yet.'}
+
 CRITICAL INSTRUCTION FOR DATES:
 - When the user says "tomorrow", ALWAYS interpret it as ${tomorrowYmd}.
 - When the user says "next Monday", interpret it as ${nextMondayYmd}.
@@ -478,33 +538,6 @@ If a user asks for something you cannot do:
 - If the question depends on real-time data you cannot access, say so and provide the best general guidance you can
 - Maintain your identity as "${userProfile.assistantName}" and stay in character
 - Be conversational but always look for opportunities to help with task management
-
-**🚨 HIGHEST PRIORITY: ASSISTANT CONFIGURATION RULES (FROM ACCOUNT SETTINGS) 🚨**
-These rules are configured by the user in Account Settings → Assistant Configuration. They override ALL other instructions and must be followed STRICTLY above all else.
-
-**Assistant Name:** ${userProfile.assistantName}
-- You MUST identify yourself as "${userProfile.assistantName}" in all interactions
-- This is your identity - never use a different name
-
-**Assistant Memory (Key Facts) - CRITICAL RULES TO FOLLOW:**
-${formattedMemory ? `The user has configured the following key facts that you MUST remember and apply in ALL interactions:
-
-${formattedMemory}
-
-**ENFORCEMENT RULES:**
-1. These facts are NON-NEGOTIABLE constraints and preferences
-2. You MUST reference and apply these facts when making decisions
-3. When scheduling, delegating, or planning, these facts take precedence over general instructions
-4. Only ignore a key fact if the user EXPLICITLY overrides it in the current conversation
-5. If a fact conflicts with a request, gently remind the user of the fact and ask for confirmation
-6. These facts represent the user's established preferences, reporting requirements, and operational constraints
-7. If the user asks “what are my Key Facts / Assistant Memory”, you MUST list every fact exactly as written above, without omissions
-
-**EXAMPLES OF APPLICATION:**
-- If a fact says "Report to [Boss Name] every Friday", you MUST incorporate this into weekly planning
-- If a fact says "Never schedule meetings before 9 AM", you MUST respect this when creating schedules
-- If a fact says "Always delegate [Task Type] to [Person Name]", you MUST follow this when delegating
-- If a fact says "Priority: [Specific Goal]", you MUST align all recommendations with this priority` : 'No key facts have been configured yet. The user can add facts in Account Settings → Assistant Configuration → Assistant Memory (Key Facts).'}
 
 **TEAM MANAGEMENT (FROM ACCOUNT SETTINGS)**
 The user has configured the following team members in Account Settings → Team Management. You MUST be aware of these team members and use them appropriately when delegating tasks, assigning project milestones, or making recommendations.
@@ -861,6 +894,7 @@ This is a strict, multi-turn conversation. You CANNOT skip steps or merge them.
 *   **STEP 2: Drafting The Plan (Your Second Response)**
     *   **TRIGGER:** The user has replied to your questions from Step 1.
     *   **ACTION:** You MUST generate a comprehensive, intelligent 8-hour workday plan. Your response MUST be a JSON object containing ALL of the following four properties: \`text\`, \`schedule\`, \`priorities\`, and \`isPlanDraft\`. You are FORBIDDEN from omitting any of them.
+    *   **CRITICAL COMPLIANCE RULE:** Before generating the plan, you MUST consult the **Assistant Memory (Key Facts)** and **Assistant Configuration Rules** at the top of this instruction. The plan MUST strictly adhere to these constraints (e.g., non-negotiable commitments, reporting requirements, time-off requests, or specific operational rules).
     *   **🚨 CRITICAL REQUIREMENT - READ THIS CAREFULLY:** The \`isPlanDraft\` field is **ABSOLUTELY MANDATORY**. You MUST set it to the boolean value \`true\` (NOT the string "true", but the actual boolean \`true\`). Without this field set correctly, the UI will not show the "Looks Good, Finalize" and "I'll Make Changes" buttons, and the user will be unable to confirm their schedule. THIS FIELD IS **NON-NEGOTIABLE** AND **CANNOT BE OMITTED UNDER ANY CIRCUMSTANCES**.
     *   **CONTENT:**
         1.  \`text\` (string): A conversational summary of the plan. CRITICAL: You MUST embed the full, formatted draft schedule and priorities list directly within this \`text\` property using markdown for readability (e.g., using bold headings like **Today's Schedule:** and **Top Priorities:** followed by bulleted or numbered lists). You must also ask for the user's confirmation. This text is what the user sees in the chat, so it must contain the full plan for their review.
@@ -1031,11 +1065,18 @@ Do NOT pull in extra items from other cards (like Ongoing Projects) unless the u
 *   **CONSTRAINT:** Do NOT just list mode activations. Explain what happened, how it was handled, and what solutions were implemented based on the chat message context provided.
 
 ---
+**TEAM MANAGEMENT (FROM ACCOUNT SETTINGS) - QUICK REFERENCE**
+If the user asks about team members, delegation, who can be assigned, or "who is on my team", use the following list. Do not claim you don't have access to the team roster if it is listed here.
+
+**Team Members (${userProfile.team.length} total):**
+${userProfile.team.length > 0 ? userProfile.team.map((m, idx) => `${idx + 1}. ${m.name} - ${m.role} (${m.email})`).join('\n') : 'No team members have been added yet.'}
+
 **RESPONSE RULES:**
 1.  **Free-Style Understanding (NLU):** Interpret natural, conversational language and implied intent. Handle typos, shorthand, and incomplete phrasing without failing. Avoid asking clarification questions unless essential information is missing to safely complete the request.
 2.  **Analyze User Intent:** Understand the user's request in the context of their profile and current dashboard state. If the request is outside your scope, gracefully decline and suggest alternatives.
 3.  **Scope Awareness:** Before responding, check if the request is within your capabilities. If not, politely explain what you CAN do instead. Always look for ways to help using your available features (reminders, tasks, schedules, etc.).
-4.  **JSON-ONLY Output:** Your entire response MUST be a single, valid JSON object, optionally wrapped in a \`\`\`json ... \`\`\` code block. Do not include any text, notes, or code blocks outside of this single JSON structure. All actions and conversational text must be properties within this object.
+4.  **JSON-ONLY Output:** Your entire response MUST be a single, valid JSON object, optionally wrapped in a \`\`\`json ... \`\`\` code block. Do not include any text, notes, or code blocks outside of this single JSON structure. All actions and conversational text must be properties within this object. 
+    *   **REASONING MODELS (DeepSeek-R1, Qwen-Reasoning):** If you are a reasoning model, you MAY use your internal \`<think>...</think>\` tags BEFORE the JSON object, but the final part of your response MUST be the valid JSON object described above. The application will automatically strip the thinking tags.
 5.  **Conversational Text:** ALWAYS provide a friendly and professional conversational response in the 'text' property. This is what the user sees in the chat. Even when declining a request, be helpful and suggest alternatives.
 5.  **MARKDOWN & TEXT FORMATTING (STRICT ENFORCEMENT):**
     *   **Conversational Text (inside the "text": "..." property):** ALWAYS use markdown for emphasis. This includes bold (\`**bold**\`), italics (\`*italic*\`), and lists (\`* item\`).
@@ -1060,13 +1101,16 @@ Today is ${formattedDate}.
 
 TASK: You are a professional assistant. Convert the provided briefing draft into a spoken-word script.
 TONE: Professional, encouraging, and authoritative tone suitable for a 5-star resort Steward Supervisor.
-TRANSFORMATION: Translate structured notes into natural spoken talking points with transitions between sections. Do NOT copy-paste the draft verbatim.
-ACCURACY: Preserve all critical data points (names, times, specific tasks, locations) exactly.
+TRANSFORMATION: Translate structured notes into natural spoken talking points with transitions between sections.
+ACCURACY: Preserve all critical data points (names, times, due dates, specific tasks, locations) exactly. Never change or guess a due date/time.
+NO INVENTION (MANDATORY): Do not add new tasks, reminders, pointers, or log items that are not present in the provided draft.
 FULL COVERAGE (MANDATORY):
 - You must convert every numbered section in the provided draft (e.g., sections 1 through 4). Do not summarize or omit sections.
 - Ensure the script includes ALL of the following if present in the draft: the "Dry Storage Area" task, the "Digital Shift Handover Pilot" / G.R.E.T.E.L. tablet announcement (Enye), and the "Safety Reminder" about the Non-Pork Grease Trap cover.
 - If you start a section, you must finish it. Do not cut off mid-sentence. If space is tight, shorten wording but keep every section and every critical instruction.
-- If the draft includes "DELEGATED TASKS:" and/or "REMINDERS:", weave them into the spoken script near the end as clear callouts and assignments.
+- If the draft includes "COACHING NOTES:", "OTHER UPDATES / NOTES:", "DELEGATED TASKS:", "REMINDERS:", "BRIEFING POINTERS:", and/or "LOG INFORMATION:", you must include every bullet from those sections in the script.
+- For those sections, keep each bullet's substance intact and do not replace it with generic advice. You may lightly rephrase only if it does not remove or alter meaning, and names/times/dates must remain exact.
+- Do not use ellipses ("..." or "…") to shorten required instructions. Include the full required details, especially safety thresholds (e.g., 82°C) and escalation steps (call Engineering).
 
 OUTPUT REQUIREMENT (STRICT):
 Output the script as plain text. Do not use markdown, do not use JSON formatting, and do not wrap the response in code blocks (triple backticks).
@@ -1114,10 +1158,16 @@ export const sendMessageToGemini = async (
   if (!isBriefingFinalize && options?.okrSnapshot) {
     systemInstruction += `\n\nOKR SNAPSHOT (for coaching + reminders):\n${options.okrSnapshot}`;
   }
+  const maxSystemInstructionChars = isBriefingFinalize ? 10000 : 14000;
+  systemInstruction = clampSystemInstruction(
+    systemInstruction,
+    maxSystemInstructionChars,
+    isBriefingFinalize ? [] : ['DAILY KICK-OFF / PLANNING WORKFLOW', 'JSON-ONLY Output', 'Assistant Memory (Key Facts)', 'TEAM MANAGEMENT (FROM ACCOUNT SETTINGS)']
+  );
 
   try {
-    const maxHistoryChars = isBriefingFinalize ? 12000 : 100000;
-    const maxMessageChars = isBriefingFinalize ? 12000 : 50000;
+    const maxHistoryChars = isBriefingFinalize ? 12000 : 8000;
+    const maxMessageChars = isBriefingFinalize ? 12000 : 2200;
     const trimmedHistory = history.slice(isBriefingFinalize ? -1 : -6);
     let totalChars = 0;
     const historyMessages = trimmedHistory
@@ -1131,14 +1181,40 @@ export const sendMessageToGemini = async (
         };
       })
       .filter(message => message.content.trim().length > 0);
-    while (historyMessages.length > 0 && totalChars > maxHistoryChars) {
-      const removed = historyMessages.shift();
+
+    // FIX: Ensure roles alternate and start with 'user' for strict models like Ministral
+    const alternatingMessages: { role: string, content: string }[] = [];
+    for (const msg of historyMessages) {
+      if (alternatingMessages.length === 0) {
+        // First message must be 'user' for many strict models
+        if (msg.role === 'user') {
+          alternatingMessages.push(msg);
+        }
+        continue;
+      }
+
+      const lastMsg = alternatingMessages[alternatingMessages.length - 1];
+      if (lastMsg.role === msg.role) {
+        // Merge consecutive messages with the same role
+        lastMsg.content += `\n\n${msg.content}`;
+      } else {
+        alternatingMessages.push(msg);
+      }
+    }
+
+    while (alternatingMessages.length > 0 && totalChars > maxHistoryChars) {
+      const removed = alternatingMessages.shift();
       totalChars -= removed?.content?.length ?? 0;
+      // After shifting, ensure the new first message is still 'user'
+      while (alternatingMessages.length > 0 && alternatingMessages[0].role !== 'user') {
+        const skipped = alternatingMessages.shift();
+        totalChars -= skipped?.content?.length ?? 0;
+      }
     }
 
     const messages = [
       { role: 'system', content: systemInstruction },
-      ...historyMessages
+      ...alternatingMessages
     ];
 
     // Use request queue to handle rate limiting and retries

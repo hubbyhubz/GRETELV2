@@ -208,6 +208,24 @@ const InterviewModal: React.FC<InterviewModalProps> = ({
       onChangeEndOfDayDraft({ ...endOfDayDraft, morale: suggestedMorale });
     }, [suggestedMorale, endOfDayDraft, onChangeEndOfDayDraft]);
 
+    const renderQuestionLabel = React.useCallback((q: string) => {
+        const text = String(q || '').trim();
+        if (!text) return null;
+        const openIdx = text.lastIndexOf(' (');
+        if (openIdx <= 0 || !text.endsWith(')')) return text;
+        const base = text.slice(0, openIdx).trim();
+        const note = text.slice(openIdx + 2, -1).trim();
+        if (!base || !note) return text;
+        const isSystemNote = /^(System\s+(Note|Alert):|Upcoming:)/i.test(note);
+        if (!isSystemNote) return text;
+        return (
+            <>
+                {base}{' '}
+                <span className="text-crimson-600 font-semibold">({note})</span>
+            </>
+        );
+    }, []);
+
     const resizeTextarea = React.useCallback((el: HTMLTextAreaElement | null) => {
         if (!el) return;
         const maxHeight = Math.floor(window.innerHeight * 0.45);
@@ -610,7 +628,7 @@ const InterviewModal: React.FC<InterviewModalProps> = ({
                             )}
                             {questions.map((q, idx) => (
                                 <div key={idx}>
-                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">{q}</label>
+                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">{renderQuestionLabel(q)}</label>
                                     <textarea
                                         ref={(el) => { questionTextareaRefs.current[idx] = el; }}
                                         value={answers[idx] || ''}
@@ -974,6 +992,7 @@ const DashboardContent: React.FC<{
          handleFileChange, attachedFile, setAttachedFile, isRecording, handleToggleRecording, handleStopGeneration,
         currentTime,
         displayedScheduleItems, top3Items, reminders, projects, delegatedTasks, keepNotes, dailyProgress, briefingInputs,
+        briefingState, briefingConsolidation,
         isSidebarCollapsed, setIsSidebarCollapsed,
         setIsCommandPaletteOpen, setIsPatchNotesVisible, setIsFeedbackVisible, setInitialSettingsTab,
         // ... other state values
@@ -1009,9 +1028,9 @@ const DashboardContent: React.FC<{
         currentMode, handleActivateMode, handleDeactivateMode, currentMood,
         pendingScheduleClarification, cancelPendingScheduleClarification,
         pendingSchedule, finalizeSchedule, isSyncing,
-        isScheduleEditorOpen, setIsScheduleEditorOpen, draftedSchedule, setDraftedSchedule, scheduleItems, setScheduleItems,
+        isScheduleEditorOpen, setIsScheduleEditorOpen, scheduleEditorBlockedTimeSlots, scheduleEditorWorkSpan, eventOpsItems, draftedSchedule, setDraftedSchedule, scheduleItems, setScheduleItems,
         handleProactiveAIMessage, setIsScheduleConfirmed, draftedPriorities, setDraftedPriorities, setTop3Items,
-        isInterviewModalOpen, interviewModalMode, interviewDrafts, smartEodQuestions, isSmartEodLoading, setSmartEodAnswer, endOfDayDraft, setEndOfDayDraft, submitEndOfDayReview, endOfDaySummary, endOfDayCompletedDate, endOfDayIntro, carryOverTasks, carryOverDecision, openInterviewModal, closeInterviewModal, setInterviewAnswer, setInterviewOtherNotes, handleGenerateInterview,
+        isInterviewModalOpen, interviewModalMode, interviewDrafts, smartEodQuestions, isSmartEodLoading, setSmartEodAnswer, endOfDayDraft, setEndOfDayDraft, submitEndOfDayReview, endOfDaySummary, endOfDayCompletedDate, endOfDayIntro, carryOverTasks, carryOverDecision, openInterviewModal, closeInterviewModal, setInterviewAnswer, setInterviewOtherNotes, handleGenerateInterview, getQuestionLabel,
     } = useDashboardContext();
 
     const openAdminConsole = React.useCallback(() => {
@@ -2818,7 +2837,7 @@ const DashboardContent: React.FC<{
                                             }
                                             handleFinalizeBriefing(notesToFinalize);
                                         }}
-                                        disabled={isSending || !(isEditingBriefingNotes ? briefingNotesDraft.trim() : keepNotes.trim())}
+                                        disabled={isSending || briefingConsolidation.status !== 'ready' || !(isEditingBriefingNotes ? briefingNotesDraft.trim() : keepNotes.trim())}
                                         className="text-xs font-semibold text-white bg-primary-600 hover:bg-primary-700 px-2.5 py-1 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                                         title="Finalize Briefing Notes"
                                     >
@@ -2833,6 +2852,15 @@ const DashboardContent: React.FC<{
                               <button onClick={() => setIsBriefingPointersVisible(true)} className="mt-3 w-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-semibold py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
                                   View Pointers ({briefingInputs.length})
                               </button>
+                            ) : null}
+                            {briefingConsolidation.status !== 'ready' ? (
+                              <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                                {briefingConsolidation.status === 'running'
+                                  ? 'Consolidating post-interview briefing data…'
+                                  : briefingConsolidation.error
+                                    ? briefingConsolidation.error
+                                    : 'Finalize is disabled until briefing data is consolidated.'}
+                              </div>
                             ) : null}
                             <textarea
                                 className="mt-3 w-full p-2 text-sm bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-300 resize-none"
@@ -2962,16 +2990,16 @@ const DashboardContent: React.FC<{
                 ? kickoffQuestions
                 : interviewModalMode === 'morning-briefing'
                   ? [
-                      'What is the single most important operational focus for this morning?',
-                      'Any staffing or coverage changes the team must know?',
-                      'Any incidents, risks, or guest-impacting issues to highlight?',
-                      'What coaching point or standard do you want emphasized today?',
+                      getQuestionLabel('What is the single most important operational focus for this morning?', 'operational_focus'),
+                      getQuestionLabel('Any staffing or coverage changes the team must know?', 'staffing_coverage'),
+                      getQuestionLabel('Any incidents, risks, or guest-impacting issues to highlight?', 'incidents_risks'),
+                      getQuestionLabel('What coaching point or standard do you want emphasized today?', 'coaching_point'),
                     ]
                   : [
-                      'What progress was made against today’s plan?',
-                      'Any incidents, constraints, or blockers the next shift must know?',
-                      'What handoff items must be completed before end of shift?',
-                      'What should be prioritized first tomorrow morning?',
+                      getQuestionLabel('What progress was made against today’s plan?', 'handoff_progress'),
+                      getQuestionLabel('Any incidents, constraints, or blockers the next shift must know?', 'handoff_blockers'),
+                      getQuestionLabel('What handoff items must be completed before end of shift?', 'handoff_items'),
+                      getQuestionLabel('What should be prioritized first tomorrow morning?', 'tomorrow_priority'),
                     ]
             }
             answers={
@@ -3047,7 +3075,16 @@ const DashboardContent: React.FC<{
               console.log('[MainDashboard] Closing modal');
               setIsScheduleEditorOpen(false);
             }}
-            schedule={(draftedSchedule && draftedSchedule.length > 0) ? draftedSchedule : (scheduleItems || [])}
+            schedule={((draftedSchedule && draftedSchedule.length > 0) ? draftedSchedule : (scheduleItems || []))
+              .filter((it) => {
+                const title = String(it?.title ?? '').replace(/^[\u200B-\u200D\uFEFF]+/, '').trim();
+                if (!title) return false;
+                const normalizedLead = title.replace(/^["'`]+/, '').replace(/^\\+/, '');
+                return !(normalizedLead.startsWith('{') || normalizedLead.startsWith('['));
+              })}
+            blockedTimeSlots={scheduleEditorBlockedTimeSlots}
+            workSpan={scheduleEditorWorkSpan}
+            eventOpsItems={eventOpsItems}
             onDraftChange={(updatedSchedule) => {
               setDraftedSchedule(updatedSchedule);
             }}
